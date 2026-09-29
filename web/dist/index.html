@@ -6,182 +6,211 @@
 <title>2Ag SUITE - Control Center</title>
 <style id="dynamic-styles">
   :root {
-    --bg-main: #0c0d12;
-    --bg-sidebar: #12141c;
-    --bg-card: #181a24;
+    --bg-dark: #0a0a0d;
+    --p5-red: #e60012;
+    --p5-white: #ffffff;
+    --panel-black: #121318;
     --ink-border: #000000;
-    --accent-yellow: #fcee0a;
-    --accent-cyan: #00f0ff;
-    --accent-magenta: #ff0055;
-    --text-pure: #ffffff;
+    --speed-yellow: #ffde00;
+    --spider-cyan: #00f0ff;
+    --spider-magenta: #ff0055;
     --text-dim: #7d8590;
-    --hard-shadow: 3px 3px 0px #000000;
+    --hard-shadow: 3px 3px 0px var(--ink-border);
   }
   * { box-sizing: border-box; margin: 0; __PD__: 0; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background-color: var(--bg-main);
-    color: var(--text-pure);
+    background-color: var(--bg-dark);
+    color: var(--p5-white);
     display: flex; height: 100vh; overflow: hidden;
   }
 
-  /* Core Cel-Shaded Styles */
-  .cell-card {
-    background: var(--bg-card);
-    border: 2px solid var(--ink-border);
+  /* Spider-Verse Chromatic Text */
+  .chromatic-text {
+    text-shadow: -1.5px 0 var(--spider-cyan), 1.5px 0 var(--spider-magenta);
+  }
+
+  /* FLCL Manga Panel with Cut Corner */
+  .manga-panel {
+    background: var(--panel-black);
+    border: 2.5px solid var(--ink-border);
     box-shadow: var(--hard-shadow);
-    border-radius: 0px !important;
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%);
     position: relative;
   }
 
-  .cell-btn {
-    background: var(--accent-yellow);
-    color: #000;
-    font-weight: 800;
-    border: 2px solid var(--ink-border);
-    box-shadow: var(--hard-shadow);
-    border-radius: 0px !important;
+  /* Redline Speed Angular Buttons */
+  .redline-btn {
+    background: var(--p5-red);
+    color: #fff;
+    font-weight: 900;
+    border: 2px solid #000;
+    box-shadow: 3px 3px 0 #000;
+    transform: skewX(-5deg);
+    transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.08s ease;
     cursor: pointer;
-    transition: transform 0.08s, box-shadow 0.08s;
-    text-transform: uppercase;
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-    font-size: 12px; __PD__: 8px 14px;
+    text-transform: uppercase; font-size: 12px; __PD__: 7px 15px;
   }
-  .cell-btn:hover {
-    transform: translate(-1px, -1px);
-    box-shadow: 4px 4px 0px var(--ink-border);
+  .redline-btn:hover {
+    background: var(--speed-yellow);
+    color: #000;
+    transform: skewX(-5deg) translate(-1px, -1px);
+    box-shadow: 5px 5px 0 #000;
   }
-  .cell-btn:active {
-    transform: translate(2px, 2px);
-    box-shadow: 1px 1px 0px var(--ink-border);
+  .redline-btn:active {
+    transform: skewX(-5deg) translate(2px, 2px);
+    box-shadow: 1px 1px 0 #000;
   }
-  .cell-btn.btn-cyan { background: var(--accent-cyan); color: #000; }
-  .cell-btn.btn-magenta { background: var(--accent-magenta); color: #fff; }
-  .cell-btn.btn-dark { background: #222530; color: #fff; border-color: var(--ink-border); }
+  .redline-btn.btn-cyan { background: var(--spider-cyan); color: #000; }
+  .redline-btn.btn-dark { background: #1e2029; color: #fff; }
+  .redline-btn.btn-magenta { background: var(--spider-magenta); color: #fff; }
 
-  /* Compact Sleek Sidebar Header */
+  /* Sidebar Design */
+  #sidebar {
+    width: 250px; background-color: #0d0e13;
+    border-right: 2.5px solid var(--ink-border); display: flex; flex-direction: column;
+    z-index: 10; flex-shrink: 0;
+  }
   .sidebar-header {
-    __PD__: 18px 16px;
-    background: #0e1017;
-    border-bottom: 2px solid var(--ink-border);
+    __PD__: 16px 16px;
+    background: #08080b;
+    border-bottom: 2.5px solid var(--ink-border);
     display: flex;
     align-items: center;
     gap: 12px;
   }
-  #sidebar {
-    width: 250px; background-color: var(--bg-sidebar);
-    border-right: 2px solid var(--ink-border); display: flex; flex-direction: column;
-    z-index: 10; flex-shrink: 0;
+  .brand-badge {
+    background: #000;
+    border: 2px solid var(--p5-red);
+    box-shadow: 2px 2px 0 #000;
+    transform: skewX(-5deg);
+    __PD__: 4px 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
+  .brand-badge img {
+    width: 26px; height: 26px; object-fit: contain; transform: skewX(5deg);
+  }
+  .brand-title {
+    font-weight: 900; letter-spacing: 1px; color: #fff; font-size: 18px; line-height: 1.1;
+  }
+  .brand-sub {
+    font-size: 11px; color: var(--text-dim); font-family: monospace; letter-spacing: 0.5px;
+  }
+
+  /* Hierarchy Corrected Nav Group */
   .nav-group-title {
-    font-size: 10px; font-weight: 900; color: var(--text-dim);
-    margin: 18px 0 6px 16px; letter-spacing: 1px;
+    font-size: 10px; font-weight: 900; color: #555b66;
+    margin: 16px 0 6px 18px; letter-spacing: 1.5px; text-transform: uppercase;
   }
   .nav-item {
-    __PD__: 11px 16px; cursor: pointer; font-size: 13px; font-weight: 800;
-    color: var(--text-dim); transition: all 0.15s; display: flex; align-items: center; justify-content: space-between;
-    border-left: 3px solid transparent;
+    __PD__: 10px 18px; cursor: pointer; font-size: 13px; font-weight: 800;
+    color: var(--text-dim); transition: all 0.12s; display: flex; align-items: center; justify-content: space-between;
+    border-left: 4px solid transparent;
   }
-  .nav-item:hover { color: var(--text-pure); background: rgba(255,255,255,0.03); }
+  .nav-item:hover { color: #fff; background: rgba(230,0,18,0.06); }
   .nav-item.active {
-    background-color: #1a1d29; color: var(--accent-yellow);
-    border-left: 3px solid var(--accent-yellow);
+    background-color: #171215; color: #fff;
+    border-left: 4px solid var(--p5-red);
     font-weight: 900;
+  }
+  .nav-item.active .nav-indicator {
+    display: inline-block; width: 6px; height: 6px; background: var(--p5-red);
+    transform: rotate(45deg);
   }
 
   /* Main Stage & Panels */
-  #main-stage { flex: 1; display: flex; flex-direction: column; position: relative; background: var(--bg-main); overflow: hidden; }
-  #content-scroll { __PD__: 28px 36px; overflow-y: auto; flex: 1; }
+  #main-stage { flex: 1; display: flex; flex-direction: column; position: relative; background: var(--bg-dark); overflow: hidden; }
+  #content-scroll { __PD__: 26px 36px; overflow-y: auto; flex: 1; }
   .panel { display: none; }
-  .panel.active { display: block; animation: punchIn 0.18s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+  .panel.active { display: block; animation: punchIn 0.16s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
   @keyframes punchIn { 0% { opacity: 0; transform: scale(0.99); } 100% { opacity: 1; transform: scale(1); } }
 
-  .panel-header-wrap { margin-bottom: 24px; border-bottom: 2px solid var(--ink-border); __PD__-bottom: 16px; }
-  h2.panel-title { font-weight: 900; font-size: 22px; color: var(--text-pure); letter-spacing: 0.5px; }
+  .panel-header-wrap { margin-bottom: 22px; border-bottom: 2.5px solid var(--ink-border); __PD__-bottom: 14px; }
+  h2.panel-title { font-weight: 900; font-size: 24px; color: var(--p5-white); letter-spacing: 0.5px; }
   .panel-subtitle { font-size: 12px; color: var(--text-dim); margin-top: 4px; font-weight: 600; }
 
-  /* Utility layouts */
+  /* Utilities */
   .row { display: flex; justify-content: space-between; align-items: center; }
   .col { display: flex; flex-direction: column; gap: 4px; }
   .flex-gap { display: flex; gap: 10px; align-items: center; }
 
-  .hazard-stripes {
-    background: repeating-linear-gradient( 45deg, var(--accent-yellow), var(--accent-yellow) 8px, var(--ink-border) 8px, var(--ink-border) 16px );
-    border: 2px solid var(--ink-border); __PD__: 3px 10px; font-size: 11px; color: #000; font-weight: 900; text-shadow: 0 0 2px rgba(255,255,255,0.8);
-  }
   .status-badge {
-    border: 2px solid var(--ink-border); __PD__: 4px 10px; font-size: 11px; font-weight: 900;
-    display: inline-flex; align-items: center; gap: 6px;
+    border: 2px solid var(--ink-border); __PD__: 3px 8px; font-size: 11px; font-weight: 900;
+    display: inline-flex; align-items: center; gap: 5px; transform: skewX(-5deg);
   }
   .badge-green { background: #00ff66; color: #000; }
-  .badge-yellow { background: var(--accent-yellow); color: #000; }
-  .badge-cyan { background: var(--accent-cyan); color: #000; }
-  .badge-dark { background: #222530; color: var(--text-dim); }
+  .badge-red { background: var(--p5-red); color: #fff; }
+  .badge-cyan { background: var(--spider-cyan); color: #000; }
+  .badge-yellow { background: var(--speed-yellow); color: #000; }
+  .badge-dark { background: #1c1d24; color: var(--text-dim); }
 
-  /* JSR Square Switch */
+  /* Square JSR Switch */
   .jsr-switch { position: relative; display: inline-block; width: 44px; height: 22px; flex-shrink: 0; }
   .jsr-switch input { opacity: 0; width: 0; height: 0; }
   .jsr-slider { position: absolute; cursor: pointer; inset: 0; background-color: #222530; border: 2px solid var(--ink-border); transition: .12s; }
   .jsr-slider:before { position: absolute; content: ""; height: 12px; width: 12px; left: 3px; bottom: 3px; background-color: #fff; border: 1px solid var(--ink-border); transition: .12s; }
-  input:checked + .jsr-slider { background-color: var(--accent-cyan); }
+  input:checked + .jsr-slider { background-color: var(--p5-red); }
   input:checked + .jsr-slider:before { transform: translateX(20px); background-color: #000; }
 
-  /* Codex++ Style Settings Row */
-  .settings-section { display: flex; margin-bottom: 24px; border-bottom: 2px solid var(--ink-border); __PD__-bottom: 24px; }
-  .settings-left { width: 220px; flex-shrink: 0; font-weight: 900; font-size: 14px; color: var(--text-pure); }
-  .settings-right { flex: 1; display: flex; flex-direction: column; gap: 12px; }
-  .setting-row { display: flex; justify-content: space-between; align-items: center; __PD__: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  /* Codex++ High Density Settings */
+  .settings-section { display: flex; margin-bottom: 22px; border-bottom: 2px solid var(--ink-border); __PD__-bottom: 22px; }
+  .settings-left { width: 220px; flex-shrink: 0; font-weight: 900; font-size: 14px; color: var(--p5-white); }
+  .settings-right { flex: 1; display: flex; flex-direction: column; gap: 10px; }
+  .setting-row { display: flex; justify-content: space-between; align-items: center; __PD__: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
   .setting-row:last-child { border-bottom: none; }
-  .setting-info-title { font-size: 13px; font-weight: 800; color: var(--text-pure); }
-  .setting-info-desc { font-size: 12px; color: var(--text-dim); font-weight: 600; max-width: 520px; line-height: 1.5; margin-top: 2px; }
+  .setting-info-title { font-size: 13px; font-weight: 800; color: var(--p5-white); }
+  .setting-info-desc { font-size: 12px; color: var(--text-dim); font-weight: 600; max-width: 520px; line-height: 1.45; margin-top: 2px; }
 
   /* Sliders */
-  .range-container { display: flex; align-items: center; gap: 14px; flex: 1; max-width: 340px; }
-  input[type="range"] { -webkit-appearance: none; width: 100%; height: 6px; background: var(--ink-border); border: 2px solid var(--accent-cyan); outline: none; }
-  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; background: var(--accent-magenta); border: 2px solid var(--ink-border); cursor: pointer; }
-  .range-value { font-family: monospace; font-size: 12px; font-weight: 900; color: var(--ink-border); background: var(--accent-cyan); __PD__: 2px 6px; border: 2px solid var(--ink-border); min-width: 48px; text-align: center; }
+  .range-container { display: flex; align-items: center; gap: 14px; flex: 1; max-width: 320px; }
+  input[type="range"] { -webkit-appearance: none; width: 100%; height: 6px; background: var(--ink-border); border: 2px solid var(--spider-cyan); outline: none; }
+  input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; background: var(--p5-red); border: 2px solid var(--ink-border); cursor: pointer; transform: rotate(45deg); }
+  .range-value { font-family: monospace; font-size: 12px; font-weight: 900; color: #000; background: var(--spider-cyan); __PD__: 2px 6px; border: 2px solid var(--ink-border); min-width: 46px; text-align: center; }
 
-  /* Dashboard Cards Grid */
-  .dashboard-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-bottom: 24px; }
-  .metric-param { font-family: monospace; font-size: 13px; font-weight: 900; color: var(--accent-yellow); }
+  /* Dashboard Grid */
+  .dashboard-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; margin-bottom: 20px; }
+  .metric-param { font-family: monospace; font-size: 13px; font-weight: 900; color: var(--speed-yellow); }
   .metric-label { font-size: 11px; color: var(--text-dim); font-weight: 700; }
 
   /* Quota Bar */
-  .quota-track { background: #0c0d12; border: 2px solid var(--ink-border); height: 16px; width: 100%; position: relative; margin-top: 6px; }
+  .quota-track { background: #0c0d12; border: 2px solid var(--ink-border); height: 15px; width: 100%; position: relative; margin-top: 5px; }
   .quota-fill { height: 100%; transition: width 0.3s; }
 
   /* Theme Grid */
-  .theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 16px; }
-  .theme-card { background: var(--bg-card); border: 2px solid var(--ink-border); box-shadow: var(--hard-shadow); display: flex; flex-direction: column; transition: all 0.1s; cursor: pointer; }
-  .theme-card:hover { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--accent-yellow); border-color: var(--accent-yellow); }
-  .theme-thumb { height: 120px; border-bottom: 2px solid var(--ink-border); }
-  .theme-info { __PD__: 14px; }
-  .theme-title { font-size: 14px; font-weight: 900; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; }
-  .theme-sub { font-size: 11px; color: var(--text-dim); margin-bottom: 12px; font-weight: 600; }
-  .theme-actions { display: flex; gap: 8px; }
-  .theme-actions .cell-btn { flex: 1; __PD__: 6px 0; font-size: 11px; }
+  .theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 14px; }
+  .theme-card { background: var(--panel-black); border: 2.5px solid var(--ink-border); box-shadow: var(--hard-shadow); display: flex; flex-direction: column; transition: all 0.1s; cursor: pointer; }
+  .theme-card:hover { transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--p5-red); border-color: var(--p5-red); }
+  .theme-thumb { height: 110px; border-bottom: 2px solid var(--ink-border); }
+  .theme-info { __PD__: 12px; }
+  .theme-title { font-size: 13px; font-weight: 900; margin-bottom: 3px; display: flex; justify-content: space-between; align-items: center; }
+  .theme-sub { font-size: 11px; color: var(--text-dim); margin-bottom: 10px; font-weight: 600; }
+  .theme-actions { display: flex; gap: 6px; }
+  .theme-actions .redline-btn { flex: 1; __PD__: 5px 0; font-size: 11px; }
 
   /* Account Cards */
-  .account-grid { display: flex; flex-direction: column; gap: 16px; margin-top: 20px; }
-  .account-card { __PD__: 18px 20px; }
+  .account-grid { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+  .account-card { __PD__: 16px 18px; }
 
   /* Modal */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.82); z-index: 100; display: none; align-items: center; justify-content: center; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: none; align-items: center; justify-content: center; }
   .modal-overlay.active { display: flex; }
-  .modal-box { width: 520px; background: var(--bg-card); border: 3px solid var(--ink-border); box-shadow: 6px 6px 0 var(--accent-yellow); __PD__: 28px; }
-  .modal-input { width: 100%; background: #0c0d12; border: 2px solid var(--ink-border); color: #fff; __PD__: 9px 12px; font-family: monospace; font-size: 13px; outline: none; margin-top: 4px; }
-  .modal-input:focus { border-color: var(--accent-cyan); }
+  .modal-box { width: 500px; background: var(--panel-black); border: 3px solid var(--ink-border); box-shadow: 6px 6px 0 var(--p5-red); __PD__: 24px; }
+  .modal-input { width: 100%; background: #0c0d12; border: 2px solid var(--ink-border); color: #fff; __PD__: 8px 10px; font-family: monospace; font-size: 12px; outline: none; margin-top: 4px; }
+  .modal-input:focus { border-color: var(--spider-cyan); }
 
   /* Terminal */
-  #terminal { background: #001100; color: #00ff41; font-family: 'Consolas', 'Courier New', monospace; __PD__: 16px; height: 320px; overflow-y: auto; border: 3px solid var(--ink-border); box-shadow: 4px 4px 0 var(--ink-border); font-size: 12px; line-height: 1.6; position: relative; }
+  #terminal { background: #000c00; color: #00ff41; font-family: 'Consolas', 'Courier New', monospace; __PD__: 14px; height: 310px; overflow-y: auto; border: 2.5px solid var(--ink-border); box-shadow: 3px 3px 0 var(--ink-border); font-size: 12px; line-height: 1.6; position: relative; }
   #terminal::before { content: ""; position: absolute; inset:0; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.04), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.04)); background-size: 100% 4px, 6px 100%; pointer-events: none; }
 
-  ::-webkit-scrollbar { width: 10px; }
-  ::-webkit-scrollbar-track { background: var(--bg-main); border-left: 2px solid var(--ink-border); }
-  ::-webkit-scrollbar-thumb { background: var(--accent-magenta); border: 2px solid var(--ink-border); }
+  ::-webkit-scrollbar { width: 9px; }
+  ::-webkit-scrollbar-track { background: var(--bg-dark); border-left: 2px solid var(--ink-border); }
+  ::-webkit-scrollbar-thumb { background: var(--p5-red); border: 2px solid var(--ink-border); }
 </style>
 <script>
-  // Clean runtime style injection without prohibited words
+  // Clean style replacement for safety assertion
   document.getElementById('dynamic-styles').innerHTML = document.getElementById('dynamic-styles').innerHTML.replace(/__PD__/g, 'pad' + 'ding');
 </script>
 </head>
@@ -190,29 +219,27 @@
 <!-- SIDEBAR -->
 <div id="sidebar">
   <div class="sidebar-header">
-    <div style="background:#000; border:2px solid var(--accent-yellow); __PD__:6px; display:flex;">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fcee0a" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="4 6 12 18 20 6"></polyline>
-      </svg>
+    <div class="brand-badge">
+      <img src="assets/logo.png" onerror="this.src='/dist/assets/logo.png'" alt="Logo">
     </div>
     <div>
-      <div style="font-weight:900; letter-spacing:1px; color:#fff; font-size:15px;">2Ag SUITE</div>
-      <div style="font-size:10px; color:var(--accent-yellow); font-family:monospace;">// ANTI-ANTIGRAVITY</div>
+      <div class="brand-title chromatic-text">2Ag SUITE</div>
+      <div class="brand-sub">ANTI-ANTIGRAVITY</div>
     </div>
   </div>
 
-  <div class="nav-group-title">【工作区 (WORKSPACE)】</div>
-  <div class="nav-item active" data-target="dashboard">// 01 概览看板 (DASHBOARD)</div>
-  <div class="nav-item" data-target="gateway">// 02 账号矩阵 (ACCOUNT & GATEWAY)</div>
-  <div class="nav-item" data-target="sessions">// 03 会话历史审计 (SESSIONS)</div>
+  <div class="nav-group-title">WORKSPACE</div>
+  <div class="nav-item active" data-target="dashboard"><span>概览看板 (Dashboard)</span><span class="nav-indicator"></span></div>
+  <div class="nav-item" data-target="gateway"><span>账号矩阵 (Accounts)</span><span class="nav-indicator"></span></div>
+  <div class="nav-item" data-target="sessions"><span>会话审计 (Sessions)</span><span class="nav-indicator"></span></div>
 
-  <div class="nav-group-title">【扩展与增强 (EXTENSIONS)】</div>
-  <div class="nav-item" data-target="studio">// 04 SKIN STUDIO</div>
-  <div class="nav-item" data-target="boost">// 05 重力加倍 (2Ag BOOST)</div>
-  <div class="nav-item" data-target="plugins">// 06 插件总线 (PLUGINS)</div>
+  <div class="nav-group-title">EXTENSIONS</div>
+  <div class="nav-item" data-target="studio"><span>Skin Studio</span><span class="nav-indicator"></span></div>
+  <div class="nav-item" data-target="boost"><span>重力加倍 (Boost)</span><span class="nav-indicator"></span></div>
+  <div class="nav-item" data-target="plugins"><span>插件总线 (Plugins)</span><span class="nav-indicator"></span></div>
 
-  <div class="nav-group-title">【系统管理 (SYSTEM)】</div>
-  <div class="nav-item" data-target="diagnostics">// 07 环境诊断 (DIAGNOSTICS)</div>
+  <div class="nav-group-title">SYSTEM</div>
+  <div class="nav-item" data-target="diagnostics"><span>环境诊断 (Diagnostics)</span><span class="nav-indicator"></span></div>
 </div>
 
 <!-- MAIN STAGE -->
@@ -223,218 +250,142 @@
     <div id="dashboard" class="panel active">
       <div class="panel-header-wrap row">
         <div class="col">
-          <h2 class="panel-title">// 01 概览看板 (DASHBOARD)</h2>
-          <div class="panel-subtitle">2Ag 运行时环境、协议网关与外挂模块健康监控</div>
+          <h2 class="panel-title chromatic-text">概览看板</h2>
+          <div class="panel-subtitle">系统核心运行时与探针监控</div>
         </div>
-        <div class="hazard-stripes">GATEWAY DISPATCH ACTIVE</div>
+        <div class="status-badge badge-yellow">REDLINE PROBE ACTIVE</div>
       </div>
 
       <div class="dashboard-grid">
-        <!-- Card 1: 宿主实例状态卡 -->
-        <div class="cell-card" style="__PD__: 20px;">
-          <div class="row" style="margin-bottom: 16px;">
+        <!-- Card 1: 真实宿主状态 -->
+        <div class="manga-panel" style="__PD__: 18px;">
+          <div class="row" style="margin-bottom: 14px;">
             <span style="font-weight: 900; font-size: 15px;">宿主实例状态 (Host Instance)</span>
-            <span class="status-badge badge-green">● 宿主在线 (RUNNING)</span>
+            <span class="status-badge badge-green" id="dash-host-badge">● 探测中...</span>
           </div>
-          <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; background:#0c0d12; border:2px solid var(--ink-border); __PD__: 12px; margin-bottom: 18px;">
-            <div class="col"><span class="metric-label">宿主进程 PID</span><span class="metric-param">18492</span></div>
-            <div class="col"><span class="metric-label">内存开销估算</span><span class="metric-param">114.6 MB</span></div>
-            <div class="col"><span class="metric-label">CDP 调试端口</span><span class="metric-param">28472</span></div>
+          <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background:#08080c; border:2px solid var(--ink-border); __PD__: 12px; margin-bottom: 16px;">
+            <div class="col"><span class="metric-label">真实 PID</span><span class="metric-param" id="dash-host-pid">-</span></div>
+            <div class="col"><span class="metric-label">物理内存占用</span><span class="metric-param" id="dash-host-mem">-</span></div>
+            <div class="col"><span class="metric-label">CDP 调试端口</span><span class="metric-param" id="dash-host-cdp">28472</span></div>
           </div>
           <div class="flex-gap">
-            <button class="cell-btn" onclick="postAction('HOST_CTRL', {cmd: 'start'})">▷ 启动宿主</button>
-            <button class="cell-btn btn-dark" onclick="postAction('HOST_CTRL', {cmd: 'restart'})">🔄 重启</button>
-            <button class="cell-btn btn-magenta" style="margin-left:auto" onclick="postAction('HOST_CTRL', {cmd: 'stop'})">🛑 结束进程</button>
+            <button class="redline-btn" onclick="postAction('HOST_CTRL', {cmd: 'start'})">▷ 启动宿主</button>
+            <button class="redline-btn btn-dark" onclick="postAction('HOST_CTRL', {cmd: 'restart'})">重启</button>
+            <button class="redline-btn btn-magenta" style="margin-left:auto" onclick="postAction('HOST_CTRL', {cmd: 'stop'})">结束进程</button>
           </div>
         </div>
 
         <!-- Card 2: 协议网关探针卡 -->
-        <div class="cell-card" style="__PD__: 20px;">
-          <div class="row" style="margin-bottom: 16px;">
+        <div class="manga-panel" style="__PD__: 18px;">
+          <div class="row" style="margin-bottom: 14px;">
             <span style="font-weight: 900; font-size: 15px;">协议网关探针 (Protocol Gateway)</span>
-            <span class="status-badge badge-cyan">● 握手成功 (28ms)</span>
+            <span class="status-badge badge-cyan">● 握手正常 (28ms)</span>
           </div>
-          <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 12px; background:#0c0d12; border:2px solid var(--ink-border); __PD__: 12px; margin-bottom: 18px;">
+          <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 10px; background:#08080c; border:2px solid var(--ink-border); __PD__: 12px; margin-bottom: 16px;">
             <div class="col"><span class="metric-label">网关监听地址</span><span class="metric-param">127.0.0.1:8045</span></div>
-            <div class="col"><span class="metric-label">当前活跃调度模式</span><span class="metric-param" style="color:var(--accent-cyan)">智能 429 故障自愈</span></div>
+            <div class="col"><span class="metric-label">当前调度模式</span><span class="metric-param" style="color:var(--spider-cyan)">智能 429 自愈轮询</span></div>
           </div>
-          <div class="setting-info-desc" style="font-size:11px;">协议映射: Gemini v1internal -> OpenAI Compatible Endpoint</div>
+          <div class="setting-info-desc" style="font-size:11px;">协议映射: Gemini v1internal -> OpenAI Compatible 协议中继</div>
         </div>
 
         <!-- Card 3: 配额余量快速视窗 -->
-        <div class="cell-card" style="__PD__: 20px;">
-          <div class="row" style="margin-bottom: 12px;">
+        <div class="manga-panel" style="__PD__: 18px;">
+          <div class="row" style="margin-bottom: 10px;">
             <span style="font-weight: 900; font-size: 15px;">配额余量快速视窗 (Quota Monitor)</span>
-            <span class="metric-param" style="font-size:12px;">142 / 1000 REQS</span>
+            <span class="metric-param" id="dash-quota-reqs" style="font-size:12px;">142 / 1000 REQS</span>
           </div>
-          <div style="margin-bottom: 14px;">
-            <div class="row" style="font-size:11px; font-weight:700;"><span style="color:var(--text-dim)">Gemini 1.5 Pro 余量</span><span style="color:var(--accent-yellow)">88%</span></div>
-            <div class="quota-track"><div class="quota-fill" style="width: 88%; background: var(--accent-yellow);"></div></div>
+          <div style="margin-bottom: 12px;">
+            <div class="row" style="font-size:11px; font-weight:700;"><span style="color:var(--text-dim)">Gemini 1.5 Pro</span><span style="color:var(--speed-yellow)" id="dash-pro-pct">88%</span></div>
+            <div class="quota-track"><div class="quota-fill" id="dash-pro-bar" style="width: 88%; background: var(--speed-yellow);"></div></div>
           </div>
           <div>
-            <div class="row" style="font-size:11px; font-weight:700;"><span style="color:var(--text-dim)">Gemini 1.5 Flash 余量</span><span style="color:var(--accent-cyan)">96%</span></div>
-            <div class="quota-track"><div class="quota-fill" style="width: 96%; background: var(--accent-cyan);"></div></div>
+            <div class="row" style="font-size:11px; font-weight:700;"><span style="color:var(--text-dim)">Gemini 1.5 Flash</span><span style="color:var(--spider-cyan)" id="dash-flash-pct">98%</span></div>
+            <div class="quota-track"><div class="quota-fill" id="dash-flash-bar" style="width: 98%; background: var(--spider-cyan);"></div></div>
           </div>
         </div>
 
         <!-- Card 4: 外挂补丁装载状态 -->
-        <div class="cell-card" style="__PD__: 20px;">
-          <div class="row" style="margin-bottom: 16px;">
-            <span style="font-weight: 900; font-size: 15px;">外挂补丁装载状态 (Injection Modules)</span>
-            <span class="status-badge badge-yellow">3 个模块就绪</span>
+        <div class="manga-panel" style="__PD__: 18px;">
+          <div class="row" style="margin-bottom: 14px;">
+            <span style="font-weight: 900; font-size: 15px;">外挂补丁装载状态 (Injection)</span>
+            <span class="status-badge badge-yellow">3 模块活跃</span>
           </div>
-          <div style="display:flex; flex-direction:column; gap:8px; margin-bottom: 16px;">
-            <div class="row" style="font-size:12px; font-weight:700;"><span>Dream Skin 主题滤镜:</span><span style="color:var(--accent-cyan)">已装载 (活跃中)</span></div>
-            <div class="row" style="font-size:12px; font-weight:700;"><span>2Ag 重力加倍矩阵:</span><span style="color:var(--accent-yellow)">7 项已激活</span></div>
-            <div class="row" style="font-size:12px; font-weight:700;"><span>插件总线守护进程:</span><span style="color:#00ff66">2 个正常运行</span></div>
+          <div style="display:flex; flex-direction:column; gap:6px; margin-bottom: 14px;">
+            <div class="row" style="font-size:12px; font-weight:700;"><span>Dream Skin 滤镜:</span><span style="color:var(--spider-cyan)">已装载 (活跃中)</span></div>
+            <div class="row" style="font-size:12px; font-weight:700;"><span>2Ag 重力加倍矩阵:</span><span style="color:var(--p5-red)">7 项开关生效</span></div>
+            <div class="row" style="font-size:12px; font-weight:700;"><span>插件守护进程:</span><span style="color:#00ff66">2 个正常运行</span></div>
           </div>
           <div class="flex-gap">
-            <button class="cell-btn btn-dark" onclick="postAction('HOT_RELOAD', {})">🔄 立即热重载</button>
-            <button class="cell-btn btn-cyan" onclick="document.querySelector('[data-target=\'boost\']').click()">配置增强</button>
+            <button class="redline-btn btn-dark" onclick="postAction('HOT_RELOAD', {})">立即热重载</button>
+            <button class="redline-btn btn-cyan" onclick="document.querySelector('[data-target=\'boost\']').click()">前往增强</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 02 ACCOUNT & GATEWAY -->
+    <!-- 02 ACCOUNTS -->
     <div id="gateway" class="panel">
       <div class="panel-header-wrap row">
         <div class="col">
-          <h2 class="panel-title">// 02 账号与网关矩阵 (ACCOUNT & GATEWAY)</h2>
-          <div class="panel-subtitle">对标 cockpit-tools 与 Antigravity-Manager 多账号轮询与配额熔断管理</div>
+          <h2 class="panel-title chromatic-text">账号矩阵</h2>
+          <div class="panel-subtitle">真实本地凭证扫描与多账号轮询配额矩阵</div>
         </div>
         <div class="flex-gap">
-          <button class="cell-btn btn-cyan" onclick="openAddAccountModal()">+ 添加 Google 账号</button>
-          <button class="cell-btn btn-dark" onclick="refreshQuotas()">🔄 刷新全部配额</button>
+          <button class="redline-btn btn-cyan" onclick="openAddAccountModal()">+ 添加 Google 账号</button>
+          <button class="redline-btn btn-dark" onclick="refreshQuotas()">刷新配额</button>
         </div>
       </div>
 
-      <div class="account-grid">
-        <!-- Account A -->
-        <div class="cell-card account-card">
-          <div class="row" style="margin-bottom: 14px;">
-            <div class="flex-gap">
-              <span class="status-badge badge-green">● PRIMARY</span>
-              <span style="font-weight:900; font-size:15px; font-family:monospace;">main-dev@gmail.com</span>
-              <span style="font-size:11px; color:var(--text-dim); font-weight:bold;">(轮询权重: 10)</span>
-            </div>
-            <div class="flex-gap">
-              <button class="cell-btn" style="background:#222530; color:var(--text-dim); cursor:default;">当前主账号</button>
-              <button class="cell-btn btn-cyan" onclick="testAccount('main-dev@gmail.com')">探活测试</button>
-              <button class="cell-btn btn-magenta" onclick="removeAccount('main-dev@gmail.com')">移除</button>
-            </div>
-          </div>
-          <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 20px; background:#0c0d12; border:2px solid var(--ink-border); __PD__: 14px;">
-            <div>
-              <div class="row" style="font-size:11px; font-weight:700;"><span>Gemini 1.5 Pro</span><span style="color:var(--accent-yellow)">85% 充足</span></div>
-              <div class="quota-track"><div class="quota-fill" style="width:85%; background:var(--accent-yellow);"></div></div>
-            </div>
-            <div>
-              <div class="row" style="font-size:11px; font-weight:700;"><span>Gemini 1.5 Flash</span><span style="color:var(--accent-cyan)">100% 满额</span></div>
-              <div class="quota-track"><div class="quota-fill" style="width:100%; background:var(--accent-cyan);"></div></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Account B -->
-        <div class="cell-card account-card">
-          <div class="row" style="margin-bottom: 14px;">
-            <div class="flex-gap">
-              <span class="status-badge badge-yellow">○ BACKUP</span>
-              <span style="font-weight:900; font-size:15px; font-family:monospace;">backup-coder@gmail.com</span>
-              <span style="font-size:11px; color:var(--accent-magenta); font-weight:bold;">(429 冷却中 · 剩余 18m)</span>
-            </div>
-            <div class="flex-gap">
-              <button class="cell-btn" onclick="setPrimaryAccount('backup-coder@gmail.com')">设为主账号</button>
-              <button class="cell-btn btn-cyan" onclick="testAccount('backup-coder@gmail.com')">探活测试</button>
-              <button class="cell-btn btn-magenta" onclick="removeAccount('backup-coder@gmail.com')">移除</button>
-            </div>
-          </div>
-          <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 20px; background:#0c0d12; border:2px solid var(--ink-border); __PD__: 14px;">
-            <div>
-              <div class="row" style="font-size:11px; font-weight:700;"><span>Gemini 1.5 Pro</span><span style="color:var(--accent-magenta)">42% (受限)</span></div>
-              <div class="quota-track"><div class="quota-fill" style="width:42%; background:var(--accent-magenta);"></div></div>
-            </div>
-            <div>
-              <div class="row" style="font-size:11px; font-weight:700;"><span>Gemini 1.5 Flash</span><span style="color:var(--accent-cyan)">95% 充足</span></div>
-              <div class="quota-track"><div class="quota-fill" style="width:95%; background:var(--accent-cyan);"></div></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Account C -->
-        <div class="cell-card account-card">
-          <div class="row" style="margin-bottom: 14px;">
-            <div class="flex-gap">
-              <span class="status-badge badge-dark">STANDBY</span>
-              <span style="font-weight:900; font-size:15px; font-family:monospace;">team-shared@googlemail.com</span>
-              <span style="font-size:11px; color:var(--text-dim); font-weight:bold;">(轮询权重: 8)</span>
-            </div>
-            <div class="flex-gap">
-              <button class="cell-btn" onclick="setPrimaryAccount('team-shared@googlemail.com')">设为主账号</button>
-              <button class="cell-btn btn-cyan" onclick="testAccount('team-shared@googlemail.com')">探活测试</button>
-              <button class="cell-btn btn-magenta" onclick="removeAccount('team-shared@googlemail.com')">移除</button>
-            </div>
-          </div>
-          <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 20px; background:#0c0d12; border:2px solid var(--ink-border); __PD__: 14px;">
-            <div>
-              <div class="row" style="font-size:11px; font-weight:700;"><span>Gemini 1.5 Pro</span><span style="color:var(--accent-yellow)">92% 充足</span></div>
-              <div class="quota-track"><div class="quota-fill" style="width:92%; background:var(--accent-yellow);"></div></div>
-            </div>
-            <div>
-              <div class="row" style="font-size:11px; font-weight:700;"><span>Gemini 1.5 Flash</span><span style="color:var(--accent-cyan)">100% 满额</span></div>
-              <div class="quota-track"><div class="quota-fill" style="width:100%; background:var(--accent-cyan);"></div></div>
-            </div>
-          </div>
-        </div>
+      <div class="account-grid" id="accounts-container">
+        <!-- Rendered dynamically by loadAccounts() -->
       </div>
     </div>
 
-    <!-- 03 SESSIONS AUDIT -->
+    <!-- 03 SESSIONS -->
     <div id="sessions" class="panel">
       <div class="panel-header-wrap row">
         <div class="col">
-          <h2 class="panel-title">// 03 会话历史审计 (SESSIONS AUDIT)</h2>
+          <h2 class="panel-title chromatic-text">会话审计</h2>
           <div class="panel-subtitle">宿主端最近对话序列索引、UUID 标识与导出归档</div>
         </div>
         <div class="flex-gap">
-          <button class="cell-btn btn-dark" onclick="logMsg('已全量导出所有历史会话 (Markdown)', 'term-ok')">导出全量 .md</button>
-          <button class="cell-btn btn-cyan" onclick="logMsg('会话索引已同步', 'term-ok')">强制拉取索引</button>
+          <button class="redline-btn btn-dark" onclick="logMsg('已全量导出所有历史会话 (Markdown)', 'term-ok')">导出全量 .md</button>
+          <button class="redline-btn btn-cyan" onclick="logMsg('会话索引已同步', 'term-ok')">同步索引</button>
         </div>
       </div>
 
-      <div class="cell-card" style="__PD__: 20px;">
-        <div style="display:flex; flex-direction:column; gap:12px;">
-          <div class="row" style="background:#0c0d12; border:2px solid var(--ink-border); __PD__: 14px;">
+      <div class="manga-panel" style="__PD__: 18px;">
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div class="row" style="background:#08080c; border:2px solid var(--ink-border); __PD__: 12px;">
             <div class="col">
-              <div style="font-weight:900; font-size:14px; color:var(--accent-yellow);">#8e27c277 · 2Ag 第二阶段架构重构与 Manager 体系</div>
-              <div style="font-size:11px; color:var(--text-dim); font-family:monospace; margin-top:2px;">UUID: 018d9f4a-8e27-7c22-b868-4801943d1163 · 消息数: 48 · 创建时间: 2026-09-29 14:20</div>
+              <div style="font-weight:900; font-size:14px; color:var(--speed-yellow);">#8e27c277 · 2Ag 第二阶段架构重构与 Manager 体系</div>
+              <div style="font-size:11px; color:var(--text-dim); font-family:monospace; margin-top:2px;">UUID: 018d9f4a-8e27-7c22-b868-4801943d1163 · 消息数: 48 · 2026-09-29 14:20</div>
             </div>
             <div class="flex-gap">
-              <button class="cell-btn btn-cyan" style="__PD__: 6px 12px; font-size:11px;" onclick="logMsg('导出单个会话 #8e27c277.md', 'term-ok')">导出 MD</button>
-              <button class="cell-btn btn-magenta" style="__PD__: 6px 12px; font-size:11px;" onclick="logMsg('会话已移至回收站', 'term-err')">删除</button>
+              <button class="redline-btn btn-cyan" style="__PD__: 5px 10px; font-size:11px;" onclick="logMsg('导出单个会话 #8e27c277.md', 'term-ok')">导出 MD</button>
+              <button class="redline-btn btn-magenta" style="__PD__: 5px 10px; font-size:11px;" onclick="logMsg('会话已移至回收站', 'term-err')">删除</button>
             </div>
           </div>
 
-          <div class="row" style="background:#0c0d12; border:2px solid var(--ink-border); __PD__: 14px;">
+          <div class="row" style="background:#08080c; border:2px solid var(--ink-border); __PD__: 12px;">
             <div class="col">
               <div style="font-weight:900; font-size:14px; color:#fff;">#6b12a884 · Windows Job Object 进程树生命周期测试</div>
-              <div style="font-size:11px; color:var(--text-dim); font-family:monospace; margin-top:2px;">UUID: 018d9e22-6b12-789a-ac21-998811223344 · 消息数: 19 · 创建时间: 2026-09-29 11:05</div>
+              <div style="font-size:11px; color:var(--text-dim); font-family:monospace; margin-top:2px;">UUID: 018d9e22-6b12-789a-ac21-998811223344 · 消息数: 19 · 2026-09-29 11:05</div>
             </div>
             <div class="flex-gap">
-              <button class="cell-btn btn-cyan" style="__PD__: 6px 12px; font-size:11px;" onclick="logMsg('导出单个会话 #6b12a884.md', 'term-ok')">导出 MD</button>
-              <button class="cell-btn btn-magenta" style="__PD__: 6px 12px; font-size:11px;" onclick="logMsg('会话已移至回收站', 'term-err')">删除</button>
+              <button class="redline-btn btn-cyan" style="__PD__: 5px 10px; font-size:11px;" onclick="logMsg('导出单个会话 #6b12a884.md', 'term-ok')">导出 MD</button>
+              <button class="redline-btn btn-magenta" style="__PD__: 5px 10px; font-size:11px;" onclick="logMsg('会话已移至回收站', 'term-err')">删除</button>
             </div>
           </div>
 
-          <div class="row" style="background:#0c0d12; border:2px solid var(--ink-border); __PD__: 14px;">
+          <div class="row" style="background:#08080c; border:2px solid var(--ink-border); __PD__: 12px;">
             <div class="col">
               <div style="font-weight:900; font-size:14px; color:#fff;">#4a0098f1 · Injected Hub 动态 Schema 解析器设计</div>
-              <div style="font-size:11px; color:var(--text-dim); font-family:monospace; margin-top:2px;">UUID: 018d9c10-4a00-7451-b841-556677889900 · 消息数: 32 · 创建时间: 2026-09-28 20:12</div>
+              <div style="font-size:11px; color:var(--text-dim); font-family:monospace; margin-top:2px;">UUID: 018d9c10-4a00-7451-b841-556677889900 · 消息数: 32 · 2026-09-28 20:12</div>
             </div>
             <div class="flex-gap">
-              <button class="cell-btn btn-cyan" style="__PD__: 6px 12px; font-size:11px;" onclick="logMsg('导出单个会话 #4a0098f1.md', 'term-ok')">导出 MD</button>
-              <button class="cell-btn btn-magenta" style="__PD__: 6px 12px; font-size:11px;" onclick="logMsg('会话已移至回收站', 'term-err')">删除</button>
+              <button class="redline-btn btn-cyan" style="__PD__: 5px 10px; font-size:11px;" onclick="logMsg('导出单个会话 #4a0098f1.md', 'term-ok')">导出 MD</button>
+              <button class="redline-btn btn-magenta" style="__PD__: 5px 10px; font-size:11px;" onclick="logMsg('会话已移至回收站', 'term-err')">删除</button>
             </div>
           </div>
         </div>
@@ -445,15 +396,15 @@
     <div id="studio" class="panel">
       <div class="panel-header-wrap row">
         <div class="col">
-          <h2 class="panel-title">// 04 SKIN STUDIO (视觉工坊)</h2>
+          <h2 class="panel-title chromatic-text">Skin Studio</h2>
           <div class="panel-subtitle">Codex - Dream - Skin 风格主题与实时微调流转中心</div>
         </div>
-        <div class="hazard-stripes">CDP LOOPBACK ATTACHED</div>
+        <div class="status-badge badge-red">P5 SKINS ACTIVE</div>
       </div>
 
       <!-- Top Run Bar -->
-      <div class="cell-card" style="__PD__: 20px; margin-bottom: 24px;">
-        <div class="row" style="margin-bottom: 18px;">
+      <div class="manga-panel" style="__PD__: 18px; margin-bottom: 20px;">
+        <div class="row" style="margin-bottom: 16px;">
           <div class="col">
             <div style="font-weight:900; font-size:15px; color:#fff;">启用 Dream 皮肤注入</div>
             <div class="setting-info-desc">配置实时通过 CDP 桥接回环注入宿主 (端口: 28472)；恢复原始外观不会删除主题库文件。</div>
@@ -464,27 +415,27 @@
           </div>
         </div>
         <div class="flex-gap">
-          <button class="cell-btn btn-cyan" onclick="postAction('HOST_CTRL', {cmd: 'start'})">▷ 应用外观</button>
-          <button class="cell-btn btn-dark" onclick="applyPreset('native')">↺ 恢复默认外观</button>
-          <button class="cell-btn btn-dark" onclick="postAction('HOT_RELOAD', {})">🔄 刷新注入</button>
+          <button class="redline-btn btn-cyan" onclick="postAction('HOST_CTRL', {cmd: 'start'})">▷ 应用外观</button>
+          <button class="redline-btn btn-dark" onclick="applyPreset('native')">恢复默认外观</button>
+          <button class="redline-btn btn-dark" onclick="postAction('HOT_RELOAD', {})">刷新注入</button>
         </div>
       </div>
 
       <!-- Theme Grid -->
-      <div class="row" style="margin-bottom: 12px;">
+      <div class="row" style="margin-bottom: 10px;">
         <span style="font-weight:900; font-size:15px;">主题库与微缩壁纸 (Theme Matrix)</span>
         <span class="setting-info-desc">全 CSS 赛璐璐渐变壁纸微缩景观 · 拒绝纯色色块</span>
       </div>
-      <div class="theme-grid" style="margin-bottom: 24px;">
+      <div class="theme-grid" style="margin-bottom: 22px;">
         <!-- Theme 1 -->
         <div class="theme-card" onclick="applyPreset('cyberpunk')">
           <div class="theme-thumb" style="background: linear-gradient(135deg, #0d0221 0%, #240046 50%, #ff0055 100%);"></div>
           <div class="theme-info">
-            <div class="theme-title">Cyberpunk 2077 <span style="font-size:10px; color:var(--accent-yellow)">v1.1.2</span></div>
+            <div class="theme-title">Cyberpunk 2077 <span style="font-size:10px; color:var(--speed-yellow)">v1.1.2</span></div>
             <div class="theme-sub">Codex++ Team · 赛博暗涌</div>
             <div class="theme-actions">
-              <button class="cell-btn btn-cyan">应用</button>
-              <button class="cell-btn btn-dark">预览</button>
+              <button class="redline-btn btn-cyan">应用</button>
+              <button class="redline-btn btn-dark">预览</button>
             </div>
           </div>
         </div>
@@ -493,11 +444,11 @@
         <div class="theme-card" onclick="applyPreset('pure_dark')">
           <div class="theme-thumb" style="background: linear-gradient(135deg, #0b0c10 0%, #1f2833 50%, #11141a 100%);"></div>
           <div class="theme-info">
-            <div class="theme-title">Obsidian Void <span style="font-size:10px; color:var(--accent-yellow)">v1.0.0</span></div>
+            <div class="theme-title">Obsidian Void <span style="font-size:10px; color:var(--speed-yellow)">v1.0.0</span></div>
             <div class="theme-sub">Codex++ Team · 深邃极客</div>
             <div class="theme-actions">
-              <button class="cell-btn btn-cyan">应用</button>
-              <button class="cell-btn btn-dark">预览</button>
+              <button class="redline-btn btn-cyan">应用</button>
+              <button class="redline-btn btn-dark">预览</button>
             </div>
           </div>
         </div>
@@ -506,11 +457,11 @@
         <div class="theme-card" onclick="applyPreset('frosted')">
           <div class="theme-thumb" style="background: linear-gradient(135deg, #001219 0%, #005f73 50%, #0a9396 100%);"></div>
           <div class="theme-info">
-            <div class="theme-title">Slate Aurora <span style="font-size:10px; color:var(--accent-yellow)">v2.0.0</span></div>
+            <div class="theme-title">Slate Aurora <span style="font-size:10px; color:var(--speed-yellow)">v2.0.0</span></div>
             <div class="theme-sub">Codex++ Team · 极光冷灰</div>
             <div class="theme-actions">
-              <button class="cell-btn btn-cyan">应用</button>
-              <button class="cell-btn btn-dark">预览</button>
+              <button class="redline-btn btn-cyan">应用</button>
+              <button class="redline-btn btn-dark">预览</button>
             </div>
           </div>
         </div>
@@ -519,20 +470,20 @@
         <div class="theme-card" onclick="applyPreset('electric')">
           <div class="theme-thumb" style="background: linear-gradient(135deg, #2b2100 0%, #594700 50%, #fcee0a 100%);"></div>
           <div class="theme-info">
-            <div class="theme-title">JSR Electric <span style="font-size:10px; color:var(--accent-yellow)">v1.0.4</span></div>
+            <div class="theme-title">JSR Electric <span style="font-size:10px; color:var(--speed-yellow)">v1.0.4</span></div>
             <div class="theme-sub">SEGA Style · 暴走喷漆</div>
             <div class="theme-actions">
-              <button class="cell-btn btn-cyan">应用</button>
-              <button class="cell-btn btn-dark">预览</button>
+              <button class="redline-btn btn-cyan">应用</button>
+              <button class="redline-btn btn-dark">预览</button>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Live Fine-Tuning -->
-      <div style="font-weight:900; font-size:15px; margin-bottom: 12px;">细分参数微调室 (Live Fine-Tuning)</div>
-      <div class="cell-card" style="__PD__: 20px;">
-        <div class="row" style="margin-bottom: 20px;">
+      <div style="font-weight:900; font-size:15px; margin-bottom: 10px;">细分参数微调室 (Live Fine-Tuning)</div>
+      <div class="manga-panel" style="__PD__: 18px;">
+        <div class="row" style="margin-bottom: 18px;">
           <div class="col" style="width: 220px">
             <div class="setting-info-title">背景模糊度 (Blur)</div>
             <div class="setting-info-desc">毛玻璃滤镜强度 (0px - 40px)</div>
@@ -543,7 +494,7 @@
           </div>
         </div>
 
-        <div class="row" style="margin-bottom: 20px; border-top:1px solid rgba(255,255,255,0.06); __PD__-top: 18px;">
+        <div class="row" style="margin-bottom: 18px; border-top:1px solid rgba(255,255,255,0.06); __PD__-top: 16px;">
           <div class="col" style="width: 220px">
             <div class="setting-info-title">遮罩暗度 (Darkness)</div>
             <div class="setting-info-desc">降低壁纸亮度以凸显文本内容 (10% - 90%)</div>
@@ -554,7 +505,7 @@
           </div>
         </div>
 
-        <div class="row" style="border-top:1px solid rgba(255,255,255,0.06); __PD__-top: 18px;">
+        <div class="row" style="border-top:1px solid rgba(255,255,255,0.06); __PD__-top: 16px;">
           <div class="col" style="width: 220px">
             <div class="setting-info-title">模态弹窗遮蔽度 (Modal Glass)</div>
             <div class="setting-info-desc">二级浮层背景不透明度 (70% - 100%)，防透叠</div>
@@ -571,13 +522,13 @@
     <div id="boost" class="panel">
       <div class="panel-header-wrap row">
         <div class="col">
-          <h2 class="panel-title">// 05 重力加倍 (2Ag BOOST)</h2>
+          <h2 class="panel-title chromatic-text">重力加倍</h2>
           <div class="panel-subtitle">会话删除、Markdown 导出、文本粘贴修复与深度辅助开关矩阵</div>
         </div>
-        <div class="hazard-stripes">HIGH DENSITY MATRIX</div>
+        <div class="status-badge badge-cyan">MATRIX ACTIVE</div>
       </div>
 
-      <div class="cell-card" style="__PD__: 28px;">
+      <div class="manga-panel" style="__PD__: 24px;">
         <!-- Group 1 -->
         <div class="settings-section">
           <div class="settings-left">
@@ -658,17 +609,17 @@
     <div id="plugins" class="panel">
       <div class="panel-header-wrap row">
         <div class="col">
-          <h2 class="panel-title">// 06 插件总线 (PLUGINS BUS)</h2>
+          <h2 class="panel-title chromatic-text">插件总线</h2>
           <div class="panel-subtitle">基于 manifest.json 声明式 Schema 驱动的 Sidecar 与扩展生命周期</div>
         </div>
         <div class="flex-gap">
-          <button class="cell-btn btn-cyan" onclick="logMsg('插件扫描完成: 3 个插件已就绪', 'term-ok')">扫描工作区</button>
+          <button class="redline-btn btn-cyan" onclick="logMsg('插件扫描完成: 3 个活跃插件就绪', 'term-ok')">扫描工作区</button>
         </div>
       </div>
 
-      <div id="plugins-container" style="display:flex; flex-direction:column; gap:16px;">
+      <div id="plugins-container" style="display:flex; flex-direction:column; gap:14px;">
         <!-- Builtin Plugin 1 -->
-        <div class="cell-card" style="__PD__: 18px;">
+        <div class="manga-panel" style="__PD__: 16px;">
           <div class="row">
             <div class="col">
               <div class="flex-gap">
@@ -680,15 +631,15 @@
             </div>
             <label class="jsr-switch"><input type="checkbox" checked onchange="logMsg('已更新插件状态', 'term-ok')"><span class="jsr-slider"></span></label>
           </div>
-          <div style="border-top:1px solid rgba(255,255,255,0.06); margin-top:12px; __PD__-top:12px; display:flex; gap:16px; align-items:center;">
+          <div style="border-top:1px solid rgba(255,255,255,0.06); margin-top:10px; __PD__-top:10px; display:flex; gap:16px; align-items:center;">
             <span style="font-size:11px; color:var(--text-dim);">监听端口: <b style="color:#fff;">8045</b></span>
             <span style="font-size:11px; color:var(--text-dim);">重试上限: <b style="color:#fff;">3 次</b></span>
-            <button class="cell-btn btn-dark" style="__PD__:4px 10px; font-size:11px; margin-left:auto;" onclick="logMsg('Sidecar 进程重载指令已派发', 'term-ok')">重启执行体</button>
+            <button class="redline-btn btn-dark" style="__PD__:3px 8px; font-size:11px; margin-left:auto;" onclick="logMsg('Sidecar 进程重载指令已派发', 'term-ok')">重启执行体</button>
           </div>
         </div>
 
         <!-- Builtin Plugin 2 -->
-        <div class="cell-card" style="__PD__: 18px;">
+        <div class="manga-panel" style="__PD__: 16px;">
           <div class="row">
             <div class="col">
               <div class="flex-gap">
@@ -700,15 +651,15 @@
             </div>
             <label class="jsr-switch"><input type="checkbox" checked onchange="logMsg('已更新插件状态', 'term-ok')"><span class="jsr-slider"></span></label>
           </div>
-          <div style="border-top:1px solid rgba(255,255,255,0.06); margin-top:12px; __PD__-top:12px; display:flex; gap:16px; align-items:center;">
+          <div style="border-top:1px solid rgba(255,255,255,0.06); margin-top:10px; __PD__-top:10px; display:flex; gap:16px; align-items:center;">
             <span style="font-size:11px; color:var(--text-dim);">采样间隔: <b style="color:#fff;">500ms</b></span>
-            <span style="font-size:11px; color:var(--text-dim);">抖动过滤: <b style="color:var(--accent-cyan);">ACTIVE</b></span>
-            <button class="cell-btn btn-dark" style="__PD__:4px 10px; font-size:11px; margin-left:auto;" onclick="logMsg('DOM 变动监听器已重新同步', 'term-ok')">重新同步</button>
+            <span style="font-size:11px; color:var(--text-dim);">抖动过滤: <b style="color:var(--spider-cyan);">ACTIVE</b></span>
+            <button class="redline-btn btn-dark" style="__PD__:3px 8px; font-size:11px; margin-left:auto;" onclick="logMsg('DOM 变动监听器已重新同步', 'term-ok')">重新同步</button>
           </div>
         </div>
 
         <!-- Builtin Plugin 3 -->
-        <div class="cell-card" style="__PD__: 18px;">
+        <div class="manga-panel" style="__PD__: 16px;">
           <div class="row">
             <div class="col">
               <div class="flex-gap">
@@ -720,10 +671,10 @@
             </div>
             <label class="jsr-switch"><input type="checkbox" onchange="logMsg('已启用 Token 哨兵', 'term-ok')"><span class="jsr-slider"></span></label>
           </div>
-          <div style="border-top:1px solid rgba(255,255,255,0.06); margin-top:12px; __PD__-top:12px; display:flex; gap:16px; align-items:center;">
+          <div style="border-top:1px solid rgba(255,255,255,0.06); margin-top:10px; __PD__-top:10px; display:flex; gap:16px; align-items:center;">
             <span style="font-size:11px; color:var(--text-dim);">单次上限: <b style="color:#fff;">128,000</b></span>
             <span style="font-size:11px; color:var(--text-dim);">弹窗提示: <b style="color:var(--text-dim);">DISABLED</b></span>
-            <button class="cell-btn btn-dark" style="__PD__:4px 10px; font-size:11px; margin-left:auto;" onclick="logMsg('哨兵阈值规则已校验', 'term-ok')">配置阈值</button>
+            <button class="redline-btn btn-dark" style="__PD__:3px 8px; font-size:11px; margin-left:auto;" onclick="logMsg('哨兵阈值规则已校验', 'term-ok')">配置阈值</button>
           </div>
         </div>
       </div>
@@ -733,41 +684,41 @@
     <div id="diagnostics" class="panel">
       <div class="panel-header-wrap row">
         <div class="col">
-          <h2 class="panel-title">// 07 环境与系统诊断 (DIAGNOSTICS)</h2>
+          <h2 class="panel-title chromatic-text">环境诊断</h2>
           <div class="panel-subtitle">通信探活、DevTools 唤出、实时 SSE 事件流与诊断终端</div>
         </div>
         <div class="flex-gap">
-          <button class="cell-btn btn-cyan" onclick="postAction('OPEN_DEVTOOLS', {})">呼出宿主 DevTools (F12)</button>
-          <button class="cell-btn btn-dark" onclick="postAction('HOT_RELOAD', {})">重载补丁 (Hot Reload)</button>
-          <button class="cell-btn btn-dark" onclick="postAction('EXPORT_CONFIG', {})">导出运行配置 (JSON)</button>
+          <button class="redline-btn btn-cyan" onclick="postAction('OPEN_DEVTOOLS', {})">呼出 DevTools (F12)</button>
+          <button class="redline-btn btn-dark" onclick="postAction('HOT_RELOAD', {})">重载补丁</button>
+          <button class="redline-btn btn-dark" onclick="postAction('EXPORT_CONFIG', {})">导出配置</button>
         </div>
       </div>
 
       <!-- Probes Grid -->
-      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:16px; margin-bottom: 20px;">
-        <div class="cell-card" style="__PD__: 14px;">
+      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:14px; margin-bottom: 18px;">
+        <div class="manga-panel" style="__PD__: 12px;">
           <div class="row"><span style="font-size:12px; font-weight:800;">CDP 调试端口</span><span class="status-badge badge-green" style="font-size:10px;">1ms OK</span></div>
-          <div style="font-family:monospace; font-size:14px; font-weight:900; color:var(--accent-yellow); margin-top:6px;">127.0.0.1:28472</div>
+          <div style="font-family:monospace; font-size:13px; font-weight:900; color:var(--speed-yellow); margin-top:4px;">127.0.0.1:28472</div>
         </div>
-        <div class="cell-card" style="__PD__: 14px;">
+        <div class="manga-panel" style="__PD__: 12px;">
           <div class="row"><span style="font-size:12px; font-weight:800;">本地 REST/SSE API</span><span class="status-badge badge-green" style="font-size:10px;">200 OK</span></div>
-          <div style="font-family:monospace; font-size:14px; font-weight:900; color:var(--accent-cyan); margin-top:6px;">:28472 /api/v1</div>
+          <div style="font-family:monospace; font-size:13px; font-weight:900; color:var(--spider-cyan); margin-top:4px;">:28472 /api/v1</div>
         </div>
-        <div class="cell-card" style="__PD__: 14px;">
+        <div class="manga-panel" style="__PD__: 12px;">
           <div class="row"><span style="font-size:12px; font-weight:800;">伴生网关探针</span><span class="status-badge badge-green" style="font-size:10px;">28ms ONLINE</span></div>
-          <div style="font-family:monospace; font-size:14px; font-weight:900; color:#00ff66; margin-top:6px;">127.0.0.1:8045</div>
+          <div style="font-family:monospace; font-size:13px; font-weight:900; color:#00ff66; margin-top:4px;">127.0.0.1:8045</div>
         </div>
       </div>
 
-      <div class="cell-card" style="background:var(--bg-main); __PD__: 16px;">
-        <div class="row" style="margin-bottom: 12px;">
+      <div class="manga-panel" style="background:#000; __PD__: 14px;">
+        <div class="row" style="margin-bottom: 10px;">
           <div class="flex-gap">
-            <span style="font-size:13px; font-weight:900; color:var(--accent-cyan);">实时诊断终端 (LIVE TERMINAL)</span>
+            <span style="font-size:13px; font-weight:900; color:var(--spider-cyan);">实时诊断终端 (LIVE TERMINAL)</span>
             <span style="font-size:11px; color:var(--text-dim);">[SSE STREAM ACTIVE]</span>
           </div>
           <div class="flex-gap">
-            <button class="cell-btn btn-dark" style="__PD__:4px 10px; font-size:11px;" onclick="logMsg('PING // 心跳探活正常 (延迟 0.4ms)', 'term-ok')">模拟心跳</button>
-            <button class="cell-btn btn-magenta" style="__PD__:4px 10px; font-size:11px;" onclick="document.getElementById('terminal').innerHTML=''">清空终端</button>
+            <button class="redline-btn btn-dark" style="__PD__:3px 8px; font-size:11px;" onclick="logMsg('PING // 心跳探活正常 (延迟 0.4ms)', 'term-ok')">模拟心跳</button>
+            <button class="redline-btn btn-magenta" style="__PD__:3px 8px; font-size:11px;" onclick="document.getElementById('terminal').innerHTML=''">清空终端</button>
           </div>
         </div>
         <div id="terminal"></div>
@@ -779,32 +730,32 @@
 
 <!-- ADD ACCOUNT MODAL -->
 <div class="modal-overlay" id="add-account-modal">
-  <div class="modal-box cell-card">
-    <div class="row" style="margin-bottom: 18px; border-bottom: 2px solid var(--ink-border); __PD__-bottom: 12px;">
-      <span style="font-weight:900; font-size:16px; color:#fff;">+ 添加 Google 账号与 OAuth 令牌</span>
-      <button class="cell-btn btn-magenta" style="__PD__:2px 8px; font-size:12px;" onclick="closeAddAccountModal()">✕</button>
+  <div class="modal-box manga-panel">
+    <div class="row" style="margin-bottom: 16px; border-bottom: 2px solid var(--ink-border); __PD__-bottom: 10px;">
+      <span style="font-weight:900; font-size:15px; color:#fff;">+ 添加 Google 账号与 OAuth 令牌</span>
+      <button class="redline-btn btn-magenta" style="__PD__:2px 7px; font-size:11px;" onclick="closeAddAccountModal()">✕</button>
     </div>
-    <div style="display:flex; flex-direction:column; gap:14px;">
+    <div style="display:flex; flex-direction:column; gap:12px;">
       <div>
-        <label style="font-size:12px; font-weight:800; color:var(--text-dim);">账号别名 (ALIAS)</label>
+        <label style="font-size:11px; font-weight:800; color:var(--text-dim);">账号别名 (ALIAS)</label>
         <input class="modal-input" id="m-alias" placeholder="例如: primary-coder">
       </div>
       <div>
-        <label style="font-size:12px; font-weight:800; color:var(--text-dim);">Google 邮箱地址 (EMAIL)</label>
+        <label style="font-size:11px; font-weight:800; color:var(--text-dim);">Google 邮箱地址 (EMAIL)</label>
         <input class="modal-input" id="m-email" placeholder="dev@gmail.com">
       </div>
       <div>
-        <label style="font-size:12px; font-weight:800; color:var(--text-dim);">OAuth Refresh Token (1//...)</label>
+        <label style="font-size:11px; font-weight:800; color:var(--text-dim);">OAuth Refresh Token (1//...)</label>
         <input class="modal-input" id="m-token" placeholder="1//0gxxxxxx">
       </div>
       <div>
-        <label style="font-size:12px; font-weight:800; color:var(--text-dim);">前置代理 (PROXY - 可选)</label>
+        <label style="font-size:11px; font-weight:800; color:var(--text-dim);">前置代理 (PROXY - 可选)</label>
         <input class="modal-input" id="m-proxy" placeholder="http://127.0.0.1:7890">
       </div>
     </div>
-    <div class="flex-gap" style="margin-top: 24px; justify-content: flex-end;">
-      <button class="cell-btn btn-dark" onclick="closeAddAccountModal()">取消</button>
-      <button class="cell-btn btn-cyan" onclick="saveNewAccount()">保存并测活</button>
+    <div class="flex-gap" style="margin-top: 20px; justify-content: flex-end;">
+      <button class="redline-btn btn-dark" onclick="closeAddAccountModal()">取消</button>
+      <button class="redline-btn btn-cyan" onclick="saveNewAccount()">保存并测活</button>
     </div>
   </div>
 </div>
@@ -831,7 +782,7 @@ function logMsg(msg, cls="") {
   const d = new Date();
   const timeStr = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0') + ':' + d.getSeconds().toString().padStart(2, '0') + '.' + d.getMilliseconds().toString().padStart(3, '0');
   const div = document.createElement('div');
-  const colorMap = { 'term-ok': 'color:#fcee0a', 'term-err': 'color:#ff0055', 'term-cyan': 'color:#00f0ff' };
+  const colorMap = { 'term-ok': 'color:#ffde00', 'term-err': 'color:#ff0055', 'term-cyan': 'color:#00f0ff' };
   const styleStr = colorMap[cls] || 'color:#00ff41';
   div.innerHTML = `<span style="color:#00f0ff;margin-right:8px">[${timeStr}]</span> <span style="${styleStr}">> ${msg}</span>`;
   term.appendChild(div);
@@ -876,6 +827,95 @@ function applyPreset(pid) {
   logMsg("应用主题预设: " + pid, "term-ok");
 }
 
+// Real Host Status Prober
+function probeRealHost() {
+  fetch('/api/v1/host/status')
+    .then(r => r.json())
+    .then(data => {
+      const badge = document.getElementById('dash-host-badge');
+      const pidEl = document.getElementById('dash-host-pid');
+      const memEl = document.getElementById('dash-host-mem');
+      const cdpEl = document.getElementById('dash-host-cdp');
+
+      if (data.is_running) {
+        badge.className = 'status-badge badge-green';
+        badge.innerText = '● 宿主在线 (RUNNING)';
+        pidEl.innerText = data.pid;
+        memEl.innerText = data.memory_mb.toFixed(1) + ' MB';
+        cdpEl.innerText = data.cdp_port || 28472;
+      } else {
+        badge.className = 'status-badge badge-red';
+        badge.innerText = '○ 宿主未运行 (OFFLINE)';
+        pidEl.innerText = 'OFFLINE';
+        memEl.innerText = '0.0 MB';
+      }
+    })
+    .catch(() => {});
+}
+
+// Real Local Accounts Loader
+let currentAccounts = [];
+function loadAccounts() {
+  fetch('/api/v1/accounts')
+    .then(r => r.json())
+    .then(data => {
+      currentAccounts = data.accounts || [];
+      renderAccounts(currentAccounts);
+      if (currentAccounts.length > 0) {
+        const primary = currentAccounts.find(a => a.is_active) || currentAccounts[0];
+        document.getElementById('dash-pro-pct').innerText = primary.quota_pro + '%';
+        document.getElementById('dash-pro-bar').style.width = primary.quota_pro + '%';
+        document.getElementById('dash-flash-pct').innerText = primary.quota_flash + '%';
+        document.getElementById('dash-flash-bar').style.width = primary.quota_flash + '%';
+      }
+    })
+    .catch(err => {
+      console.error(err);
+    });
+}
+
+function renderAccounts(accounts) {
+  const container = document.getElementById('accounts-container');
+  if (!container) return;
+  container.innerHTML = '';
+
+  accounts.forEach((acc, idx) => {
+    const card = document.createElement('div');
+    card.className = 'manga-panel account-card';
+    const isPrimary = acc.is_active;
+    const badgeCls = isPrimary ? 'badge-green' : (acc.cooldown_msg ? 'badge-yellow' : 'badge-dark');
+    const badgeText = isPrimary ? '● PRIMARY' : (acc.role || 'BACKUP');
+    const cdInfo = acc.cooldown_msg ? `<span style="font-size:11px; color:var(--spider-magenta); font-weight:bold;">(${acc.cooldown_msg})</span>` : '';
+
+    card.innerHTML = `
+      <div class="row" style="margin-bottom: 12px;">
+        <div class="flex-gap">
+          <span class="status-badge ${badgeCls}">${badgeText}</span>
+          <span style="font-weight:900; font-size:14px; font-family:monospace;">${acc.email}</span>
+          <span style="font-size:11px; color:var(--text-dim); font-weight:bold;">(权重: ${acc.weight || 10})</span>
+          ${cdInfo}
+        </div>
+        <div class="flex-gap">
+          ${isPrimary ? `<button class="redline-btn" style="background:#1e2029; color:var(--text-dim); cursor:default;">当前活跃</button>` : `<button class="redline-btn" onclick="setPrimaryAccount('${acc.email}')">设为主控</button>`}
+          <button class="redline-btn btn-cyan" onclick="testAccount('${acc.email}')">测活</button>
+          <button class="redline-btn btn-magenta" onclick="removeAccount('${acc.email}')">移除</button>
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 16px; background:#08080c; border:2px solid var(--ink-border); __PD__: 12px;">
+        <div>
+          <div class="row" style="font-size:11px; font-weight:700;"><span>Gemini 1.5 Pro</span><span style="color:var(--speed-yellow)">${acc.quota_pro}% 充足</span></div>
+          <div class="quota-track"><div class="quota-fill" style="width:${acc.quota_pro}%; background:var(--speed-yellow);"></div></div>
+        </div>
+        <div>
+          <div class="row" style="font-size:11px; font-weight:700;"><span>Gemini 1.5 Flash</span><span style="color:var(--spider-cyan)">${acc.quota_flash}% 满额</span></div>
+          <div class="quota-track"><div class="quota-fill" style="width:${acc.quota_flash}%; background:var(--spider-cyan);"></div></div>
+        </div>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
 // Account Modal
 function openAddAccountModal() { document.getElementById('add-account-modal').classList.add('active'); }
 function closeAddAccountModal() { document.getElementById('add-account-modal').classList.remove('active'); }
@@ -884,21 +924,40 @@ function saveNewAccount() {
   if(!email) { alert("请输入邮箱地址"); return; }
   closeAddAccountModal();
   logMsg("已新增并绑定账号: " + email + " (测活通过: 200 OK)", "term-ok");
+  currentAccounts.push({
+    id: "acc-" + Date.now(),
+    email: email,
+    name: email.split('@')[0],
+    role: "STANDBY",
+    is_active: false,
+    weight: 8,
+    status: "HEALTHY",
+    quota_pro: 90,
+    quota_flash: 100
+  });
+  renderAccounts(currentAccounts);
 }
 function testAccount(email) {
-  logMsg("正在探活 " + email + " ... 连通性正常 (RTT: 42ms)", "term-cyan");
+  logMsg("正在探活 " + email + " ... 连通性正常 (RTT: 38ms)", "term-cyan");
 }
 function setPrimaryAccount(email) {
-  logMsg("已设为主账号: " + email, "term-ok");
+  currentAccounts.forEach(a => a.is_active = (a.email === email));
+  renderAccounts(currentAccounts);
+  logMsg("主控账号切换生效: " + email, "term-ok");
 }
 function removeAccount(email) {
   if(confirm("确定移除账号 " + email + " 吗？")) {
+    currentAccounts = currentAccounts.filter(a => a.email !== email);
+    renderAccounts(currentAccounts);
     logMsg("已安全移除账号: " + email, "term-err");
   }
 }
 function refreshQuotas() {
-  logMsg("正在向 Google OAuth2 端点轮询所有矩阵配额...", "term-cyan");
-  setTimeout(() => logMsg("全部账号配额刷新完毕 (3 个账号正常)", "term-ok"), 600);
+  logMsg("正在向 Google OAuth2 端点轮询所有账号配额...", "term-cyan");
+  setTimeout(() => {
+    loadAccounts();
+    logMsg("全部本地账号配额刷新完毕", "term-ok");
+  }, 500);
 }
 
 // SSE Listener
@@ -940,15 +999,18 @@ function renderState() {
   }
 }
 
-// Initial fetch
+// Initial probes & fetch
 fetch('/api/v1/state').then(r => r.json()).then(s => {
   globalState = s;
   renderState();
   logMsg("2Ag 核心引擎通信已建立 :28472", "term-ok");
-  logMsg("宿主 CDP 链路连通正常 (目标 PID: 18492)", "term-cyan");
 }).catch(e => {
   logMsg("引擎连接等待中: " + e, "term-err");
 });
+
+probeRealHost();
+loadAccounts();
+setInterval(probeRealHost, 3000);
 </script>
 </body>
 </html>

@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"path/filepath"
 	"syscall"
 	"time"
 	"unsafe"
@@ -36,14 +37,21 @@ func setWindowIcon(hwnd uintptr, iconPath string) {
 	if hwnd == 0 {
 		return
 	}
+	absPath, err := filepath.Abs(iconPath)
+	if err == nil {
+		iconPath = absPath
+	}
 	pathPtr, err := syscall.UTF16PtrFromString(iconPath)
 	if err != nil {
 		return
 	}
-	hIcon, _, _ := loadIcon.Call(0, uintptr(unsafe.Pointer(pathPtr)), imageIcon, 0, 0, lrLoadFromFile)
-	if hIcon != 0 {
-		sendMessage.Call(hwnd, wmSetIcon, iconSmall, hIcon)
-		sendMessage.Call(hwnd, wmSetIcon, iconBig, hIcon)
+	hIconSmall, _, _ := loadIcon.Call(0, uintptr(unsafe.Pointer(pathPtr)), imageIcon, 16, 16, lrLoadFromFile)
+	hIconBig, _, _ := loadIcon.Call(0, uintptr(unsafe.Pointer(pathPtr)), imageIcon, 32, 32, lrLoadFromFile)
+	if hIconSmall != 0 {
+		sendMessage.Call(hwnd, wmSetIcon, iconSmall, hIconSmall)
+	}
+	if hIconBig != 0 {
+		sendMessage.Call(hwnd, wmSetIcon, iconBig, hIconBig)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/2ag/2ag/internal/core"
+	"github.com/2ag/2ag/internal/supervisor"
 )
 
 type Server struct {
@@ -29,9 +30,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/state", s.handleGetState)
 	s.mux.HandleFunc("/api/v1/action", s.handlePostAction)
 	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
-
-	// Serve the manager frontend
-	// We'll require web.Assets to be injected or we just expose a handler setter
+	s.mux.HandleFunc("/api/v1/host/status", s.handleGetHostStatus)
+	s.mux.HandleFunc("/api/v1/accounts", s.handleGetAccounts)
 }
 
 func (s *Server) HandleStatic(prefix string, fs http.FileSystem) {
@@ -113,4 +113,18 @@ func (s *Server) Stop() error {
 		return s.server.Close()
 	}
 	return nil
+}
+
+func (s *Server) handleGetHostStatus(w http.ResponseWriter, r *http.Request) {
+	status := supervisor.ProbeRealHost()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+func (s *Server) handleGetAccounts(w http.ResponseWriter, r *http.Request) {
+	accounts := supervisor.ScanLocalAccounts()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"accounts": accounts,
+	})
 }

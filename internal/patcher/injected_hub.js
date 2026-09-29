@@ -535,12 +535,67 @@
     positionHub(document.getElementById(HUB_ID));
   }
 
-  loadState(); loadPluginScripts(); applyState(false); ensureHub();
+  // --- Real Gravity Boost Interceptors ---
+  function applyGravityBoost() {
+    const gb = (INITIAL_CONFIG.gravity_boost) || (state.gravity_boost) || {
+      centered_width: true,
+      paste_plaintext_fix: true,
+      enable_devtools: true
+    };
+
+    // 1. Centered Golden Width (860px)
+    let styleEl = document.getElementById('2ag-centered-width-style');
+    if (gb.centered_width) {
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = '2ag-centered-width-style';
+        styleEl.textContent = `
+          [class*="conversation"], [class*="chat-stream"], [class*="session-view"], [class*="chat-container"], main [class*="max-w-"] {
+            max-width: 860px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+          }
+        `;
+        document.head.appendChild(styleEl);
+      }
+    } else if (styleEl) {
+      styleEl.remove();
+    }
+
+    // 2. Plaintext Paste Cleanup
+    if (!window.__2ag_paste_installed) {
+      window.__2ag_paste_installed = true;
+      window.addEventListener('paste', function(e) {
+        const activeGB = (INITIAL_CONFIG.gravity_boost) || (state.gravity_boost) || {};
+        if (activeGB.paste_plaintext_fix !== false) {
+          if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
+            const text = e.clipboardData && e.clipboardData.getData('text/plain');
+            if (text && e.clipboardData.types.includes('text/html')) {
+              e.preventDefault();
+              document.execCommand('insertText', false, text);
+            }
+          }
+        }
+      }, true);
+    }
+
+    // 3. F12 DevTools Keydown Passthrough
+    if (!window.__2ag_devtools_installed) {
+      window.__2ag_devtools_installed = true;
+      window.addEventListener('keydown', function(e) {
+        if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i'))) {
+          ipc('core.diagnostics.devtools', {}).catch(() => {});
+        }
+      }, true);
+    }
+  }
+
+  loadState(); loadPluginScripts(); applyState(false); ensureHub(); applyGravityBoost();
   if (!window[OBSERVER_KEY]) {
     window[OBSERVER_KEY] = new MutationObserver(() => {
       if (window.__2ag_hub_guard) return;
       window.__2ag_hub_guard = true;
-      try { ensureSkin(); ensureHub(); } finally { window.__2ag_hub_guard = false; }
+      try { ensureSkin(); ensureHub(); applyGravityBoost(); } finally { window.__2ag_hub_guard = false; }
     });
     window[OBSERVER_KEY].observe(document, { childList: true, subtree: true });
   }
@@ -549,9 +604,10 @@
     window[TIMER_KEY] = window.setInterval(() => {
       ensureSkin();
       ensureHub();
+      applyGravityBoost();
       if (++count > 20) {
         window.clearInterval(window[TIMER_KEY]);
-        window[TIMER_KEY] = window.setInterval(() => { ensureSkin(); ensureHub(); }, 1500);
+        window[TIMER_KEY] = window.setInterval(() => { ensureSkin(); ensureHub(); applyGravityBoost(); }, 1500);
       }
     }, 500);
   }
