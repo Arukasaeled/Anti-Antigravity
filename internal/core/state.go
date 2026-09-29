@@ -20,6 +20,7 @@ const (
 	OpenDevtoolsAction       ActionType = "OPEN_DEVTOOLS"
 	HotReloadAction          ActionType = "HOT_RELOAD"
 	ExportConfigAction       ActionType = "EXPORT_CONFIG"
+	ToggleBoostAction        ActionType = "TOGGLE_BOOST"
 )
 
 type StateAction struct {
@@ -143,6 +144,27 @@ func (sm *StateMachine) ApplyAction(action StateAction) error {
 			sm.state.Blur = 0
 			sm.state.Opacity = 0.0
 			sm.state.ModalOpacity = 1.0
+		}
+		changed = true
+	case ToggleBoostAction:
+		payload, ok := action.Payload.(map[string]any)
+		if !ok {
+			return fmt.Errorf("invalid payload for TOGGLE_BOOST")
+		}
+		key, _ := payload["key"].(string)
+		val, _ := payload["value"].(bool)
+		switch key {
+		case "session_delete": sm.state.GravityBoost.SessionDelete = val
+		case "markdown_export": sm.state.GravityBoost.MarkdownExport = val
+		case "paste_plaintext_fix": sm.state.GravityBoost.PastePlaintextFix = val
+		case "session_id_tag": sm.state.GravityBoost.SessionIdTag = val
+		case "centered_width": sm.state.GravityBoost.CenteredWidth = val
+		case "preserve_scroll": sm.state.GravityBoost.PreserveScroll = val
+		case "stepwise": sm.state.GravityBoost.Stepwise = val
+		case "answer_outline": sm.state.GravityBoost.AnswerOutline = val
+		case "force_zh_cn": sm.state.GravityBoost.ForceZhCn = val
+		case "enable_devtools": sm.state.GravityBoost.EnableDevtools = val
+		case "disable_auto_update": sm.state.GravityBoost.DisableAutoUpdate = val
 		}
 		changed = true
 	case HostCtrlAction, OpenDevtoolsAction, HotReloadAction, ExportConfigAction:

@@ -18,6 +18,7 @@ type Config struct {
 	Language      string            `json:"language"`
 	Network       NetworkConfig     `json:"network"`
 	Privacy       PrivacyConfig     `json:"privacy"`
+	GravityBoost  GravityBoost      `json:"gravity_boost"`
 	GlobalRules   string            `json:"global_rules"`
 	EnvOverrides  map[string]string `json:"env_overrides"`
 	Plugins       []Plugin          `json:"plugins"`
@@ -46,6 +47,20 @@ type RuleTarget struct {
 type PrivacyConfig struct {
 	BlockedHosts []string `json:"blocked_hosts"`
 	BlockBeacons bool     `json:"block_beacons"`
+}
+
+type GravityBoost struct {
+	SessionDelete      bool `json:"session_delete"`
+	MarkdownExport     bool `json:"markdown_export"`
+	PastePlaintextFix  bool `json:"paste_plaintext_fix"`
+	SessionIdTag       bool `json:"session_id_tag"`
+	CenteredWidth      bool `json:"centered_width"`
+	PreserveScroll     bool `json:"preserve_scroll"`
+	Stepwise           bool `json:"stepwise"`
+	AnswerOutline      bool `json:"answer_outline"`
+	ForceZhCn          bool `json:"force_zh_cn"`
+	EnableDevtools     bool `json:"enable_devtools"`
+	DisableAutoUpdate  bool `json:"disable_auto_update"`
 }
 
 type Plugin struct {

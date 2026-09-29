@@ -17,9 +17,11 @@ import (
 )
 
 var (
-	user32         = syscall.NewLazyDLL("user32.dll")
-	sendMessage    = user32.NewProc("SendMessageW")
-	loadIcon       = user32.NewProc("LoadImageW")
+	user32                    = syscall.NewLazyDLL("user32.dll")
+	sendMessage               = user32.NewProc("SendMessageW")
+	loadIcon                  = user32.NewProc("LoadImageW")
+	dwmapi                    = syscall.NewLazyDLL("dwmapi.dll")
+	procDwmSetWindowAttribute = dwmapi.NewProc("DwmSetWindowAttribute")
 )
 
 const (
@@ -81,8 +83,8 @@ func startManager(configPath string, cfg config.Config) error {
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
 			Title:  "2Ag Manager",
-			Width:  980,
-			Height: 660,
+			Width:  1240,
+			Height: 800,
 		},
 	})
 	if w == nil {
@@ -91,9 +93,18 @@ func startManager(configPath string, cfg config.Config) error {
 	defer w.Destroy()
 
 	w.SetTitle("2Ag Manager - Anti-Antigravity Control Center")
-	w.SetSize(980, 660, webview2.HintNone)
+	w.SetSize(1240, 800, webview2.HintNone)
 
-	setWindowIcon(uintptr(w.Window()), "assets/icon.ico")
+	hwnd := w.Window()
+	darkMode := int32(1)
+	procDwmSetWindowAttribute.Call(
+		uintptr(hwnd),
+		uintptr(20), // DWMWA_USE_IMMERSIVE_DARK_MODE
+		uintptr(unsafe.Pointer(&darkMode)),
+		uintptr(unsafe.Sizeof(darkMode)),
+	)
+
+	setWindowIcon(uintptr(hwnd), "assets/icon.ico")
 
 	w.Navigate("http://127.0.0.1:28472/dist/index.html")
 	w.Run()
