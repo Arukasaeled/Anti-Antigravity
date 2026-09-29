@@ -536,37 +536,50 @@
   }
 
   // --- Real Gravity Boost Interceptors ---
+  const STYLE_ID = '2ag-centered-style';
+  function updateCenteredWidth(enabled) {
+    let el = document.getElementById(STYLE_ID);
+    if (enabled) {
+      if (!el) {
+        el = document.createElement('style');
+        el.id = STYLE_ID;
+        el.textContent = `
+          /* 深度锁死聊天对话区居中 */
+          main, [role="main"], div[class*="chat-scroll"], div[class*="conversation"], [class*="chat-stream"], [class*="session-view"] {
+            max-width: 860px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            width: 100% !important;
+          }
+        `;
+        document.head.appendChild(el);
+      }
+    } else if (el) {
+      el.remove(); // 关掉开关立即恢复全宽
+    }
+  }
+
+  window.__2ag_onStateUpdate = function(newState) {
+    if (!newState) return;
+    const gb = newState.gravity_boost || {};
+    window.__2ag_active_gb = gb; // 让 paste 和 keydown 动态读取最新布尔值
+    updateCenteredWidth(gb.centered_width);
+  };
+
   function applyGravityBoost() {
-    const gb = (INITIAL_CONFIG.gravity_boost) || (state.gravity_boost) || {
+    const gb = window.__2ag_active_gb || (INITIAL_CONFIG.gravity_boost) || (state.gravity_boost) || {
       centered_width: true,
       paste_plaintext_fix: true,
       enable_devtools: true
     };
-
-    // 1. Centered Golden Width (860px)
-    let styleEl = document.getElementById('2ag-centered-width-style');
-    if (gb.centered_width) {
-      if (!styleEl) {
-        styleEl = document.createElement('style');
-        styleEl.id = '2ag-centered-width-style';
-        styleEl.textContent = `
-          [class*="conversation"], [class*="chat-stream"], [class*="session-view"], [class*="chat-container"], main [class*="max-w-"] {
-            max-width: 860px !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
-          }
-        `;
-        document.head.appendChild(styleEl);
-      }
-    } else if (styleEl) {
-      styleEl.remove();
-    }
+    window.__2ag_active_gb = gb;
+    updateCenteredWidth(gb.centered_width);
 
     // 2. Plaintext Paste Cleanup
     if (!window.__2ag_paste_installed) {
       window.__2ag_paste_installed = true;
       window.addEventListener('paste', function(e) {
-        const activeGB = (INITIAL_CONFIG.gravity_boost) || (state.gravity_boost) || {};
+        const activeGB = window.__2ag_active_gb || {};
         if (activeGB.paste_plaintext_fix !== false) {
           if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
             const text = e.clipboardData && e.clipboardData.getData('text/plain');
@@ -583,8 +596,11 @@
     if (!window.__2ag_devtools_installed) {
       window.__2ag_devtools_installed = true;
       window.addEventListener('keydown', function(e) {
-        if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i'))) {
-          ipc('core.diagnostics.devtools', {}).catch(() => {});
+        const activeGB = window.__2ag_active_gb || {};
+        if (activeGB.enable_devtools !== false) {
+          if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i'))) {
+            ipc('core.diagnostics.devtools', {}).catch(() => {});
+          }
         }
       }, true);
     }

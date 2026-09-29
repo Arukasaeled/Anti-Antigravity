@@ -212,9 +212,12 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 				return
 			case event := <-stateCh:
 				if newState, ok := event.Payload.(config.Config); ok {
+					injector.Initial.GravityBoost = newState.GravityBoost
 					if err := injector.Inject(ctx, newState.WallpaperPath, newState.Blur, newState.Opacity, newState.ModalOpacity); err != nil && ctx.Err() == nil {
 						log.Printf("[2ag] CDP event injection failed: %v", err)
 					}
+					stateData, _ := json.Marshal(newState)
+					_ = injector.Evaluate(ctx, fmt.Sprintf("if (typeof window.__2ag_onStateUpdate === 'function') window.__2ag_onStateUpdate(%s);", string(stateData)))
 				}
 			case event := <-cmdCh:
 				if action, ok := event.Payload.(core.StateAction); ok {

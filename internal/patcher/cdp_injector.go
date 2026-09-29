@@ -236,6 +236,23 @@ func (i *CDPInjector) Inject(ctx context.Context, wallpaperPath string, blur int
 	return nil
 }
 
+// Evaluate sends a quick JavaScript expression to the target page via CDP
+func (i *CDPInjector) Evaluate(ctx context.Context, expression string) error {
+	if i == nil {
+		return errors.New("CDP injector is nil")
+	}
+	target, err := i.findTarget(ctx)
+	if err != nil {
+		return err
+	}
+	conn, reader, err := openWebSocket(ctx, target.WebSocketDebuggerURL)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	return evaluate(conn, reader, 9999, expression)
+}
+
 func (i *CDPInjector) ensureBridge(ctx context.Context, websocketURL string) {
 	i.bridgeMu.Lock()
 	defer i.bridgeMu.Unlock()

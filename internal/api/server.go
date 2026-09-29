@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/2ag/2ag/internal/core"
 	"github.com/2ag/2ag/internal/supervisor"
@@ -32,6 +33,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
 	s.mux.HandleFunc("/api/v1/host/status", s.handleGetHostStatus)
 	s.mux.HandleFunc("/api/v1/accounts", s.handleGetAccounts)
+	s.mux.HandleFunc("/api/v1/accounts/refresh", s.handleRefreshAccounts)
 }
 
 func (s *Server) HandleStatic(prefix string, fs http.FileSystem) {
@@ -126,5 +128,15 @@ func (s *Server) handleGetAccounts(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"accounts": accounts,
+	})
+}
+
+func (s *Server) handleRefreshAccounts(w http.ResponseWriter, r *http.Request) {
+	accounts := supervisor.ScanLocalAccounts()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"accounts": accounts,
+		"refreshed": true,
+		"timestamp": time.Now().Unix(),
 	})
 }

@@ -30,6 +30,7 @@ type HubConfig struct {
 	Privacy       any               `json:"privacy,omitempty"`
 	GlobalRules   string            `json:"global_rules,omitempty"`
 	PluginURL     string            `json:"plugin_url,omitempty"`
+	GravityBoost  any               `json:"gravity_boost,omitempty"`
 }
 
 func (c HubConfig) Normalize() HubConfig {
