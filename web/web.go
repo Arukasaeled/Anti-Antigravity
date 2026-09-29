@@ -1,6 +1,19 @@
 package web
 
-import "embed"
+import (
+	"embed"
+	"io/fs"
+)
 
 //go:embed dist/*
-var Assets embed.FS
+var assets embed.FS
+
+var Assets fs.FS
+
+func init() {
+	var err error
+	Assets, err = fs.Sub(assets, "dist")
+	if err != nil {
+		panic(err)
+	}
+}

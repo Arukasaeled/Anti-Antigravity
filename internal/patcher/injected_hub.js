@@ -422,9 +422,9 @@
     root.querySelector('[id="2ag-hot-reload"]').addEventListener('click', hotReload);
     root.querySelector('[id="2ag-reset-theme"]').addEventListener('click', resetTheme);
     root.querySelector('[id="2ag-export-config"]').addEventListener('click', exportConfig);
-    const pluginList = root.querySelector('[id="2ag-plugin-list"]');
-    Object.keys(state.plugins).forEach((name) => {
-      const value = state.plugins[name] || {};
+    function renderPluginCard(manifest) {
+      const name = manifest.name;
+      const value = manifest;
       const rowContainer = document.createElement('div'); 
       rowContainer.className = 'ag-plugin'; 
       rowContainer.dataset.pluginName = name;
@@ -472,7 +472,7 @@
             toggleWrapper.style.cursor = 'pointer';
             toggleWrapper.innerHTML = '<input type="checkbox"' + (configVal ? ' checked' : '') + '><span class="ag-toggle-track"><span class="ag-toggle-thumb"></span></span>';
             toggleWrapper.querySelector('input').addEventListener('change', function() {
-              ipc('core.config.plugin.set', { plugin: name, key: f.key, value: this.checked }).catch(()=>{});
+              ipc('core.action', { type: 'UPDATE_PLUGIN_CONFIG', payload: { name: name, key: f.key, value: this.checked } }).catch(()=>{});
             });
             fRow.appendChild(toggleWrapper);
           } else {
@@ -484,7 +484,7 @@
             inputEl.addEventListener('change', function() {
               let val = this.value;
               if(f.type === 'number') val = Number(val);
-              ipc('core.config.plugin.set', { plugin: name, key: f.key, value: val }).catch(()=>{});
+              ipc('core.action', { type: 'UPDATE_PLUGIN_CONFIG', payload: { name: name, key: f.key, value: val } }).catch(()=>{});
             });
             fRow.appendChild(inputEl);
           }
@@ -492,8 +492,14 @@
         });
         rowContainer.appendChild(fieldsBox);
       }
-      
-      pluginList.appendChild(rowContainer);
+      return rowContainer;
+    }
+
+    const pluginList = root.querySelector('[id="2ag-plugin-list"]');
+    Object.keys(state.plugins).forEach((name) => {
+      const value = state.plugins[name] || {};
+      value.name = name; // ensure name is in manifest
+      pluginList.appendChild(renderPluginCard(value));
     });
     renderValues();
     showTab('skin');

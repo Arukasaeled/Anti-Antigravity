@@ -26,7 +26,6 @@ import (
 	"github.com/2ag/2ag/internal/profile"
 	"github.com/2ag/2ag/internal/supervisor"
 	"github.com/2ag/2ag/web"
-	"github.com/jchv/go-webview2"
 )
 
 func main() {
@@ -61,7 +60,7 @@ func runCLI(args []string) error {
 	case "skin":
 		return skinCommand(configPath, cfg, args[1:])
 	case "manager":
-		return runManager()
+		return startManager(configPath, cfg)
 	case "doctor":
 		return doctor(configPath, cfg)
 	case "help", "-h", "--help":
@@ -190,7 +189,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 			}
 		}
 		injector.Initial = patcher.HubConfig{Language: cfg.Language, WallpaperPath: cfg.WallpaperPath, GlobalRules: cfg.GlobalRules, Network: cfg.Network, Privacy: cfg.Privacy, Plugins: pluginState, PluginURL: "http://" + sidecars.Address(), CDPPort: cdpPort, HostPID: managed.PID(), Env: cfg.EnvOverrides}
-		injector.BridgeHandlers = coreBridgeHandlers(runtimeConfig, sidecars, injector.SetWallpaperPath, func(ctx context.Context) (any, error) { return openDevTools(ctx, cdpPort) }, func(ctx context.Context) (any, error) { return probeGateway(ctx, injector.ProxyURL) })
+		injector.BridgeHandlers = coreBridgeHandlers(runtimeConfig, sidecars, injector.SetWallpaperPath, func(ctx context.Context) (any, error) { return openDevTools(ctx, cdpPort) }, func(ctx context.Context) (any, error) { return probeGateway(ctx, injector.ProxyURL) }, sm)
 		
 		currentState := sm.GetState()
 		if err := injector.WaitAndInject(ctx, currentState.WallpaperPath, currentState.Blur, currentState.Opacity, 15*time.Second); err != nil {
@@ -238,7 +237,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 	}
 }
 
-func coreBridgeHandlers(runtimeConfig *config.Runtime, sidecars *supervisor.SidecarManager, setWallpaper func(string) error, openDevToolsHandler func(context.Context) (any, error), probeHandler func(context.Context) (any, error)) map[string]patcher.BridgeHandler {
+func coreBridgeHandlers(runtimeConfig *config.Runtime, sidecars *supervisor.SidecarManager, setWallpaper func(string) error, openDevToolsHandler func(context.Context) (any, error), probeHandler func(context.Context) (any, error), sm *core.StateMachine) map[string]patcher.BridgeHandler {
 	return map[string]patcher.BridgeHandler{
 		"core.dialog.openFile": func(ctx context.Context, params map[string]any) (any, error) { return openFileDialog(ctx, params) },
 		"core.diagnostics.devtools": func(ctx context.Context, _ map[string]any) (any, error) {
@@ -272,6 +271,19 @@ func coreBridgeHandlers(runtimeConfig *config.Runtime, sidecars *supervisor.Side
 				return json.Unmarshal(data, next)
 			})
 			return updated, err
+		},
+		"core.action": func(_ context.Context, params map[string]any) (any, error) {
+			actionTypeStr, _ := params["type"].(string)
+			if actionTypeStr == "" {
+				return nil, errors.New("missing action type")
+			}
+			if sm != nil {
+				return nil, sm.ApplyAction(core.StateAction{
+					Type:    core.ActionType(actionTypeStr),
+					Payload: params["payload"],
+				})
+			}
+			return nil, nil
 		},
 		"core.plugins.list": func(context.Context, map[string]any) (any, error) { return sidecars.Status(), nil },
 		"core.plugins.toggle": func(_ context.Context, params map[string]any) (any, error) {
@@ -545,23 +557,4 @@ func usage() {
 	fmt.Println("  2ag profile save <name>")
 	fmt.Println("  2ag profile switch <name>")
 	fmt.Println("  2ag doctor")
-}
-
-func runManager() error {
-	w := webview2.NewWithOptions(webview2.WebViewOptions{
-		Debug:     true,
-		AutoFocus: true,
-		WindowOptions: webview2.WindowOptions{
-			Title:  "2Ag Manager",
-			Width:  900,
-			Height: 650,
-		},
-	})
-	if w == nil {
-		return fmt.Errorf("failed to load webview2")
-	}
-	defer w.Destroy()
-	w.Navigate("http://localhost:28472/")
-	w.Run()
-	return nil
 }
