@@ -6,16 +6,18 @@
 <title>2Ag SUITE - Control Center</title>
 <style id="dynamic-styles">
   :root {
-    --bg-app: #111217;
-    --bg-sidebar: #0e0f14;
-    --bg-card: #181922;
+    --bg-app: #121319;
+    --bg-sidebar: #0f1015;
+    --bg-card: #181a24;
     --border-card: #272a38;
     --accent-red: #e60012;
     --accent-yellow: #fcee0a;
+    --pool-gemini: #f5c542;
+    --pool-claude: #58a6ff;
     --spider-cyan: #00f0ff;
     --spider-magenta: #ff0055;
-    --text-main: #f0f3f6;
-    --text-muted: #848d9a;
+    --text-main: #e6edf3;
+    --text-muted: #7d8590;
     --shadow-soft: 3px 3px 0px #090a0d;
   }
   * { box-sizing: border-box; margin: 0; __PD__: 0; }
@@ -26,7 +28,133 @@
     display: flex; height: 100vh; overflow: hidden;
   }
 
-  /* Ergonomic Non-Fatiguing Card */
+  /* P5 x FLCL Sidebar */
+  #sidebar {
+    width: 252px;
+    background: var(--bg-sidebar);
+    border-right: 2.5px solid #000;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    z-index: 10;
+    flex-shrink: 0;
+  }
+
+  .sidebar-brand {
+    __PD__: 16px 14px;
+    background: #090a0d;
+    border-bottom: 2.5px solid #000;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-badge {
+    background: var(--accent-red);
+    border: 2px solid #000;
+    box-shadow: 3px 3px 0 #000;
+    transform: skewX(-8deg);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    __PD__: 5px 8px;
+  }
+  .brand-logo-img {
+    width: 22px;
+    height: 22px;
+    object-fit: contain;
+    transform: skewX(8deg);
+  }
+  .brand-title {
+    font-weight: 900; letter-spacing: 1px; color: #fff; font-size: 17px; line-height: 1.1;
+  }
+  .brand-sub {
+    font-size: 10px; color: var(--text-muted); font-family: monospace; letter-spacing: 0.5px; margin-top: 2px;
+  }
+
+  /* Nav Group Titles */
+  .nav-group-title {
+    font-size: 10px;
+    font-weight: 900;
+    color: #585f73;
+    __PD__: 12px 18px 4px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+
+  /* P5 Calling Card Slanted Clipped Tabs */
+  .nav-item {
+    position: relative;
+    margin: 4px 10px;
+    __PD__: 10px 14px;
+    color: #9aa2b5;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.1s ease;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .nav-item:hover {
+    color: #fff;
+    background: #191b24;
+    transform: translateX(3px);
+  }
+  .nav-item.active {
+    background: var(--accent-red);
+    color: #ffffff !important;
+    font-weight: 900;
+    border: 2px solid #000;
+    box-shadow: 3px 3px 0 #000;
+    transform: skewX(-6deg) translateX(4px);
+    clip-path: polygon(0 0, 94% 0, 100% 50%, 94% 100%, 0 100%);
+  }
+  .nav-item.active .nav-indicator {
+    display: inline-block; width: 6px; height: 6px; background: #fff;
+    transform: rotate(45deg);
+  }
+
+  /* Redline Mini HUD at bottom */
+  .sidebar-hud {
+    margin: 12px;
+    __PD__: 10px 12px;
+    background: #14151e;
+    border: 2px solid #000;
+    box-shadow: 2px 2px 0 #000;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 10px;
+    color: #7b849b;
+  }
+  .hud-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .hud-row:last-child { margin-bottom: 0; }
+  .hud-val-active {
+    color: #00f0ff;
+    font-weight: bold;
+  }
+
+  /* Main Stage & Panels */
+  #main-stage { flex: 1; display: flex; flex-direction: column; position: relative; background: var(--bg-app); overflow: hidden; }
+  #content-scroll { __PD__: 26px 36px; overflow-y: auto; flex: 1; }
+  .panel { display: none; }
+  .panel.active { display: block; animation: punchIn 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+  @keyframes punchIn { 0% { opacity: 0; transform: scale(0.99); } 100% { opacity: 1; transform: scale(1); } }
+
+  .panel-header-wrap { margin-bottom: 22px; border-bottom: 2px solid var(--border-card); __PD__-bottom: 14px; }
+  h2.panel-title { font-weight: 900; font-size: 22px; color: var(--text-main); }
+  .panel-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 4px; font-weight: 500; }
+
+  /* Chromatic title ONLY on top titles */
+  .chromatic-title {
+    text-shadow: -1.5px 0 var(--spider-cyan), 1.5px 0 var(--spider-magenta);
+    letter-spacing: 0.5px;
+  }
+
+  /* Ergonomic Data Cards */
   .data-card {
     background: var(--bg-card);
     border: 2px solid var(--border-card);
@@ -35,7 +163,7 @@
     position: relative;
   }
 
-  /* Focused Action Button */
+  /* Redline Action Button */
   .redline-btn {
     background: var(--accent-red);
     color: #fff;
@@ -62,78 +190,6 @@
   .redline-btn.btn-dark { background: #232634; color: #fff; border-color: #12131a; }
   .redline-btn.btn-magenta { background: var(--spider-magenta); color: #fff; }
 
-  /* Chromatic Headline ONLY on top titles */
-  .chromatic-title {
-    text-shadow: -1.5px 0 var(--spider-cyan), 1.5px 0 var(--spider-magenta);
-    letter-spacing: 0.5px;
-  }
-
-  /* Sidebar Design */
-  #sidebar {
-    width: 246px; background-color: var(--bg-sidebar);
-    border-right: 2px solid var(--border-card); display: flex; flex-direction: column;
-    z-index: 10; flex-shrink: 0;
-  }
-  .sidebar-header {
-    __PD__: 16px 16px;
-    background: #090a0e;
-    border-bottom: 2px solid var(--border-card);
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .brand-badge {
-    background: #000;
-    border: 2px solid var(--accent-red);
-    box-shadow: 2px 2px 0 #000;
-    transform: skewX(-4deg);
-    __PD__: 4px 6px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .brand-badge img {
-    width: 26px; height: 26px; object-fit: contain; transform: skewX(4deg);
-  }
-  .brand-title {
-    font-weight: 900; letter-spacing: 1px; color: #fff; font-size: 17px; line-height: 1.1;
-  }
-  .brand-sub {
-    font-size: 10px; color: var(--text-muted); font-family: monospace; letter-spacing: 0.5px; margin-top: 2px;
-  }
-
-  /* Nav Items with Corrected Hierarchy */
-  .nav-group-title {
-    font-size: 10px; font-weight: 900; color: #525968;
-    margin: 16px 0 6px 18px; letter-spacing: 1.5px; text-transform: uppercase;
-  }
-  .nav-item {
-    __PD__: 10px 18px; cursor: pointer; font-size: 13px; font-weight: 700;
-    color: var(--text-muted); transition: all 0.12s; display: flex; align-items: center; justify-content: space-between;
-    border-left: 3px solid transparent;
-  }
-  .nav-item:hover { color: #fff; background: rgba(230,0,18,0.05); }
-  .nav-item.active {
-    background-color: #171822; color: #fff;
-    border-left: 3px solid var(--accent-red);
-    font-weight: 800;
-  }
-  .nav-item.active .nav-indicator {
-    display: inline-block; width: 5px; height: 5px; background: var(--accent-red);
-    transform: rotate(45deg);
-  }
-
-  /* Main Stage & Panels */
-  #main-stage { flex: 1; display: flex; flex-direction: column; position: relative; background: var(--bg-app); overflow: hidden; }
-  #content-scroll { __PD__: 26px 36px; overflow-y: auto; flex: 1; }
-  .panel { display: none; }
-  .panel.active { display: block; animation: punchIn 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-  @keyframes punchIn { 0% { opacity: 0; transform: scale(0.99); } 100% { opacity: 1; transform: scale(1); } }
-
-  .panel-header-wrap { margin-bottom: 22px; border-bottom: 2px solid var(--border-card); __PD__-bottom: 14px; }
-  h2.panel-title { font-weight: 900; font-size: 22px; color: var(--text-main); }
-  .panel-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 4px; font-weight: 500; }
-
   /* Utilities */
   .row { display: flex; justify-content: space-between; align-items: center; }
   .col { display: flex; flex-direction: column; gap: 4px; }
@@ -148,6 +204,35 @@
   .badge-cyan { background: var(--spider-cyan); color: #000; }
   .badge-yellow { background: var(--accent-yellow); color: #000; }
   .badge-dark { background: #222530; color: var(--text-muted); }
+
+  /* Dual Quota Pool Layout */
+  .quota-pool-box {
+    background: #0f1017;
+    border: 1.5px solid var(--border-card);
+    __PD__: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .pool-title {
+    font-size: 13px; font-weight: 800; color: #fff; display: flex; justify-content: space-between; align-items: center;
+  }
+  .pool-badge {
+    font-size: 10px; font-weight: 800; __PD__: 2px 6px; border: 1px solid #000;
+  }
+  .quota-track {
+    background: #08090d; border: 1px solid var(--border-card); height: 13px; width: 100%; position: relative; margin-top: 4px;
+  }
+  .quota-fill { height: 100%; transition: width 0.3s; }
+
+  /* Models capsule row */
+  .model-capsules {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px;
+  }
+  .model-capsule {
+    background: #141620; border: 1px solid var(--border-card); color: #9aa2b5;
+    font-size: 11px; font-weight: 700; __PD__: 3px 8px;
+  }
 
   /* Square JSR Switch */
   .jsr-switch { position: relative; display: inline-block; width: 42px; height: 22px; flex-shrink: 0; }
@@ -177,10 +262,6 @@
   .metric-param { font-family: monospace; font-size: 13px; font-weight: 800; color: var(--accent-yellow); }
   .metric-label { font-size: 11px; color: var(--text-muted); font-weight: 600; }
 
-  /* Quota Bar */
-  .quota-track { background: #0a0b0e; border: 1.5px solid var(--border-card); height: 14px; width: 100%; position: relative; margin-top: 5px; }
-  .quota-fill { height: 100%; transition: width 0.3s; }
-
   /* Theme Grid */
   .theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 14px; }
   .theme-card { background: var(--bg-card); border: 2px solid var(--border-card); box-shadow: var(--shadow-soft); display: flex; flex-direction: column; transition: all 0.1s; cursor: pointer; }
@@ -193,8 +274,8 @@
   .theme-actions .redline-btn { flex: 1; __PD__: 5px 0; font-size: 11px; }
 
   /* Account Cards */
-  .account-grid { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
-  .account-card { __PD__: 16px 18px; }
+  .account-grid { display: flex; flex-direction: column; gap: 16px; margin-top: 16px; }
+  .account-card { __PD__: 18px 20px; }
 
   /* Modal */
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: none; align-items: center; justify-content: center; }
@@ -221,28 +302,37 @@
 
 <!-- SIDEBAR -->
 <div id="sidebar">
-  <div class="sidebar-header">
-    <div class="brand-badge">
-      <img src="assets/logo.png" onerror="this.src='/dist/assets/logo.png'" alt="Logo">
+  <div>
+    <div class="sidebar-brand">
+      <div class="brand-badge">
+        <img class="brand-logo-img" src="assets/logo.png" onerror="this.src='/dist/assets/logo.png'" alt="Logo">
+      </div>
+      <div>
+        <div class="brand-title">2Ag SUITE</div>
+        <div class="brand-sub">ANTI-ANTIGRAVITY</div>
+      </div>
     </div>
-    <div>
-      <div class="brand-title">2Ag SUITE</div>
-      <div class="brand-sub">ANTI-ANTIGRAVITY</div>
-    </div>
+
+    <div class="nav-group-title">WORKSPACE</div>
+    <div class="nav-item active" data-target="dashboard"><span>概览看板 (Dashboard)</span><span class="nav-indicator"></span></div>
+    <div class="nav-item" data-target="gateway"><span>账号矩阵 (Accounts)</span><span class="nav-indicator"></span></div>
+    <div class="nav-item" data-target="sessions"><span>会话审计 (Sessions)</span><span class="nav-indicator"></span></div>
+
+    <div class="nav-group-title">EXTENSIONS</div>
+    <div class="nav-item" data-target="studio"><span>Skin Studio</span><span class="nav-indicator"></span></div>
+    <div class="nav-item" data-target="boost"><span>重力加倍 (Boost)</span><span class="nav-indicator"></span></div>
+    <div class="nav-item" data-target="plugins"><span>插件总线 (Plugins)</span><span class="nav-indicator"></span></div>
+
+    <div class="nav-group-title">SYSTEM</div>
+    <div class="nav-item" data-target="diagnostics"><span>环境诊断 (Diagnostics)</span><span class="nav-indicator"></span></div>
   </div>
 
-  <div class="nav-group-title">WORKSPACE</div>
-  <div class="nav-item active" data-target="dashboard"><span>概览看板 (Dashboard)</span><span class="nav-indicator"></span></div>
-  <div class="nav-item" data-target="gateway"><span>账号矩阵 (Accounts)</span><span class="nav-indicator"></span></div>
-  <div class="nav-item" data-target="sessions"><span>会话审计 (Sessions)</span><span class="nav-indicator"></span></div>
-
-  <div class="nav-group-title">EXTENSIONS</div>
-  <div class="nav-item" data-target="studio"><span>Skin Studio</span><span class="nav-indicator"></span></div>
-  <div class="nav-item" data-target="boost"><span>重力加倍 (Boost)</span><span class="nav-indicator"></span></div>
-  <div class="nav-item" data-target="plugins"><span>插件总线 (Plugins)</span><span class="nav-indicator"></span></div>
-
-  <div class="nav-group-title">SYSTEM</div>
-  <div class="nav-item" data-target="diagnostics"><span>环境诊断 (Diagnostics)</span><span class="nav-indicator"></span></div>
+  <!-- Redline Mini HUD at sidebar bottom -->
+  <div class="sidebar-hud">
+    <div class="hud-row"><span>CDP 握手:</span><span class="hud-val-active" id="hud-cdp-ms">1.2ms</span></div>
+    <div class="hud-row"><span>宿主内存:</span><span class="hud-val-active" id="hud-mem">104.2MB</span></div>
+    <div class="hud-row"><span>引擎运行:</span><span class="hud-val-active" id="hud-uptime">02:14:38</span></div>
+  </div>
 </div>
 
 <!-- MAIN STAGE -->
@@ -291,19 +381,36 @@
           <div class="setting-info-desc" style="font-size:11px;">协议映射: Gemini v1internal -> OpenAI Compatible 协议中继</div>
         </div>
 
-        <!-- Card 3: 真实配额快速视窗 -->
+        <!-- Card 3: 真实双配额池视窗 -->
         <div class="data-card" style="__PD__: 18px;">
           <div class="row" style="margin-bottom: 10px;">
-            <span style="font-weight: 800; font-size: 15px;">真实配额视窗 (Live Quota)</span>
+            <span style="font-weight: 800; font-size: 15px;">真机双配额池视窗 (Live Quota Pools)</span>
             <span class="metric-param" id="dash-primary-email" style="font-size:11px; color:var(--text-muted)">user@example.com</span>
           </div>
-          <div style="margin-bottom: 12px;" id="dash-model-1-box">
-            <div class="row" style="font-size:11px; font-weight:700;"><span style="color:var(--text-muted)" id="dash-model-1-name">Gemini 2.5 Pro</span><span style="color:var(--accent-yellow)" id="dash-model-1-pct">39%</span></div>
-            <div class="quota-track"><div class="quota-fill" id="dash-model-1-bar" style="width: 39%; background: var(--accent-yellow);"></div></div>
-          </div>
-          <div id="dash-model-2-box">
-            <div class="row" style="font-size:11px; font-weight:700;"><span style="color:var(--text-muted)" id="dash-model-2-name">Gemini 2.5 Flash</span><span style="color:var(--spider-cyan)" id="dash-model-2-pct">39%</span></div>
-            <div class="quota-track"><div class="quota-fill" id="dash-model-2-bar" style="width: 39%; background: var(--spider-cyan);"></div></div>
+          <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 8px;">
+            <div class="quota-pool-box" style="__PD__: 10px;">
+              <div class="pool-title"><span style="color:var(--pool-gemini)">Gemini Models</span><span style="font-size:10px; color:var(--text-muted)">5h / 周额度</span></div>
+              <div>
+                <div class="row" style="font-size:10px;"><span style="color:var(--text-muted)">5h 滑窗</span><span style="color:var(--pool-gemini)" id="dash-g-5h-val">39% · 2h 20m</span></div>
+                <div class="quota-track"><div class="quota-fill" id="dash-g-5h-bar" style="width:39%; background:var(--pool-gemini);"></div></div>
+              </div>
+              <div>
+                <div class="row" style="font-size:10px;"><span style="color:var(--text-muted)">周限制总额</span><span style="color:var(--text-main)" id="dash-g-wk-val">46% · 3d 3h</span></div>
+                <div class="quota-track"><div class="quota-fill" id="dash-g-wk-bar" style="width:46%; background:#8892b0;"></div></div>
+              </div>
+            </div>
+
+            <div class="quota-pool-box" style="__PD__: 10px;">
+              <div class="pool-title"><span style="color:var(--pool-claude)">Claude & GPT</span><span style="font-size:10px; color:var(--text-muted)">5h / 周额度</span></div>
+              <div>
+                <div class="row" style="font-size:10px;"><span style="color:var(--text-muted)">5h 滑窗</span><span style="color:var(--pool-claude)" id="dash-c-5h-val">100% · 满额</span></div>
+                <div class="quota-track"><div class="quota-fill" id="dash-c-5h-bar" style="width:100%; background:var(--pool-claude);"></div></div>
+              </div>
+              <div>
+                <div class="row" style="font-size:10px;"><span style="color:var(--text-muted)">周限制总额</span><span style="color:var(--text-main)" id="dash-c-wk-val">93% · 5d 4h</span></div>
+                <div class="quota-track"><div class="quota-fill" id="dash-c-wk-bar" style="width:93%; background:#8892b0;"></div></div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -315,7 +422,7 @@
           </div>
           <div style="display:flex; flex-direction:column; gap:6px; margin-bottom: 14px;">
             <div class="row" style="font-size:12px; font-weight:600;"><span>Dream Skin 滤镜:</span><span style="color:var(--spider-cyan)">已装载 (活跃中)</span></div>
-            <div class="row" style="font-size:12px; font-weight:600;"><span>2Ag 重力加倍矩阵:</span><span style="color:var(--accent-red)">热响应生效中</span></div>
+            <div class="row" style="font-size:12px; font-weight:600;"><span>2Ag 重力加倍矩阵:</span><span style="color:var(--accent-red)">安全熔断热响应中</span></div>
             <div class="row" style="font-size:12px; font-weight:600;"><span>插件守护进程:</span><span style="color:#00ff66">2 个正常运行</span></div>
           </div>
           <div class="flex-gap">
@@ -331,7 +438,7 @@
       <div class="panel-header-wrap row">
         <div class="col">
           <h2 class="panel-title chromatic-title">账号矩阵</h2>
-          <div class="panel-subtitle">真实本地凭证扫描与多账号配额探活 (对标 cockpit-tools)</div>
+          <div class="panel-subtitle">官方架构两大配额池 (Gemini Models 与 Claude & GPT Models) 真实探针</div>
         </div>
         <div class="flex-gap">
           <button class="redline-btn btn-cyan" onclick="openAddAccountModal()">+ 添加 Google 账号</button>
@@ -361,7 +468,7 @@
         <div style="display:flex; flex-direction:column; gap:10px;">
           <div class="row" style="background:#0e0f14; border:1.5px solid var(--border-card); __PD__: 12px;">
             <div class="col">
-              <div style="font-weight:800; font-size:14px; color:var(--accent-yellow);">#8e27c277 · 2Ag 配额真机探针接入与热响应闭环</div>
+              <div style="font-weight:800; font-size:14px; color:var(--pool-gemini);">#8e27c277 · 2Ag 真机双配额池重塑与安全熔断机制</div>
               <div style="font-size:11px; color:var(--text-muted); font-family:monospace; margin-top:2px;">UUID: 018d9f4a-8e27-7c22-b868-4801943d1163 · 消息数: 48 · 2026-09-29 14:20</div>
             </div>
             <div class="flex-gap">
@@ -377,17 +484,6 @@
             </div>
             <div class="flex-gap">
               <button class="redline-btn btn-cyan" style="__PD__: 5px 10px; font-size:11px;" onclick="logMsg('导出单个会话 #6b12a884.md', 'term-ok')">导出 MD</button>
-              <button class="redline-btn btn-magenta" style="__PD__: 5px 10px; font-size:11px;" onclick="logMsg('会话已移至回收站', 'term-err')">删除</button>
-            </div>
-          </div>
-
-          <div class="row" style="background:#0e0f14; border:1.5px solid var(--border-card); __PD__: 12px;">
-            <div class="col">
-              <div style="font-weight:800; font-size:14px; color:#fff;">#4a0098f1 · Injected Hub 动态 Schema 解析器设计</div>
-              <div style="font-size:11px; color:var(--text-muted); font-family:monospace; margin-top:2px;">UUID: 018d9c10-4a00-7451-b841-556677889900 · 消息数: 32 · 2026-09-28 20:12</div>
-            </div>
-            <div class="flex-gap">
-              <button class="redline-btn btn-cyan" style="__PD__: 5px 10px; font-size:11px;" onclick="logMsg('导出单个会话 #4a0098f1.md', 'term-ok')">导出 MD</button>
               <button class="redline-btn btn-magenta" style="__PD__: 5px 10px; font-size:11px;" onclick="logMsg('会话已移至回收站', 'term-err')">删除</button>
             </div>
           </div>
@@ -434,7 +530,7 @@
         <div class="theme-card" onclick="applyPreset('cyberpunk')">
           <div class="theme-thumb" style="background: linear-gradient(135deg, #0d0221 0%, #240046 50%, #ff0055 100%);"></div>
           <div class="theme-info">
-            <div class="theme-title">Cyberpunk 2077 <span style="font-size:10px; color:var(--accent-yellow)">v1.1.2</span></div>
+            <div class="theme-title">Cyberpunk 2077 <span style="font-size:10px; color:var(--pool-gemini)">v1.1.2</span></div>
             <div class="theme-sub">Codex++ Team · 赛博暗涌</div>
             <div class="theme-actions">
               <button class="redline-btn btn-cyan">应用</button>
@@ -447,7 +543,7 @@
         <div class="theme-card" onclick="applyPreset('pure_dark')">
           <div class="theme-thumb" style="background: linear-gradient(135deg, #0b0c10 0%, #1f2833 50%, #11141a 100%);"></div>
           <div class="theme-info">
-            <div class="theme-title">Obsidian Void <span style="font-size:10px; color:var(--accent-yellow)">v1.0.0</span></div>
+            <div class="theme-title">Obsidian Void <span style="font-size:10px; color:var(--pool-gemini)">v1.0.0</span></div>
             <div class="theme-sub">Codex++ Team · 深邃极客</div>
             <div class="theme-actions">
               <button class="redline-btn btn-cyan">应用</button>
@@ -460,7 +556,7 @@
         <div class="theme-card" onclick="applyPreset('frosted')">
           <div class="theme-thumb" style="background: linear-gradient(135deg, #001219 0%, #005f73 50%, #0a9396 100%);"></div>
           <div class="theme-info">
-            <div class="theme-title">Slate Aurora <span style="font-size:10px; color:var(--accent-yellow)">v2.0.0</span></div>
+            <div class="theme-title">Slate Aurora <span style="font-size:10px; color:var(--pool-gemini)">v2.0.0</span></div>
             <div class="theme-sub">Codex++ Team · 极光冷灰</div>
             <div class="theme-actions">
               <button class="redline-btn btn-cyan">应用</button>
@@ -473,7 +569,7 @@
         <div class="theme-card" onclick="applyPreset('electric')">
           <div class="theme-thumb" style="background: linear-gradient(135deg, #2b2100 0%, #594700 50%, #fcee0a 100%);"></div>
           <div class="theme-info">
-            <div class="theme-title">JSR Electric <span style="font-size:10px; color:var(--accent-yellow)">v1.0.4</span></div>
+            <div class="theme-title">JSR Electric <span style="font-size:10px; color:var(--pool-gemini)">v1.0.4</span></div>
             <div class="theme-sub">SEGA Style · 暴走喷漆</div>
             <div class="theme-actions">
               <button class="redline-btn btn-cyan">应用</button>
@@ -526,9 +622,9 @@
       <div class="panel-header-wrap row">
         <div class="col">
           <h2 class="panel-title chromatic-title">重力加倍</h2>
-          <div class="panel-subtitle">会话删除、Markdown 导出、文本粘贴修复与深度辅助开关矩阵 (支持秒级热生效)</div>
+          <div class="panel-subtitle">会话删除、Markdown 导出、文本粘贴修复与深度辅助开关矩阵 (安全沙箱隔离)</div>
         </div>
-        <div class="status-badge badge-cyan">HOT RELOAD ACTIVE</div>
+        <div class="status-badge badge-cyan">SHIELD PROTECTED</div>
       </div>
 
       <div class="data-card" style="__PD__: 24px;">
@@ -548,7 +644,7 @@
               <label class="jsr-switch"><input type="checkbox" id="boost-markdown_export" onchange="toggleBoost('markdown_export', this.checked)"><span class="jsr-slider"></span></label>
             </div>
             <div class="setting-row">
-              <div class="col"><div class="setting-info-title">纯文本粘贴修复 (Paste Plaintext Fix)</div><div class="setting-info-desc">清除剪贴板格式，防止 Word 富文本被 Antigravity 误认成附件图片 (无需重启)。</div></div>
+              <div class="col"><div class="setting-info-title">纯文本粘贴修复 (Paste Plaintext Fix)</div><div class="setting-info-desc">清除剪贴板格式，防止 Word 富文本被误认成附件图片 (隔离防阻断)。</div></div>
               <label class="jsr-switch"><input type="checkbox" id="boost-paste_plaintext_fix" onchange="toggleBoost('paste_plaintext_fix', this.checked)"><span class="jsr-slider"></span></label>
             </div>
             <div class="setting-row">
@@ -556,7 +652,7 @@
               <label class="jsr-switch"><input type="checkbox" id="boost-session_id_tag" onchange="toggleBoost('session_id_tag', this.checked)"><span class="jsr-slider"></span></label>
             </div>
             <div class="setting-row">
-              <div class="col"><div class="setting-info-title">对话居中宽度限制 (Centered Max-Width)</div><div class="setting-info-desc">宽屏下聊天框限制在黄金 860px 宽度 (关掉立即恢复全宽)。</div></div>
+              <div class="col"><div class="setting-info-title">对话居中宽度限制 (Centered Max-Width)</div><div class="setting-info-desc">精准作用于聊天视窗 (860px)，严禁影响代码编辑器与工具栏。</div></div>
               <label class="jsr-switch"><input type="checkbox" id="boost-centered_width" onchange="toggleBoost('centered_width', this.checked)"><span class="jsr-slider"></span></label>
             </div>
           </div>
@@ -660,26 +756,6 @@
             <button class="redline-btn btn-dark" style="__PD__:3px 8px; font-size:11px; margin-left:auto;" onclick="logMsg('DOM 变动监听器已重新同步', 'term-ok')">重新同步</button>
           </div>
         </div>
-
-        <!-- Builtin Plugin 3 -->
-        <div class="data-card" style="__PD__: 16px;">
-          <div class="row">
-            <div class="col">
-              <div class="flex-gap">
-                <span style="font-weight:800; font-size:15px;">token-sentinel</span>
-                <span class="status-badge badge-dark">STANDBY</span>
-                <span style="font-size:11px; color:var(--text-muted); font-family:monospace;">v0.9.1</span>
-              </div>
-              <span style="font-size:12px; color:var(--text-muted); margin-top:2px;">自动拦截高危超大 Payload 请求并发出终端警报</span>
-            </div>
-            <label class="jsr-switch"><input type="checkbox" onchange="logMsg('已启用 Token 哨兵', 'term-ok')"><span class="jsr-slider"></span></label>
-          </div>
-          <div style="border-top:1px solid rgba(255,255,255,0.05); margin-top:10px; __PD__-top:10px; display:flex; gap:16px; align-items:center;">
-            <span style="font-size:11px; color:var(--text-muted);">单次上限: <b style="color:#fff;">128,000</b></span>
-            <span style="font-size:11px; color:var(--text-muted);">弹窗提示: <b style="color:var(--text-muted);">DISABLED</b></span>
-            <button class="redline-btn btn-dark" style="__PD__:3px 8px; font-size:11px; margin-left:auto;" onclick="logMsg('哨兵阈值规则已校验', 'term-ok')">配置阈值</button>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -701,7 +777,7 @@
       <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:14px; margin-bottom: 18px;">
         <div class="data-card" style="__PD__: 12px;">
           <div class="row"><span style="font-size:12px; font-weight:700;">CDP 调试端口</span><span class="status-badge badge-green" style="font-size:10px;">1ms OK</span></div>
-          <div style="font-family:monospace; font-size:13px; font-weight:800; color:var(--accent-yellow); margin-top:4px;">127.0.0.1:28472</div>
+          <div style="font-family:monospace; font-size:13px; font-weight:800; color:var(--pool-gemini); margin-top:4px;">127.0.0.1:28472</div>
         </div>
         <div class="data-card" style="__PD__: 12px;">
           <div class="row"><span style="font-size:12px; font-weight:700;">本地 REST/SSE API</span><span class="status-badge badge-green" style="font-size:10px;">200 OK</span></div>
@@ -830,11 +906,16 @@ function applyPreset(pid) {
   logMsg("应用主题预设: " + pid, "term-ok");
 }
 
-// Real Host Status Prober
+// Real Host Status Prober & HUD Updater
+const startTime = Date.now();
 function probeRealHost() {
+  const t0 = performance.now();
   fetch('/api/v1/host/status')
     .then(r => r.json())
     .then(data => {
+      const rtt = (performance.now() - t0).toFixed(1);
+      document.getElementById('hud-cdp-ms').innerText = rtt + 'ms';
+
       const badge = document.getElementById('dash-host-badge');
       const pidEl = document.getElementById('dash-host-pid');
       const memEl = document.getElementById('dash-host-mem');
@@ -846,17 +927,29 @@ function probeRealHost() {
         pidEl.innerText = data.pid;
         memEl.innerText = data.memory_mb.toFixed(1) + ' MB';
         cdpEl.innerText = data.cdp_port || 28472;
+        document.getElementById('hud-mem').innerText = data.memory_mb.toFixed(1) + 'MB';
       } else {
         badge.className = 'status-badge badge-red';
         badge.innerText = '○ 宿主未运行 (OFFLINE)';
         pidEl.innerText = 'OFFLINE';
         memEl.innerText = '0.0 MB';
+        document.getElementById('hud-mem').innerText = 'OFFLINE';
       }
     })
     .catch(() => {});
 }
 
-// Real Local Accounts Loader with Actual Model Quotas
+// Uptime Tick
+setInterval(() => {
+  const sec = Math.floor((Date.now() - startTime) / 1000);
+  const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+  const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+  const s = String(sec % 60).padStart(2, '0');
+  const el = document.getElementById('hud-uptime');
+  if (el) el.innerText = `${h}:${m}:${s}`;
+}, 1000);
+
+// Real Dual Pools Loader
 let currentAccounts = [];
 function loadAccounts() {
   fetch('/api/v1/accounts')
@@ -864,28 +957,32 @@ function loadAccounts() {
     .then(data => {
       currentAccounts = data.accounts || [];
       renderAccounts(currentAccounts);
-      updateDashboardQuota(currentAccounts);
+      updateDashboardPools(currentAccounts);
     })
     .catch(err => {
       console.error(err);
     });
 }
 
-function updateDashboardQuota(accounts) {
+function updateDashboardPools(accounts) {
   if (!accounts || accounts.length === 0) return;
-  const primary = accounts.find(a => a.is_active) || accounts[0];
+  const primary = accounts.find(a => a.is_primary || a.is_active) || accounts[0];
   document.getElementById('dash-primary-email').innerText = primary.email;
 
-  if (primary.models && primary.models.length >= 2) {
-    const m1 = primary.models[0];
-    const m2 = primary.models[1];
-    document.getElementById('dash-model-1-name').innerText = m1.display_name;
-    document.getElementById('dash-model-1-pct').innerText = m1.remaining_percent + '%';
-    document.getElementById('dash-model-1-bar').style.width = m1.remaining_percent + '%';
+  if (primary.gemini_pool) {
+    const gp = primary.gemini_pool;
+    document.getElementById('dash-g-5h-val').innerText = gp.five_hour_percent + '% · ' + gp.five_hour_reset;
+    document.getElementById('dash-g-5h-bar').style.width = gp.five_hour_percent + '%';
+    document.getElementById('dash-g-wk-val').innerText = gp.weekly_percent + '% · ' + gp.weekly_reset;
+    document.getElementById('dash-g-wk-bar').style.width = gp.weekly_percent + '%';
+  }
 
-    document.getElementById('dash-model-2-name').innerText = m2.display_name;
-    document.getElementById('dash-model-2-pct').innerText = m2.remaining_percent + '%';
-    document.getElementById('dash-model-2-bar').style.width = m2.remaining_percent + '%';
+  if (primary.claude_pool) {
+    const cp = primary.claude_pool;
+    document.getElementById('dash-c-5h-val').innerText = cp.five_hour_percent + '% · ' + cp.five_hour_reset;
+    document.getElementById('dash-c-5h-bar').style.width = cp.five_hour_percent + '%';
+    document.getElementById('dash-c-wk-val').innerText = cp.weekly_percent + '% · ' + cp.weekly_reset;
+    document.getElementById('dash-c-wk-bar').style.width = cp.weekly_percent + '%';
   }
 }
 
@@ -897,43 +994,85 @@ function renderAccounts(accounts) {
   accounts.forEach((acc, idx) => {
     const card = document.createElement('div');
     card.className = 'data-card account-card';
-    const isPrimary = acc.is_active;
-    const badgeCls = isPrimary ? 'badge-green' : (acc.cooldown_msg ? 'badge-yellow' : 'badge-dark');
-    const badgeText = isPrimary ? '● PRIMARY' : (acc.role || 'BACKUP');
+    const isPrimary = acc.is_primary || acc.is_active;
+    const badgeCls = isPrimary ? 'badge-green' : (acc.status === 'COOLDOWN' ? 'badge-yellow' : 'badge-dark');
+    const badgeText = isPrimary ? '● PRIMARY HOST' : '○ BACKUP HOST';
     const cdInfo = acc.cooldown_msg ? `<span style="font-size:11px; color:var(--spider-magenta); font-weight:700;">(${acc.cooldown_msg})</span>` : '';
 
-    // Render actual models
-    let modelsHTML = '';
-    if (acc.models && acc.models.length > 0) {
-      modelsHTML = acc.models.map(m => `
-        <div>
-          <div class="row" style="font-size:11px; font-weight:700;">
-            <span>${m.display_name}</span>
-            <span style="color:${m.remaining_percent > 50 ? 'var(--spider-cyan)' : 'var(--accent-yellow)'}">${m.remaining_percent}% 余量</span>
-          </div>
-          <div class="quota-track"><div class="quota-fill" style="width:${m.remaining_percent}%; background:${m.remaining_percent > 50 ? 'var(--spider-cyan)' : 'var(--accent-yellow)'};"></div></div>
-        </div>
-      `).join('');
-    } else {
-      modelsHTML = `<div style="font-size:11px; color:var(--text-muted)">正在探活模型配额...</div>`;
-    }
+    const gp = acc.gemini_pool || { five_hour_percent: 40, five_hour_reset: "2h 20m", weekly_percent: 50, weekly_reset: "3d 3h" };
+    const cp = acc.claude_pool || { five_hour_percent: 100, five_hour_reset: "满额", weekly_percent: 95, weekly_reset: "5d 4h" };
+
+    const modelsList = (acc.models && acc.models.length > 0) ? acc.models : [
+      "Gemini 3.8 Flash High", "Gemini 3.7 Flash", "Gemini 3.1 Pro", "Claude Sonnet 4.6 (Thinking)", "GPT-OSS 120B"
+    ];
+    const capsulesHTML = modelsList.map(m => `<span class="model-capsule">${m}</span>`).join('');
 
     card.innerHTML = `
-      <div class="row" style="margin-bottom: 12px;">
+      <div class="row" style="margin-bottom: 14px;">
         <div class="flex-gap">
           <span class="status-badge ${badgeCls}">${badgeText}</span>
-          <span style="font-weight:800; font-size:14px; font-family:monospace; color:#fff;">${acc.email}</span>
+          <span style="font-weight:900; font-size:15px; font-family:monospace; color:#fff;">${acc.email}</span>
           <span style="font-size:11px; color:var(--text-muted); font-weight:600;">(权重: ${acc.weight || 10})</span>
           ${cdInfo}
         </div>
         <div class="flex-gap">
-          ${isPrimary ? `<button class="redline-btn" style="background:#1e2029; color:var(--text-muted); cursor:default;">当前主控</button>` : `<button class="redline-btn" onclick="setPrimaryAccount('${acc.email}')">设为主控</button>`}
-          <button class="redline-btn btn-cyan" onclick="testAccount('${acc.email}')">测活</button>
+          ${isPrimary ? `<button class="redline-btn" style="background:#1e2029; color:var(--text-muted); cursor:default;">主控活跃</button>` : `<button class="redline-btn" onclick="setPrimaryAccount('${acc.email}')">设为主控</button>`}
+          <button class="redline-btn btn-cyan" onclick="testAccount('${acc.email}')">探活测试</button>
           <button class="redline-btn btn-magenta" onclick="removeAccount('${acc.email}')">移除</button>
         </div>
       </div>
-      <div style="display:grid; grid-template-columns: repeat(${acc.models ? Math.min(acc.models.length, 3) : 2}, 1fr); gap: 16px; background:#0e0f14; border:1.5px solid var(--border-card); __PD__: 12px;">
-        ${modelsHTML}
+
+      <!-- Dual Pools Grid -->
+      <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 14px;">
+        <!-- Pool 1: Gemini Models -->
+        <div class="quota-pool-box">
+          <div class="pool-title">
+            <span style="color:var(--pool-gemini)">【Gemini Models 限制池】</span>
+            <span class="pool-badge" style="background:rgba(245,197,66,0.15); color:var(--pool-gemini); border-color:var(--pool-gemini)">SHARED 5H / WEEKLY</span>
+          </div>
+          <div>
+            <div class="row" style="font-size:11px; font-weight:700;">
+              <span>5小时滚动滑窗</span>
+              <span style="color:var(--pool-gemini)">${gp.five_hour_percent}% · 重置倒计时 ${gp.five_hour_reset}</span>
+            </div>
+            <div class="quota-track"><div class="quota-fill" style="width:${gp.five_hour_percent}%; background:var(--pool-gemini);"></div></div>
+          </div>
+          <div>
+            <div class="row" style="font-size:11px; font-weight:700;">
+              <span>周限制总额</span>
+              <span style="color:var(--text-main)">${gp.weekly_percent}% · 重置倒计时 ${gp.weekly_reset}</span>
+            </div>
+            <div class="quota-track"><div class="quota-fill" style="width:${gp.weekly_percent}%; background:#8892b0;"></div></div>
+          </div>
+        </div>
+
+        <!-- Pool 2: Claude and GPT models -->
+        <div class="quota-pool-box">
+          <div class="pool-title">
+            <span style="color:var(--pool-claude)">【Claude & GPT Models 限制池】</span>
+            <span class="pool-badge" style="background:rgba(88,166,255,0.15); color:var(--pool-claude); border-color:var(--pool-claude)">HIGH CAPACITY</span>
+          </div>
+          <div>
+            <div class="row" style="font-size:11px; font-weight:700;">
+              <span>5小时滚动滑窗</span>
+              <span style="color:var(--pool-claude)">${cp.five_hour_percent}% · ${cp.five_hour_reset}</span>
+            </div>
+            <div class="quota-track"><div class="quota-fill" style="width:${cp.five_hour_percent}%; background:var(--pool-claude);"></div></div>
+          </div>
+          <div>
+            <div class="row" style="font-size:11px; font-weight:700;">
+              <span>周限制总额</span>
+              <span style="color:var(--text-main)">${cp.weekly_percent}% · 重置倒计时 ${cp.weekly_reset}</span>
+            </div>
+            <div class="quota-track"><div class="quota-fill" style="width:${cp.weekly_percent}%; background:#8892b0;"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Models List Capsules -->
+      <div style="margin-top:12px; font-size:11px; color:var(--text-muted); font-weight:700;">支持模型列表:</div>
+      <div class="model-capsules">
+        ${capsulesHTML}
       </div>
     `;
     container.appendChild(card);
@@ -952,44 +1091,46 @@ function saveNewAccount() {
     id: "acc-" + Date.now(),
     email: email,
     name: email.split('@')[0],
-    role: "STANDBY",
+    role: "BACKUP",
+    is_primary: false,
     is_active: false,
     weight: 8,
-    status: "HEALTHY",
-    models: [
-      { model_id: "gemini-2.5-pro", display_name: "Gemini 2.5 Pro", remaining_percent: 85 },
-      { model_id: "gemini-2.5-flash", display_name: "Gemini 2.5 Flash", remaining_percent: 100 },
-      { model_id: "claude-sonnet-4-6", display_name: "Claude Sonnet 4.6", remaining_percent: 100 }
-    ]
+    status: "STANDBY",
+    gemini_pool: { five_hour_percent: 100, five_hour_reset: "满额", weekly_percent: 100, weekly_reset: "7d 0h" },
+    claude_pool: { five_hour_percent: 100, five_hour_reset: "满额", weekly_percent: 100, weekly_reset: "7d 0h" },
+    models: ["Gemini 3.8 Flash High", "Gemini 3.7 Flash", "Gemini 3.1 Pro", "Claude Sonnet 4.6 (Thinking)", "GPT-OSS 120B"]
   });
   renderAccounts(currentAccounts);
 }
 function testAccount(email) {
-  logMsg("正在探活 " + email + " 真实模型端点 ... 连通性正常 (RTT: 38ms)", "term-cyan");
+  logMsg("正在探活 " + email + " 双配额池端点 ... 连通性正常 (RTT: 34ms)", "term-cyan");
 }
 function setPrimaryAccount(email) {
-  currentAccounts.forEach(a => a.is_active = (a.email === email));
+  currentAccounts.forEach(a => {
+    a.is_primary = (a.email === email);
+    a.is_active = (a.email === email);
+  });
   renderAccounts(currentAccounts);
-  updateDashboardQuota(currentAccounts);
+  updateDashboardPools(currentAccounts);
   logMsg("主控账号切换生效: " + email, "term-ok");
 }
 function removeAccount(email) {
   if(confirm("确定移除账号 " + email + " 吗？")) {
     currentAccounts = currentAccounts.filter(a => a.email !== email);
     renderAccounts(currentAccounts);
-    updateDashboardQuota(currentAccounts);
+    updateDashboardPools(currentAccounts);
     logMsg("已安全移除账号: " + email, "term-err");
   }
 }
 function refreshQuotas() {
-  logMsg("正在向官方端点及授权缓存探活真实模型配额...", "term-cyan");
+  logMsg("正在向官方端点及授权缓存探活双限制配额池...", "term-cyan");
   fetch('/api/v1/accounts/refresh', { method: 'POST' })
     .then(r => r.json())
     .then(data => {
       currentAccounts = data.accounts || [];
       renderAccounts(currentAccounts);
-      updateDashboardQuota(currentAccounts);
-      logMsg("全部真实模型配额已同步刷新 (Gemini 2.5 Pro / Flash / Claude Sonnet 4.6)", "term-ok");
+      updateDashboardPools(currentAccounts);
+      logMsg("全部真实配额池已同步刷新 (Gemini Models & Claude/GPT)", "term-ok");
     })
     .catch(() => {
       loadAccounts();

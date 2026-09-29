@@ -535,27 +535,28 @@
     positionHub(document.getElementById(HUB_ID));
   }
 
-  // --- Real Gravity Boost Interceptors ---
-  const STYLE_ID = '2ag-centered-style';
-  function updateCenteredWidth(enabled) {
-    let el = document.getElementById(STYLE_ID);
-    if (enabled) {
-      if (!el) {
+  // --- Real Gravity Boost Interceptors with Safety Shield ---
+  function safeApplyCenteredWidth(enabled) {
+    try {
+      const STYLE_ID = '2ag-safe-centered-style';
+      let el = document.getElementById(STYLE_ID);
+      if (enabled && !el) {
         el = document.createElement('style');
         el.id = STYLE_ID;
+        // 仅作用于聊天流滚动视窗，严禁影响代码编辑器与工具栏
         el.textContent = `
-          /* 深度锁死聊天对话区居中 */
-          main, [role="main"], div[class*="chat-scroll"], div[class*="conversation"], [class*="chat-stream"], [class*="session-view"] {
+          div[class*="chat-scroll"], div[class*="conversation-view"] {
             max-width: 860px !important;
             margin-left: auto !important;
             margin-right: auto !important;
-            width: 100% !important;
           }
         `;
         document.head.appendChild(el);
+      } else if (!enabled && el) {
+        el.remove();
       }
-    } else if (el) {
-      el.remove(); // 关掉开关立即恢复全宽
+    } catch (e) {
+      console.warn('[2Ag Shield] Centered style bypass:', e);
     }
   }
 
@@ -563,7 +564,7 @@
     if (!newState) return;
     const gb = newState.gravity_boost || {};
     window.__2ag_active_gb = gb; // 让 paste 和 keydown 动态读取最新布尔值
-    updateCenteredWidth(gb.centered_width);
+    safeApplyCenteredWidth(gb.centered_width);
   };
 
   function applyGravityBoost() {
@@ -573,7 +574,7 @@
       enable_devtools: true
     };
     window.__2ag_active_gb = gb;
-    updateCenteredWidth(gb.centered_width);
+    safeApplyCenteredWidth(gb.centered_width);
 
     // 2. Plaintext Paste Cleanup
     if (!window.__2ag_paste_installed) {
