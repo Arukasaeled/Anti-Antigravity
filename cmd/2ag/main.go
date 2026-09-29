@@ -26,6 +26,7 @@ import (
 	"github.com/2ag/2ag/internal/profile"
 	"github.com/2ag/2ag/internal/supervisor"
 	"github.com/2ag/2ag/web"
+	"github.com/jchv/go-webview2"
 )
 
 func main() {
@@ -60,7 +61,7 @@ func runCLI(args []string) error {
 	case "skin":
 		return skinCommand(configPath, cfg, args[1:])
 	case "manager":
-		return exec.Command("msedge", "--app=http://localhost:28472/dist/").Start()
+		return runManager()
 	case "doctor":
 		return doctor(configPath, cfg)
 	case "help", "-h", "--help":
@@ -544,4 +545,23 @@ func usage() {
 	fmt.Println("  2ag profile save <name>")
 	fmt.Println("  2ag profile switch <name>")
 	fmt.Println("  2ag doctor")
+}
+
+func runManager() error {
+	w := webview2.NewWithOptions(webview2.WebViewOptions{
+		Debug:     true,
+		AutoFocus: true,
+		WindowOptions: webview2.WindowOptions{
+			Title:  "2Ag Manager",
+			Width:  900,
+			Height: 650,
+		},
+	})
+	if w == nil {
+		return fmt.Errorf("failed to load webview2")
+	}
+	defer w.Destroy()
+	w.Navigate("http://localhost:28472/")
+	w.Run()
+	return nil
 }

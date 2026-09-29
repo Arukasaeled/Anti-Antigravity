@@ -102,13 +102,13 @@ func (sm *StateMachine) ApplyAction(action StateAction) error {
 			Type:    StateChangedEvent,
 			Payload: stateCopy,
 		})
-		sm.scheduleSave()
+		sm.schedulePersistLocked()
 	}
 
 	return nil
 }
 
-func (sm *StateMachine) scheduleSave() {
+func (sm *StateMachine) schedulePersistLocked() {
 	if sm.debounceTimer != nil {
 		sm.debounceTimer.Stop()
 	}

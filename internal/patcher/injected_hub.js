@@ -425,20 +425,75 @@
     const pluginList = root.querySelector('[id="2ag-plugin-list"]');
     Object.keys(state.plugins).forEach((name) => {
       const value = state.plugins[name] || {};
-      const row = document.createElement('label'); row.className = 'ag-plugin'; row.dataset.pluginName = name;
+      const rowContainer = document.createElement('div'); 
+      rowContainer.className = 'ag-plugin'; 
+      rowContainer.dataset.pluginName = name;
+      rowContainer.style.display = 'block';
+
       const label = (value && value.displayName) || name;
       const description = value && value.description ? '<small class="ag-muted">' + String(value.description).replace(/[<>&"']/g, '') + '</small>' : '';
-      row.innerHTML = '<span style="display:flex;flex-direction:column;gap:2px"><strong>' + String(label).replace(/[<>&"']/g, '') + '</strong>' + description + '<small class="ag-muted" data-plugin-status>' + t('pluginStopped') + '</small></span><span class="ag-toggle"><input type="checkbox"><span class="ag-toggle-track"><span class="ag-toggle-thumb"></span></span></span>';
-      const toggle = row.querySelector('input');
+      
+      const header = document.createElement('div');
+      header.style.display = 'flex';
+      header.style.justifyContent = 'space-between';
+      header.style.alignItems = 'center';
+      header.innerHTML = '<span style="display:flex;flex-direction:column;gap:2px"><strong>' + String(label).replace(/[<>&"']/g, '') + '</strong>' + description + '<small class="ag-muted" data-plugin-status>' + t('pluginStopped') + '</small></span><label class="ag-toggle" style="cursor:pointer"><input type="checkbox"><span class="ag-toggle-track"><span class="ag-toggle-thumb"></span></span></label>';
+      
+      const toggle = header.querySelector('input');
       toggle.checked = Boolean(value && value.enabled !== undefined ? value.enabled : value);
       toggle.addEventListener('change', () => {
         const enabled = toggle.checked;
         state.plugins[name] = Object.assign({}, value, { enabled }); saveState();
         if (INITIAL_CONFIG.plugin_url) {
-          fetch(INITIAL_CONFIG.plugin_url + '/plugins/' + encodeURIComponent(name), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) }).then((response) => { if (!response.ok) throw new Error('sidecar control failed'); return response.json(); }).catch(() => { toggle.checked = !enabled; state.plugins[name] = Object.assign({}, value, { enabled: !enabled }); saveState(); });
+          fetch(INITIAL_CONFIG.plugin_url + '/plugins/' + encodeURIComponent(name), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) }).catch(() => { toggle.checked = !enabled; state.plugins[name] = Object.assign({}, value, { enabled: !enabled }); saveState(); });
         }
       });
-      pluginList.appendChild(row);
+      rowContainer.appendChild(header);
+
+      if (value.ui && value.ui.schema && value.ui.schema.fields) {
+        const fieldsBox = document.createElement('div');
+        fieldsBox.style.marginTop = '10px';
+        fieldsBox.style.paddingTop = '10px';
+        fieldsBox.style.borderTop = '1px solid rgba(255,255,255,0.05)';
+        
+        value.ui.schema.fields.forEach(f => {
+          const fRow = document.createElement('div');
+          fRow.style.display = 'flex';
+          fRow.style.justifyContent = 'space-between';
+          fRow.style.alignItems = 'center';
+          fRow.style.marginTop = '8px';
+          fRow.innerHTML = '<span style="font-size:12px">' + (f.label || f.key) + '</span>';
+          
+          const configVal = value.config && value.config[f.key] !== undefined ? value.config[f.key] : f.default;
+          
+          if (f.type === 'boolean') {
+            const toggleWrapper = document.createElement('label');
+            toggleWrapper.className = 'ag-toggle';
+            toggleWrapper.style.cursor = 'pointer';
+            toggleWrapper.innerHTML = '<input type="checkbox"' + (configVal ? ' checked' : '') + '><span class="ag-toggle-track"><span class="ag-toggle-thumb"></span></span>';
+            toggleWrapper.querySelector('input').addEventListener('change', function() {
+              ipc('core.config.plugin.set', { plugin: name, key: f.key, value: this.checked }).catch(()=>{});
+            });
+            fRow.appendChild(toggleWrapper);
+          } else {
+            const inputEl = document.createElement('input');
+            inputEl.type = f.type === 'number' ? 'number' : 'text';
+            inputEl.value = configVal || '';
+            inputEl.placeholder = f.default || '';
+            inputEl.style.cssText = 'width: 120px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 6px; border-radius: 4px; font-size: 11px;';
+            inputEl.addEventListener('change', function() {
+              let val = this.value;
+              if(f.type === 'number') val = Number(val);
+              ipc('core.config.plugin.set', { plugin: name, key: f.key, value: val }).catch(()=>{});
+            });
+            fRow.appendChild(inputEl);
+          }
+          fieldsBox.appendChild(fRow);
+        });
+        rowContainer.appendChild(fieldsBox);
+      }
+      
+      pluginList.appendChild(rowContainer);
     });
     renderValues();
     showTab('skin');
