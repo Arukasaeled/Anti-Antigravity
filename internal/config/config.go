@@ -14,6 +14,7 @@ type Config struct {
 	WallpaperPath string            `json:"wallpaper_path"`
 	Blur          int               `json:"blur"`
 	Opacity       float64           `json:"opacity"`
+	ModalOpacity  float64           `json:"modal_opacity"`
 	Language      string            `json:"language"`
 	Network       NetworkConfig     `json:"network"`
 	Privacy       PrivacyConfig     `json:"privacy"`
@@ -53,11 +54,12 @@ type Plugin struct {
 	Args        []string `json:"args,omitempty"`
 	Enabled     bool     `json:"enabled"`
 	DisplayName string   `json:"-"`
-	Version     string   `json:"-"`
-	Author      string   `json:"-"`
-	Description string   `json:"-"`
-	UIEntry     string   `json:"-"`
-	Directory   string   `json:"-"`
+	Version     string         `json:"-"`
+	Author      string         `json:"-"`
+	Description string         `json:"-"`
+	UIEntry     string         `json:"-"`
+	Directory   string         `json:"-"`
+	Config      map[string]any `json:"config,omitempty"`
 }
 
 func Default() Config {
@@ -65,6 +67,7 @@ func Default() Config {
 		WallpaperPath: DefaultWallpaperPath,
 		Blur:          20,
 		Opacity:       0.55,
+		ModalOpacity:  0.85,
 		Language:      "zh-CN",
 		Network:       NetworkConfig{Enabled: true},
 		Privacy: PrivacyConfig{BlockedHosts: []string{
@@ -94,6 +97,9 @@ func (c Config) Validate() error {
 	}
 	if c.Opacity < 0.1 || c.Opacity > 0.9 {
 		return fmt.Errorf("opacity must be between 0.1 and 0.9")
+	}
+	if c.ModalOpacity < 0.1 || c.ModalOpacity > 1.0 {
+		return fmt.Errorf("modal_opacity must be between 0.1 and 1.0")
 	}
 	if c.Language != "zh-CN" && c.Language != "en-US" {
 		return fmt.Errorf("language must be zh-CN or en-US")

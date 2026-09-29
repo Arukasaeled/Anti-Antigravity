@@ -71,10 +71,10 @@
     [id="2ag-hub-drawer"] .ag-muted { color: rgba(255,255,255,.54); font-size: 11px; }
     [id="2ag-hub-drawer"] input[type="checkbox"] { position:absolute; opacity:0; width:1px; height:1px; pointer-events:none; }
     [id="2ag-hub-drawer"] .ag-toggle { display:inline-flex; align-items:center; flex:0 0 auto; }
-    [id="2ag-hub-drawer"] .ag-toggle-track { display:inline-flex; width:36px; height:20px; padding:2px; box-sizing:border-box; border-radius:999px; background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.18); transition:background .16s ease, border-color .16s ease; cursor:pointer; }
-    [id="2ag-hub-drawer"] .ag-toggle-thumb { width:14px; height:14px; border-radius:50%; background:#d9e5ff; box-shadow:0 2px 5px rgba(0,0,0,.35); transition:transform .16s ease, background .16s ease; }
-    [id="2ag-hub-drawer"] input[type="checkbox"]:checked + .ag-toggle-track { background:linear-gradient(90deg,#759eff,#a9c5ff); border-color:rgba(198,218,255,.7); }
-    [id="2ag-hub-drawer"] input[type="checkbox"]:checked + .ag-toggle-track .ag-toggle-thumb { transform:translateX(16px); background:#fff; }
+    [id="2ag-hub-drawer"] .ag-toggle-track { display:inline-flex; width:44px; height:24px; padding:2px; box-sizing:border-box; border-radius:0; background:#333; border:2px solid #000; transition:background .16s ease, border-color .16s ease; cursor:pointer; }
+    [id="2ag-hub-drawer"] .ag-toggle-thumb { width:16px; height:16px; border-radius:0; background:#8b92a5; border:2px solid #000; transition:transform .16s ease, background .16s ease; }
+    [id="2ag-hub-drawer"] input[type="checkbox"]:checked + .ag-toggle-track { background:#00f0ff; }
+    [id="2ag-hub-drawer"] input[type="checkbox"]:checked + .ag-toggle-track .ag-toggle-thumb { transform:translateX(20px); background:#f5ee38; }
     [id="2ag-hub-drawer"] .ag-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin: 14px 0; padding-bottom:3px; border-bottom:1px solid rgba(255,255,255,.08); }
     [id="2ag-hub-drawer"] .ag-tabs button { padding: 6px 4px; font-size: 11px; position:relative; border-color:transparent; background:transparent; }
     [id="2ag-hub-drawer"] .ag-tabs button[data-active="true"] { color:#dce8ff; }
@@ -480,7 +480,7 @@
             inputEl.type = f.type === 'number' ? 'number' : 'text';
             inputEl.value = configVal || '';
             inputEl.placeholder = f.default || '';
-            inputEl.style.cssText = 'width: 120px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: #fff; padding: 4px 6px; border-radius: 4px; font-size: 11px;';
+            inputEl.style.cssText = 'width: 120px; background: #0b0c10; border: 2px solid #000; color: #f5ee38; padding: 4px 6px; border-radius: 0; font-family: monospace; font-size: 11px;';
             inputEl.addEventListener('change', function() {
               let val = this.value;
               if(f.type === 'number') val = Number(val);

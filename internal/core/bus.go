@@ -11,6 +11,7 @@ const (
 	PluginStatusEvent EventType = "plugin_status"
 	HostExitedEvent   EventType = "host_exited"
 	ErrorEvent        EventType = "error"
+	CommandEvent      EventType = "command_dispatch"
 )
 
 type Event struct {

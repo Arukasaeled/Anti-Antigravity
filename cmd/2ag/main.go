@@ -192,7 +192,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 		injector.BridgeHandlers = coreBridgeHandlers(runtimeConfig, sidecars, injector.SetWallpaperPath, func(ctx context.Context) (any, error) { return openDevTools(ctx, cdpPort) }, func(ctx context.Context) (any, error) { return probeGateway(ctx, injector.ProxyURL) }, sm)
 		
 		currentState := sm.GetState()
-		if err := injector.WaitAndInject(ctx, currentState.WallpaperPath, currentState.Blur, currentState.Opacity, 15*time.Second); err != nil {
+		if err := injector.WaitAndInject(ctx, currentState.WallpaperPath, currentState.Blur, currentState.Opacity, currentState.ModalOpacity, 15*time.Second); err != nil {
 			if ctx.Err() == nil {
 				log.Printf("[2ag] CDP injection failed: %v", err)
 			}
@@ -203,19 +203,37 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 		stateCh := bus.Subscribe(core.StateChangedEvent)
 		defer bus.Unsubscribe(core.StateChangedEvent, stateCh)
 
+		cmdCh := bus.Subscribe(core.CommandEvent)
+		defer bus.Unsubscribe(core.CommandEvent, cmdCh)
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case event := <-stateCh:
 				if newState, ok := event.Payload.(config.Config); ok {
-					if err := injector.Inject(ctx, newState.WallpaperPath, newState.Blur, newState.Opacity); err != nil && ctx.Err() == nil {
+					if err := injector.Inject(ctx, newState.WallpaperPath, newState.Blur, newState.Opacity, newState.ModalOpacity); err != nil && ctx.Err() == nil {
 						log.Printf("[2ag] CDP event injection failed: %v", err)
+					}
+				}
+			case event := <-cmdCh:
+				if action, ok := event.Payload.(core.StateAction); ok {
+					switch action.Type {
+					case core.OpenDevtoolsAction:
+						openDevTools(ctx, cdpPort)
+					case core.HostCtrlAction:
+						payload, ok := action.Payload.(map[string]any)
+						if ok {
+							cmd, _ := payload["cmd"].(string)
+							if cmd == "stop" {
+								managed.Stop()
+							}
+						}
 					}
 				}
 			case <-time.After(5 * time.Second):
 				currentState := sm.GetState()
-				if err := injector.Inject(ctx, currentState.WallpaperPath, currentState.Blur, currentState.Opacity); err != nil && ctx.Err() == nil {
+				if err := injector.Inject(ctx, currentState.WallpaperPath, currentState.Blur, currentState.Opacity, currentState.ModalOpacity); err != nil && ctx.Err() == nil {
 					log.Printf("[2ag] CDP maintenance injection failed: %v", err)
 				}
 			}

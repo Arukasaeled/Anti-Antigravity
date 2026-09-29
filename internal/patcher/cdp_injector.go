@@ -180,7 +180,7 @@ func (i *CDPInjector) SetWallpaperPath(path string) error {
 
 // Inject waits for CDP, opens a page target, and reapplies the Dream Skin
 // closure five times at 800 ms intervals while the SPA finishes rendering.
-func (i *CDPInjector) Inject(ctx context.Context, wallpaperPath string, blur int, opacity float64) error {
+func (i *CDPInjector) Inject(ctx context.Context, wallpaperPath string, blur int, opacity float64, modalOpacity float64) error {
 	if i == nil {
 		return errors.New("CDP injector is nil")
 	}
@@ -210,7 +210,7 @@ func (i *CDPInjector) Inject(ctx context.Context, wallpaperPath string, blur int
 	i.wallpaperMu.Lock()
 	wallpaperURL := i.wallpaperURL
 	i.wallpaperMu.Unlock()
-	expression := buildInjectionExpression(wallpaperURL, blur, opacity, i.ProxyURL, i.Initial)
+	expression := buildInjectionExpression(wallpaperURL, blur, opacity, modalOpacity, i.ProxyURL, i.Initial)
 	var lastErr error
 	if err := installOnNewDocument(conn, reader, 1, expression); err != nil {
 		lastErr = fmt.Errorf("register CDP document hook: %w", err)
@@ -260,7 +260,7 @@ func (i *CDPInjector) ensureBridge(ctx context.Context, websocketURL string) {
 	i.bridgeTarget = websocketURL
 }
 
-func (i *CDPInjector) WaitAndInject(ctx context.Context, wallpaperPath string, blur int, opacity float64, timeout time.Duration) error {
+func (i *CDPInjector) WaitAndInject(ctx context.Context, wallpaperPath string, blur int, opacity float64, modalOpacity float64, timeout time.Duration) error {
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
@@ -272,7 +272,7 @@ func (i *CDPInjector) WaitAndInject(ctx context.Context, wallpaperPath string, b
 	defer cancel()
 	var lastErr error
 	for {
-		if err := i.Inject(waitCtx, wallpaperPath, blur, opacity); err == nil {
+		if err := i.Inject(waitCtx, wallpaperPath, blur, opacity, modalOpacity); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -317,13 +317,14 @@ func (i *CDPInjector) findTarget(ctx context.Context) (cdpTarget, error) {
 	return cdpTarget{}, errors.New("Antigravity loopback application page is not ready")
 }
 
-func buildInjectionExpression(wallpaperURL string, blur int, opacity float64, proxyURL string, initial HubConfig) string {
+func buildInjectionExpression(wallpaperURL string, blur int, opacity float64, modalOpacity float64, proxyURL string, initial HubConfig) string {
 	initial.Wallpaper = wallpaperURL
 	if strings.HasSuffix(wallpaperURL, "/bg.jpg") {
 		initial.LogoURL = strings.TrimSuffix(wallpaperURL, "/bg.jpg") + "/logo.png"
 	}
 	initial.Blur = blur
 	initial.Opacity = opacity
+	initial.ModalOpacity = modalOpacity
 	initial.ProxyURL = proxyURL
 	if initial.Preset == "" {
 		initial.Preset = "Dark Dream"

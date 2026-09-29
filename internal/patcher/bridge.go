@@ -18,6 +18,7 @@ type HubConfig struct {
 	WallpaperPath string            `json:"wallpaper_path"`
 	Blur          int               `json:"blur"`
 	Opacity       float64           `json:"opacity"`
+	ModalOpacity  float64           `json:"modal_opacity"`
 	Language      string            `json:"language"`
 	Preset        string            `json:"preset"`
 	Plugins       map[string]any    `json:"plugins"`

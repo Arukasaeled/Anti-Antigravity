@@ -11,9 +11,15 @@ import (
 type ActionType string
 
 const (
-	SetThemeAction      ActionType = "SET_THEME"
-	SetLanguageAction   ActionType = "SET_LANGUAGE"
-	TogglePluginAction  ActionType = "TOGGLE_PLUGIN"
+	SetThemeAction           ActionType = "SET_THEME"
+	SetLanguageAction        ActionType = "SET_LANGUAGE"
+	TogglePluginAction       ActionType = "TOGGLE_PLUGIN"
+	UpdatePluginConfigAction ActionType = "UPDATE_PLUGIN_CONFIG"
+	SetPresetAction          ActionType = "SET_PRESET"
+	HostCtrlAction           ActionType = "HOST_CTRL"
+	OpenDevtoolsAction       ActionType = "OPEN_DEVTOOLS"
+	HotReloadAction          ActionType = "HOT_RELOAD"
+	ExportConfigAction       ActionType = "EXPORT_CONFIG"
 )
 
 type StateAction struct {
@@ -67,6 +73,10 @@ func (sm *StateMachine) ApplyAction(action StateAction) error {
 			sm.state.Opacity = opacity
 			changed = true
 		}
+		if modalOpacity, ok := payload["modal_opacity"].(float64); ok {
+			sm.state.ModalOpacity = modalOpacity
+			changed = true
+		}
 	case SetLanguageAction:
 		payload, ok := action.Payload.(map[string]any)
 		if !ok {
@@ -92,6 +102,55 @@ func (sm *StateMachine) ApplyAction(action StateAction) error {
 				}
 			}
 		}
+	case UpdatePluginConfigAction:
+		payload, ok := action.Payload.(map[string]any)
+		if !ok {
+			return fmt.Errorf("invalid payload for UPDATE_PLUGIN_CONFIG")
+		}
+		pluginName, _ := payload["name"].(string)
+		key, _ := payload["key"].(string)
+		val := payload["value"]
+		for i, p := range sm.state.Plugins {
+			if p.Name == pluginName {
+				if sm.state.Plugins[i].Config == nil {
+					sm.state.Plugins[i].Config = make(map[string]any)
+				}
+				sm.state.Plugins[i].Config[key] = val
+				changed = true
+				break
+			}
+		}
+	case SetPresetAction:
+		payload, ok := action.Payload.(map[string]any)
+		if !ok {
+			return fmt.Errorf("invalid payload for SET_PRESET")
+		}
+		presetName, _ := payload["preset"].(string)
+		switch presetName {
+		case "pure_dark":
+			sm.state.Blur = 10
+			sm.state.Opacity = 0.90
+			sm.state.ModalOpacity = 0.95
+		case "cyberpunk":
+			sm.state.Blur = 15
+			sm.state.Opacity = 0.70
+			sm.state.ModalOpacity = 0.90
+		case "frosted":
+			sm.state.Blur = 30
+			sm.state.Opacity = 0.40
+			sm.state.ModalOpacity = 0.80
+		case "native":
+			sm.state.Blur = 0
+			sm.state.Opacity = 0.0
+			sm.state.ModalOpacity = 1.0
+		}
+		changed = true
+	case HostCtrlAction, OpenDevtoolsAction, HotReloadAction, ExportConfigAction:
+		// Dispatch as CommandEvent, do not mutate state
+		sm.bus.Publish(Event{
+			Type:    CommandEvent,
+			Payload: action,
+		})
 	default:
 		return fmt.Errorf("unknown action type: %s", action.Type)
 	}
