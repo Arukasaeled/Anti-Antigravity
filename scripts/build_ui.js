@@ -1,4 +1,7 @@
-<!DOCTYPE html>
+const fs = require('fs');
+const path = require('path');
+
+const htmlContent = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -1159,13 +1162,7 @@
 
       <div>
         <label style="font-size:11px; font-weight:700; color:var(--text-secondary);">或直接粘贴 JSON 凭据内容:</label>
-        <textarea class="modal-input" id="json-paste-area" style="height:90px; resize:vertical;" placeholder='[
-  {
-    "email": "dev@gmail.com",
-    "refresh_token": "1//0g...",
-    "name": "Dev Account"
-  }
-]'></textarea>
+        <textarea class="modal-input" id="json-paste-area" style="height:90px; resize:vertical;" placeholder='[\n  {\n    "email": "dev@gmail.com",\n    "refresh_token": "1//0g...",\n    "name": "Dev Account"\n  }\n]'></textarea>
       </div>
 
       <div class="flex-gap" style="justify-content:flex-end; margin-top:4px;">
@@ -1230,7 +1227,7 @@ function logMsg(msg, cls="") {
   const div = document.createElement('div');
   const colorMap = { 'term-ok': 'color:#fdd663', 'term-err': 'color:#f28b82', 'term-cyan': 'color:#8ab4f8' };
   const styleStr = colorMap[cls] || 'color:#81c995';
-  div.innerHTML = `<span style="color:#8ab4f8;margin-right:8px">[${timeStr}]</span> <span style="${styleStr}">> ${msg}</span>`;
+  div.innerHTML = \`<span style="color:#8ab4f8;margin-right:8px">[\${timeStr}]</span> <span style="\${styleStr}">> \${msg}</span>\`;
   term.appendChild(div);
   term.scrollTop = term.scrollHeight;
 }
@@ -1362,7 +1359,7 @@ setInterval(() => {
   const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
   const s = String(sec % 60).padStart(2, '0');
   const el = document.getElementById('hud-uptime');
-  if (el) el.innerText = `${h}:${m}:${s}`;
+  if (el) el.innerText = \`\${h}:\${m}:\${s}\`;
 }, 1000);
 
 // Real Local Sessions Scanner (会话审计)
@@ -1385,7 +1382,7 @@ function loadSessions(showToast = false) {
     .catch(err => {
       logMsg("读取会话审计数据失败: " + err, "term-err");
       const list = document.getElementById('sessions-list');
-      if (list) list.innerHTML = `<div style="color:var(--g-red); padding:16px;">读取会话失败: ${err}</div>`;
+      if (list) list.innerHTML = \`<div style="color:var(--g-red); padding:16px;">读取会话失败: \${err}</div>\`;
     });
 }
 
@@ -1398,7 +1395,7 @@ function renderSessions(sessions) {
   const list = document.getElementById('sessions-list');
   if (!list) return;
   if (!sessions || sessions.length === 0) {
-    list.innerHTML = `<div style="font-size:12px; color:var(--text-secondary); text-align:center; padding: 24px;">未检测到本地历史会话</div>`;
+    list.innerHTML = \`<div style="font-size:12px; color:var(--text-secondary); text-align:center; padding: 24px;">未检测到本地历史会话</div>\`;
     return;
   }
   list.innerHTML = '';
@@ -1407,19 +1404,19 @@ function renderSessions(sessions) {
     item.className = 'row';
     item.style = 'background:var(--g-surface-high); border:1.5px solid var(--g-border); padding: 12px; border-radius: 4px;';
     const shortId = s.id ? s.id.slice(0, 8) : 'unknown';
-    item.innerHTML = `
+    item.innerHTML = \`
       <div class="col" style="flex:1; overflow:hidden; padding-right:12px;">
-        <div style="font-weight:700; font-size:14px; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(s.title)}">
-          #${shortId} · ${escapeHtml(s.title)}
+        <div style="font-weight:700; font-size:14px; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="\${escapeHtml(s.title)}">
+          #\${shortId} · \${escapeHtml(s.title)}
         </div>
         <div style="font-size:11px; color:var(--text-secondary); font-family:monospace; margin-top:4px;">
-          UUID: <span style="color:var(--g-blue);">${s.id}</span> · 步数: ${s.turns} · 来源: ${s.source} · 更新: ${s.updated_at}
+          UUID: <span style="color:var(--g-blue);">\${s.id}</span> · 步数: \${s.turns} · 来源: \${s.source} · 更新: \${s.updated_at}
         </div>
       </div>
       <div class="flex-gap" style="flex-shrink:0;">
-        <button class="redline-btn btn-cyan" style="padding: 5px 12px; font-size:11px;" onclick="downloadSessionMD('${s.id}')">导出 MD</button>
+        <button class="redline-btn btn-cyan" style="padding: 5px 12px; font-size:11px;" onclick="downloadSessionMD('\${s.id}')">导出 MD</button>
       </div>
-    `;
+    \`;
     list.appendChild(item);
   });
 }
@@ -1440,21 +1437,21 @@ function exportAllSessions() {
     alert("当前暂无会话可导出");
     return;
   }
-  let md = "# 2Ag Suite - Antigravity 全量会话审计汇总\n\n";
-  md += "- 导出时间: " + new Date().toLocaleString() + "\n";
-  md += "- 会话总数: " + currentSessions.length + "\n\n---\\n\n";
+  let md = "# 2Ag Suite - Antigravity 全量会话审计汇总\\n\\n";
+  md += "- 导出时间: " + new Date().toLocaleString() + "\\n";
+  md += "- 会话总数: " + currentSessions.length + "\\n\\n---\\\\n\\n";
   currentSessions.forEach((s, idx) => {
-    md += `### ${idx + 1}. ${s.title}\n`;
-    md += `- **UUID**: `${s.id}`\n`;
-    md += `- **更新时间**: ${s.updated_at}\n`;
-    md += `- **对话步数**: ${s.turns}\n`;
-    md += `- **持久化来源**: ${s.source}\n\n`;
+    md += \`### \${idx + 1}. \${s.title}\\n\`;
+    md += \`- **UUID**: \`\${s.id}\`\\n\`;
+    md += \`- **更新时间**: \${s.updated_at}\\n\`;
+    md += \`- **对话步数**: \${s.turns}\\n\`;
+    md += \`- **持久化来源**: \${s.source}\\n\\n\`;
   });
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `2ag-all-sessions-${Date.now()}.md`;
+  a.download = \`2ag-all-sessions-\${Date.now()}.md\`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -1510,7 +1507,7 @@ function renderAccounts(accounts) {
     const isPrimary = acc.is_primary || acc.is_active;
     const badgeCls = isPrimary ? 'badge-green' : (acc.status === 'COOLDOWN' ? 'badge-yellow' : 'badge-dark');
     const badgeText = isPrimary ? '● PRIMARY HOST' : '○ BACKUP HOST';
-    const cdInfo = acc.cooldown_msg ? `<span style="font-size:11px; color:var(--g-red); font-weight:700;">(${acc.cooldown_msg})</span>` : '';
+    const cdInfo = acc.cooldown_msg ? \`<span style="font-size:11px; color:var(--g-red); font-weight:700;">(\${acc.cooldown_msg})</span>\` : '';
 
     const gp = acc.gemini_pool || { five_hour_percent: 40, five_hour_reset: "2h 20m", weekly_percent: 50, weekly_reset: "3d 3h" };
     const cp = acc.claude_pool || { five_hour_percent: 100, five_hour_reset: "满额", weekly_percent: 95, weekly_reset: "5d 4h" };
@@ -1518,20 +1515,20 @@ function renderAccounts(accounts) {
     const modelsList = (acc.models && acc.models.length > 0) ? acc.models : [
       "Gemini 3.8 Flash High", "Gemini 3.7 Flash", "Gemini 3.1 Pro", "Claude Sonnet 4.6 (Thinking)", "GPT-OSS 120B"
     ];
-    const capsulesHTML = modelsList.map(m => `<span class="model-capsule">${m}</span>`).join('');
+    const capsulesHTML = modelsList.map(m => \`<span class="model-capsule">\${m}</span>\`).join('');
 
-    card.innerHTML = `
+    card.innerHTML = \`
       <div class="row" style="margin-bottom: 14px;">
         <div class="flex-gap">
-          <span class="status-badge ${badgeCls}">${badgeText}</span>
-          <span style="font-weight:700; font-size:15px; font-family:monospace; color:var(--text-primary);">${acc.email}</span>
-          <span style="font-size:11px; color:var(--text-secondary); font-weight:600;">(权重: ${acc.weight || 10})</span>
-          ${cdInfo}
+          <span class="status-badge \${badgeCls}">\${badgeText}</span>
+          <span style="font-weight:700; font-size:15px; font-family:monospace; color:var(--text-primary);">\${acc.email}</span>
+          <span style="font-size:11px; color:var(--text-secondary); font-weight:600;">(权重: \${acc.weight || 10})</span>
+          \${cdInfo}
         </div>
         <div class="flex-gap">
-          ${isPrimary ? `<button class="redline-btn btn-dark" style="cursor:default;">主控活跃</button>` : `<button class="redline-btn" onclick="setPrimaryAccount('${acc.email}')">设为主控</button>`}
-          <button class="redline-btn btn-cyan" onclick="testAccount('${acc.email}')">探活测试</button>
-          <button class="redline-btn btn-magenta" onclick="removeAccount('${acc.email}')">移除</button>
+          \${isPrimary ? \`<button class="redline-btn btn-dark" style="cursor:default;">主控活跃</button>\` : \`<button class="redline-btn" onclick="setPrimaryAccount('\${acc.email}')">设为主控</button>\`}
+          <button class="redline-btn btn-cyan" onclick="testAccount('\${acc.email}')">探活测试</button>
+          <button class="redline-btn btn-magenta" onclick="removeAccount('\${acc.email}')">移除</button>
         </div>
       </div>
 
@@ -1546,16 +1543,16 @@ function renderAccounts(accounts) {
           <div>
             <div class="row" style="font-size:11px; font-weight:700;">
               <span>5小时滚动滑窗</span>
-              <span style="color:var(--g-yellow)">${gp.five_hour_percent}% · 重置倒计时 ${gp.five_hour_reset}</span>
+              <span style="color:var(--g-yellow)">\${gp.five_hour_percent}% · 重置倒计时 \${gp.five_hour_reset}</span>
             </div>
-            <div class="quota-track"><div class="quota-fill" style="width:${gp.five_hour_percent}%; background:var(--g-yellow);"></div></div>
+            <div class="quota-track"><div class="quota-fill" style="width:\${gp.five_hour_percent}%; background:var(--g-yellow);"></div></div>
           </div>
           <div>
             <div class="row" style="font-size:11px; font-weight:700;">
               <span>周限制总额</span>
-              <span style="color:var(--text-primary)">${gp.weekly_percent}% · 重置倒计时 ${gp.weekly_reset}</span>
+              <span style="color:var(--text-primary)">\${gp.weekly_percent}% · 重置倒计时 \${gp.weekly_reset}</span>
             </div>
-            <div class="quota-track"><div class="quota-fill" style="width:${gp.weekly_percent}%; background:#5f6368;"></div></div>
+            <div class="quota-track"><div class="quota-fill" style="width:\${gp.weekly_percent}%; background:#5f6368;"></div></div>
           </div>
         </div>
 
@@ -1568,16 +1565,16 @@ function renderAccounts(accounts) {
           <div>
             <div class="row" style="font-size:11px; font-weight:700;">
               <span>5小时滚动滑窗</span>
-              <span style="color:var(--g-blue)">${cp.five_hour_percent}% · ${cp.five_hour_reset}</span>
+              <span style="color:var(--g-blue)">\${cp.five_hour_percent}% · \${cp.five_hour_reset}</span>
             </div>
-            <div class="quota-track"><div class="quota-fill" style="width:${cp.five_hour_percent}%; background:var(--g-blue);"></div></div>
+            <div class="quota-track"><div class="quota-fill" style="width:\${cp.five_hour_percent}%; background:var(--g-blue);"></div></div>
           </div>
           <div>
             <div class="row" style="font-size:11px; font-weight:700;">
               <span>周限制总额</span>
-              <span style="color:var(--text-primary)">${cp.weekly_percent}% · 重置倒计时 ${cp.weekly_reset}</span>
+              <span style="color:var(--text-primary)">\${cp.weekly_percent}% · 重置倒计时 \${cp.weekly_reset}</span>
             </div>
-            <div class="quota-track"><div class="quota-fill" style="width:${cp.weekly_percent}%; background:#5f6368;"></div></div>
+            <div class="quota-track"><div class="quota-fill" style="width:\${cp.weekly_percent}%; background:#5f6368;"></div></div>
           </div>
         </div>
       </div>
@@ -1585,9 +1582,9 @@ function renderAccounts(accounts) {
       <!-- Models List Capsules -->
       <div style="margin-top:12px; font-size:11px; color:var(--text-secondary); font-weight:700;">支持模型列表:</div>
       <div class="model-capsules">
-        ${capsulesHTML}
+        \${capsulesHTML}
       </div>
-    `;
+    \`;
     container.appendChild(card);
   });
 }
@@ -1661,7 +1658,7 @@ function startBrowserOAuth() {
   .then(() => {
     btn.innerText = '⏳ 正在等待浏览器中授权确认...';
     badge.innerText = '⏳ 等待授权回调';
-    text.innerText = '已唤起系统默认浏览器。请在打开的页面登录 Google 并授权。\n本地网关将自动截获授权凭证换取 Token 并初始化双配额池。';
+    text.innerText = '已唤起系统默认浏览器。请在打开的页面登录 Google 并授权。\\n本地网关将自动截获授权凭证换取 Token 并初始化双配额池。';
     logMsg("本地回环网关监听就绪，已唤起浏览器", "term-ok");
 
     if (oauthPollInterval) clearInterval(oauthPollInterval);
@@ -1922,3 +1919,7 @@ setInterval(probeRealHost, 1500);
 </script>
 </body>
 </html>
+`;
+
+fs.writeFileSync('web/dist/index.html', htmlContent);
+console.log('web/dist/index.html successfully generated! Size:', htmlContent.length);

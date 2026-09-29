@@ -33,6 +33,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/action", s.handlePostAction)
 	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
 	s.mux.HandleFunc("/api/v1/host/status", s.handleGetHostStatus)
+	s.mux.HandleFunc("/api/v1/host/launch", s.handleHostLaunch)
+	s.mux.HandleFunc("/api/v1/sessions", s.handleGetSessions)
+	s.mux.HandleFunc("/api/v1/sessions/export", s.handleExportSession)
 	s.mux.HandleFunc("/api/v1/accounts", s.handleGetAccounts)
 	s.mux.HandleFunc("/api/v1/accounts/refresh", s.handleRefreshAccounts)
 	s.mux.HandleFunc("/api/v1/oauth/login-browser", s.handleOAuthLoginBrowser)
@@ -63,6 +66,19 @@ func (s *Server) handlePostAction(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&action); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if action.Type == core.HostCtrlAction {
+		if payload, ok := action.Payload.(map[string]any); ok {
+			cmd, _ := payload["cmd"].(string)
+			switch cmd {
+			case "start":
+				_ = supervisor.LaunchHostClient("")
+			case "restart":
+				_ = supervisor.RestartHostClient("")
+			case "stop":
+				_ = supervisor.StopHostClient()
+			}
+		}
 	}
 	if err := s.stateMachine.ApplyAction(action); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -197,3 +213,58 @@ func (s *Server) handleImportAccountsJSON(w http.ResponseWriter, r *http.Request
 		"accounts": accounts,
 	})
 }
+
+func (s *Server) handleGetSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	result := supervisor.ScanLocalSessions()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+func (s *Server) handleExportSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		http.Error(w, "缺少会话 ID", http.StatusBadRequest)
+		return
+	}
+	md, err := supervisor.ExportSessionMarkdown(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	shortID := id
+	if len(shortID) > 8 {
+		shortID = shortID[:8]
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"session-%s.md\"", shortID))
+	w.Write([]byte(md))
+}
+
+func (s *Server) handleHostLaunch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		CustomPath string `json:"custom_path"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := supervisor.LaunchHostClient(req.CustomPath); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"message": "宿主已成功拉起",
+	})
+}
+

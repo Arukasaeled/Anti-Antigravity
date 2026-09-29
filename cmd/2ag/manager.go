@@ -13,6 +13,7 @@ import (
 	"github.com/2ag/2ag/internal/api"
 	"github.com/2ag/2ag/internal/config"
 	"github.com/2ag/2ag/internal/core"
+	"github.com/2ag/2ag/internal/supervisor"
 	"github.com/2ag/2ag/web"
 	"github.com/jchv/go-webview2"
 )
@@ -59,6 +60,30 @@ func startManager(configPath string, cfg config.Config) error {
 	bus := core.NewEventBus()
 	sm := core.NewStateMachine(cfg, configPath, bus)
 	apiServer := api.NewServer(sm, bus)
+
+	// Listen for CommandEvents
+	cmdCh := bus.Subscribe(core.CommandEvent)
+	defer bus.Unsubscribe(core.CommandEvent, cmdCh)
+	go func() {
+		for event := range cmdCh {
+			if action, ok := event.Payload.(core.StateAction); ok {
+				switch action.Type {
+				case core.HostCtrlAction:
+					if payload, ok := action.Payload.(map[string]any); ok {
+						cmd, _ := payload["cmd"].(string)
+						switch cmd {
+						case "start":
+							_ = supervisor.LaunchHostClient("")
+						case "restart":
+							_ = supervisor.RestartHostClient("")
+						case "stop":
+							_ = supervisor.StopHostClient()
+						}
+					}
+				}
+			}
+		}
+	}()
 
 	// Map both root and /dist/ to static assets
 	apiServer.HandleStatic("/dist/", http.FS(web.Assets))
