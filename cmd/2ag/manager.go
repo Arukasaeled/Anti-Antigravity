@@ -83,8 +83,8 @@ func startManager(configPath string, cfg config.Config) error {
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
 			Title:  "2Ag Manager",
-			Width:  1240,
-			Height: 800,
+			Width:  1200,
+			Height: 780,
 		},
 	})
 	if w == nil {
@@ -93,18 +93,21 @@ func startManager(configPath string, cfg config.Config) error {
 	defer w.Destroy()
 
 	w.SetTitle("2Ag Manager - Anti-Antigravity Control Center")
-	w.SetSize(1240, 800, webview2.HintNone)
+	w.SetSize(1200, 780, webview2.HintNone)
 
-	hwnd := w.Window()
+	hwnd := uintptr(w.Window())
 	darkMode := int32(1)
-	procDwmSetWindowAttribute.Call(
-		uintptr(hwnd),
-		uintptr(20), // DWMWA_USE_IMMERSIVE_DARK_MODE
-		uintptr(unsafe.Pointer(&darkMode)),
-		uintptr(unsafe.Sizeof(darkMode)),
-	)
+	// DWMWA_USE_IMMERSIVE_DARK_MODE (19 on Win10 1809-1909, 20 on Win10 20H1+ and Win11)
+	procDwmSetWindowAttribute.Call(hwnd, 19, uintptr(unsafe.Pointer(&darkMode)), 4)
+	procDwmSetWindowAttribute.Call(hwnd, 20, uintptr(unsafe.Pointer(&darkMode)), 4)
 
-	setWindowIcon(uintptr(hwnd), "assets/icon.ico")
+	// DWMWA_CAPTION_COLOR (35) and DWMWA_TEXT_COLOR (36) on Windows 11
+	captionColor := uint32(0x00120D0C) // 0x00BBGGRR for #0c0d12
+	textColor := uint32(0x00FFFFFF)
+	procDwmSetWindowAttribute.Call(hwnd, 35, uintptr(unsafe.Pointer(&captionColor)), 4)
+	procDwmSetWindowAttribute.Call(hwnd, 36, uintptr(unsafe.Pointer(&textColor)), 4)
+
+	setWindowIcon(hwnd, "assets/icon.ico")
 
 	w.Navigate("http://127.0.0.1:28472/dist/index.html")
 	w.Run()
