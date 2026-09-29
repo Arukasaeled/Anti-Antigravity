@@ -13,25 +13,33 @@ import (
 )
 
 type PluginManifest struct {
-	ID          string           `json:"id"`
-	Name        string           `json:"name"`
-	Version     string           `json:"version"`
-	Author      string           `json:"author"`
-	Description string           `json:"description"`
-	Sidecar     *ManifestSidecar `json:"sidecar,omitempty"`
-	UI          *ManifestUI      `json:"ui,omitempty"`
-	Directory   string           `json:"-"`
+	ID          string               `json:"id"`
+	Name        string               `json:"name"`
+	Version     string               `json:"version"`
+	Author      string               `json:"author"`
+	Description string               `json:"description"`
+	Entrypoint  *ManifestEntrypoint  `json:"entrypoint,omitempty"`
+	UI          *ManifestUI          `json:"ui,omitempty"`
+	HealthCheck *ManifestHealthCheck `json:"health_check,omitempty"`
+	Directory   string               `json:"-"`
 }
 
-type ManifestSidecar struct {
-	Executable string   `json:"executable"`
-	Args       []string `json:"args,omitempty"`
+type ManifestEntrypoint struct {
+	Type    string   `json:"type"`
+	Command string   `json:"command"`
+	Args    []string `json:"args,omitempty"`
 }
 
 type ManifestUI struct {
-	TabTitle string `json:"tabTitle"`
-	Icon     string `json:"icon"`
-	Entry    string `json:"entry"`
+	Type   string         `json:"type"`
+	Schema map[string]any `json:"schema,omitempty"`
+	Entry  string         `json:"entry,omitempty"`
+}
+
+type ManifestHealthCheck struct {
+	Type       string `json:"type"`
+	URL        string `json:"url"`
+	IntervalMs int    `json:"interval_ms"`
 }
 
 func DiscoverPlugins(root string) ([]PluginManifest, error) {
@@ -66,13 +74,13 @@ func DiscoverPlugins(root string) ([]PluginManifest, error) {
 			return nil, fmt.Errorf("invalid plugin id %q", manifest.ID)
 		}
 		manifest.Directory = filepath.Join(root, entry.Name())
-		if manifest.Sidecar != nil {
-			if manifest.Sidecar.Executable == "" || filepath.IsAbs(manifest.Sidecar.Executable) || strings.ContainsAny(manifest.Sidecar.Executable, "\r\n") || strings.Contains(manifest.Sidecar.Executable, "..") {
-				return nil, fmt.Errorf("invalid sidecar executable in %s", path)
+		if manifest.Entrypoint != nil && manifest.Entrypoint.Type == "sidecar" {
+			if manifest.Entrypoint.Command == "" || filepath.IsAbs(manifest.Entrypoint.Command) || strings.ContainsAny(manifest.Entrypoint.Command, "\r\n") || strings.Contains(manifest.Entrypoint.Command, "..") {
+				return nil, fmt.Errorf("invalid entrypoint command in %s", path)
 			}
-			manifest.Sidecar.Executable = filepath.Join(manifest.Directory, filepath.FromSlash(manifest.Sidecar.Executable))
+			manifest.Entrypoint.Command = filepath.Join(manifest.Directory, filepath.FromSlash(manifest.Entrypoint.Command))
 		}
-		if manifest.UI != nil && (manifest.UI.Entry == "" || filepath.IsAbs(manifest.UI.Entry) || strings.ContainsAny(manifest.UI.Entry, "\\\r\n") || strings.Contains(manifest.UI.Entry, "..")) {
+		if manifest.UI != nil && manifest.UI.Type == "iframe" && (manifest.UI.Entry == "" || filepath.IsAbs(manifest.UI.Entry) || strings.ContainsAny(manifest.UI.Entry, "\\\r\n") || strings.Contains(manifest.UI.Entry, "..")) {
 			return nil, fmt.Errorf("invalid UI entry in %s", path)
 		}
 		manifests = append(manifests, manifest)
@@ -92,11 +100,11 @@ func MergePluginConfig(manifests []PluginManifest, configured []config.Plugin) [
 		plugin := configuredByID[manifest.ID]
 		plugin.Name = manifest.ID
 		plugin.DisplayName, plugin.Version, plugin.Author, plugin.Description, plugin.Directory = manifest.Name, manifest.Version, manifest.Author, manifest.Description, manifest.Directory
-		if manifest.Sidecar != nil {
-			plugin.Executable = manifest.Sidecar.Executable
-			plugin.Args = append([]string(nil), manifest.Sidecar.Args...)
+		if manifest.Entrypoint != nil && manifest.Entrypoint.Type == "sidecar" {
+			plugin.Executable = manifest.Entrypoint.Command
+			plugin.Args = append([]string(nil), manifest.Entrypoint.Args...)
 		}
-		if manifest.UI != nil {
+		if manifest.UI != nil && manifest.UI.Type == "iframe" {
 			plugin.UIEntry = filepath.Join(manifest.Directory, filepath.FromSlash(manifest.UI.Entry))
 		}
 		if plugin.Executable == "" {

@@ -51,7 +51,7 @@ func (c HubConfig) Normalize() HubConfig {
 		c.Language = "zh-CN"
 	}
 	if c.Plugins == nil {
-		c.Plugins = map[string]any{"eyesControl": false}
+		c.Plugins = make(map[string]any)
 	}
 	return c
 }

@@ -329,7 +329,7 @@ func buildInjectionExpression(wallpaperURL string, blur int, opacity float64, pr
 		initial.Preset = "Dark Dream"
 	}
 	if initial.Plugins == nil {
-		initial.Plugins = map[string]any{"eyesControl": false}
+		initial.Plugins = make(map[string]any)
 	}
 	expression, err := BuildHubExpression(initial)
 	if err != nil {

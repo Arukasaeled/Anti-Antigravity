@@ -15,14 +15,14 @@
       capsule: '2Ag', console: '2Ag Console', close: 'Close', skin: 'Appearance', network: 'Network', rules: 'Global Rules', plugins: 'Extensions', diagnostics: 'Diagnostics',
       dreamSkin: 'Dream Skin', blur: 'Blur', darkness: 'Darkness', wallpaper: 'Wallpaper', chooseImage: 'Choose local image', imagePlaceholder: 'Image URL or file:/// path', localImageHint: 'The selected image is stored in this profile.', presets: 'Presets',
       darkDream: 'Dark Dream', cyberpunk: 'Cyberpunk', cleanGlass: 'Clean Glass', networkModel: 'Network & Model', hostNotLoaded: 'Host diagnostics not loaded', proxyNotLoaded: 'Proxy status not loaded', proxyDisabled: 'Proxy disabled in 2ag.json', readingProxy: 'Reading local proxy status…', proxyActive: 'Proxy active', proxyUnavailable: 'Proxy status unavailable', requests: 'requests', blocked: 'blocked', last: 'last', localImageSelected: 'Local image selected', officialEndpoints: 'Official endpoints (no overrides)', httpHint: 'HTTP requests can use endpoint overrides. HTTPS CONNECT remains opaque and is forwarded without TLS interception.',
-      testGateway: 'Test gateway', probeRunning: 'Testing gateway…', probeOK: 'Gateway online', probeFailed: 'Gateway unavailable', rulesPlaceholder: 'Rules applied to configured JSON endpoints', saveRules: 'Save rules', rulesHint: 'Rules are persisted in this browser profile; HTTP JSON rewriting requires a matching target.', extensionsSidecar: 'Extensions & Sidecar', eyesControl: 'Enable eyes-control routing', noPlugins: 'No plugins discovered', pluginRunning: 'Running', pluginStopped: 'Stopped', diagnosticsTitle: 'Diagnostics', openDevtools: 'Open DevTools (F12)', hotReload: 'Reload skin', resetTheme: 'Reset theme', exportConfig: 'Export config', diagHint: 'Use F12, Ctrl+Shift+I, Alt+A, or Ctrl+Shift+A while debugging the host.', hostPID: 'Host PID', cdp: 'CDP', env: 'env', language: 'Language', saved: 'Saved', reset: 'Theme reset', exported: 'Config exported', hotReloaded: 'Skin reloaded',
+      testGateway: 'Test gateway', probeRunning: 'Testing gateway…', probeOK: 'Gateway online', probeFailed: 'Gateway unavailable', rulesPlaceholder: 'Rules applied to configured JSON endpoints', saveRules: 'Save rules', rulesHint: 'Rules are persisted in this browser profile; HTTP JSON rewriting requires a matching target.', extensionsSidecar: 'Extensions & Sidecar', noPlugins: 'No plugins discovered', pluginRunning: 'Running', pluginStopped: 'Stopped', diagnosticsTitle: 'Diagnostics', openDevtools: 'Open DevTools (F12)', hotReload: 'Reload skin', resetTheme: 'Reset theme', exportConfig: 'Export config', diagHint: 'Use F12, Ctrl+Shift+I, Alt+A, or Ctrl+Shift+A while debugging the host.', hostPID: 'Host PID', cdp: 'CDP', env: 'env', language: 'Language', saved: 'Saved', reset: 'Theme reset', exported: 'Config exported', hotReloaded: 'Skin reloaded',
       modalHint: 'Settings and dialogs stay isolated from the transparent workspace.'
     },
     'zh-CN': {
       capsule: '2Ag', console: '2Ag 控制台', close: '关闭', skin: '外观', network: '网络端点', rules: '全局规则', plugins: '扩展插件', diagnostics: '系统诊断',
       dreamSkin: 'Dream Skin', blur: '毛玻璃模糊度', darkness: '遮罩暗度', wallpaper: '壁纸', chooseImage: '选择本地图片', imagePlaceholder: '图片 URL 或 file:/// 路径', localImageHint: '所选图片会保存到当前配置档。', presets: '主题预设',
       darkDream: '暗夜梦境', cyberpunk: '赛博朋克', cleanGlass: '清透玻璃', networkModel: '网络与模型', hostNotLoaded: '宿主诊断尚未加载', proxyNotLoaded: '代理状态尚未加载', proxyDisabled: '2ag.json 中未启用本地代理', readingProxy: '正在读取本地代理状态…', proxyActive: '代理运行中', proxyUnavailable: '代理状态不可用', requests: '请求', blocked: '已阻断', last: '最近', localImageSelected: '已选择本地图片', officialEndpoints: '官方端点（无重定向）', httpHint: 'HTTP 请求支持端点重定向；HTTPS CONNECT 保持透明转发，不解密 TLS。',
-      testGateway: '测试网关', probeRunning: '正在测试网关…', probeOK: '网关在线', probeFailed: '网关不可用', rulesPlaceholder: '应用到已配置 JSON 端点的规则', saveRules: '保存规则', rulesHint: '规则保存在当前浏览器配置中；只有匹配的目标才会改写 HTTP JSON。', extensionsSidecar: '扩展与伴生进程', eyesControl: '启用 eyes-control 路由', noPlugins: '未发现插件', pluginRunning: '运行中', pluginStopped: '已停止', diagnosticsTitle: '系统诊断', openDevtools: '打开开发者工具（F12）', hotReload: '重新加载皮肤', resetTheme: '恢复默认主题', exportConfig: '导出配置', diagHint: '调试宿主时可使用 F12、Ctrl+Shift+I、Alt+A 或 Ctrl+Shift+A。', hostPID: '宿主 PID', cdp: 'CDP', env: '环境', language: '语言', saved: '已保存', reset: '主题已重置', exported: '配置已导出', hotReloaded: '皮肤已重载',
+      testGateway: '测试网关', probeRunning: '正在测试网关…', probeOK: '网关在线', probeFailed: '网关不可用', rulesPlaceholder: '应用到已配置 JSON 端点的规则', saveRules: '保存规则', rulesHint: '规则保存在当前浏览器配置中；只有匹配的目标才会改写 HTTP JSON。', extensionsSidecar: '扩展与伴生进程', noPlugins: '未发现插件', pluginRunning: '运行中', pluginStopped: '已停止', diagnosticsTitle: '系统诊断', openDevtools: '打开开发者工具（F12）', hotReload: '重新加载皮肤', resetTheme: '恢复默认主题', exportConfig: '导出配置', diagHint: '调试宿主时可使用 F12、Ctrl+Shift+I、Alt+A 或 Ctrl+Shift+A。', hostPID: '宿主 PID', cdp: 'CDP', env: '环境', language: '语言', saved: '已保存', reset: '主题已重置', exported: '配置已导出', hotReloaded: '皮肤已重载',
       modalHint: '设置与弹窗使用实体磨砂层，与透明工作区严格隔离。'
     }
   };
@@ -36,12 +36,12 @@
     blur: 20,
     opacity: 0.55,
     preset: 'Dark Dream',
-    plugins: { eyesControl: false },
+    plugins: {  },
     network: {},
     global_rules: '',
     language: 'zh-CN'
   }, INITIAL_CONFIG || {});
-  state.plugins = Object.assign({ eyesControl: false }, state.plugins || {});
+  state.plugins = Object.assign({  }, state.plugins || {});
 
   const HUB_CSS = `
     [id="2ag-hub-root"] { position: fixed; top: 14px; right: 18px; z-index: 2147483000; font: 13px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; color: rgba(255,255,255,.94); -webkit-app-region: no-drag; }
@@ -211,7 +211,7 @@
       state.blur = number(state.blur, 20, 0, 40);
       state.opacity = number(state.opacity, 0.55, 0.1, 0.9);
       state.language = state.language === 'en-US' ? 'en-US' : 'zh-CN';
-      state.plugins = Object.assign({ eyesControl: false }, configuredPlugins, state.plugins || {});
+      state.plugins = Object.assign({  }, configuredPlugins, state.plugins || {});
     } catch (_) {}
     if (INITIAL_CONFIG.privacy && INITIAL_CONFIG.privacy.block_beacons && !window.__2ag_beacon_guard) {
       try {
@@ -282,8 +282,6 @@
     document.querySelectorAll('[id="2ag-hub-drawer"] [data-preset]').forEach((button) => {
       button.dataset.active = button.dataset.preset === state.preset ? 'true' : 'false';
     });
-    const plugin = document.getElementById('2ag-eyes-control');
-    if (plugin) plugin.checked = Boolean(state.plugins.eyesControl);
     const rules = document.getElementById('2ag-global-rules');
     if (rules && document.activeElement !== rules) rules.value = state.global_rules || '';
     document.querySelectorAll('[id="2ag-hub-drawer"] [data-plugin-name]').forEach((row) => {
@@ -390,7 +388,7 @@
       '<h3 data-i18n="presets">Presets</h3><div class="ag-presets"><button type="button" data-preset="Dark Dream" data-i18n="darkDream">Dark Dream</button><button type="button" data-preset="Cyberpunk" data-i18n="cyberpunk">Cyberpunk</button><button type="button" data-preset="Clean Glass" data-i18n="cleanGlass">Clean Glass</button></div></div>' +
       '<div class="ag-panel" data-panel="network"><h3 data-i18n="networkModel">Network &amp; Model</h3><div id="2ag-host-status" class="ag-status" data-i18n="hostNotLoaded">Host diagnostics not loaded</div><div id="2ag-network-status" class="ag-status" data-i18n="proxyNotLoaded">Proxy status not loaded</div><div id="2ag-network-overrides" class="ag-status"></div><button id="2ag-network-probe" type="button" data-i18n="testGateway">Test gateway</button><div class="ag-muted" data-i18n="httpHint">HTTP requests can use endpoint overrides.</div></div>' +
       '<div class="ag-panel" data-panel="rules"><h3 data-i18n="rules">Global Rules</h3><textarea id="2ag-global-rules" data-i18n-placeholder="rulesPlaceholder" placeholder="Rules applied to configured JSON endpoints"></textarea><button id="2ag-rules-save" type="button" data-i18n="saveRules" style="margin-top:8px">Save rules</button><div class="ag-muted" data-i18n="rulesHint">Rules are persisted in this browser profile.</div></div>' +
-      '<div class="ag-panel" data-panel="plugins"><h3 data-i18n="extensionsSidecar">Extensions &amp; Sidecar</h3><div id="2ag-plugin-list"></div><label style="display:flex;align-items:center;gap:8px;margin-top:12px"><span data-i18n="eyesControl">Enable eyes-control routing</span><span class="ag-toggle"><input id="2ag-eyes-control" type="checkbox"><span class="ag-toggle-track"><span class="ag-toggle-thumb"></span></span></span></label></div></div>' +
+      '<div class="ag-panel" data-panel="plugins"><h3 data-i18n="extensionsSidecar">Extensions &amp; Sidecar</h3><div id="2ag-plugin-list"></div></div></div>' +
       '<div class="ag-panel" data-panel="diagnostics"><h3 data-i18n="diagnosticsTitle">Diagnostics</h3><button id="2ag-devtools" type="button" data-i18n="openDevtools">Open DevTools (F12)</button><div style="display:flex;gap:6px;margin-top:8px"><button id="2ag-hot-reload" type="button" data-i18n="hotReload">Reload skin</button><button id="2ag-reset-theme" type="button" data-i18n="resetTheme">Reset theme</button><button id="2ag-export-config" type="button" data-i18n="exportConfig">Export config</button></div><div id="2ag-diag-status" class="ag-muted" style="margin-top:8px" data-i18n="diagHint">Use F12, Ctrl+Shift+I, Alt+A, or Ctrl+Shift+A while debugging the host.</div></div>' +
       '</section>';
     document.body.appendChild(root);
@@ -415,7 +413,6 @@
       const reader = new FileReader(); reader.onload = () => { state.wallpaper = String(reader.result); applyState(true); }; reader.readAsDataURL(file);
     });
     root.querySelectorAll('[data-preset]').forEach((button) => button.addEventListener('click', () => preset(button.dataset.preset)));
-    root.querySelector('[id="2ag-eyes-control"]').addEventListener('change', (event) => { state.plugins.eyesControl = event.target.checked; saveState(); });
     root.querySelector('[id="2ag-network-probe"]').addEventListener('click', probeNetwork);
     root.querySelector('[id="2ag-rules-save"]').addEventListener('click', () => {
       state.global_rules = root.querySelector('[id="2ag-global-rules"]').value; saveState();
@@ -426,7 +423,7 @@
     root.querySelector('[id="2ag-reset-theme"]').addEventListener('click', resetTheme);
     root.querySelector('[id="2ag-export-config"]').addEventListener('click', exportConfig);
     const pluginList = root.querySelector('[id="2ag-plugin-list"]');
-    Object.keys(state.plugins).filter((name) => name !== 'eyesControl').forEach((name) => {
+    Object.keys(state.plugins).forEach((name) => {
       const value = state.plugins[name] || {};
       const row = document.createElement('label'); row.className = 'ag-plugin'; row.dataset.pluginName = name;
       const label = (value && value.displayName) || name;
@@ -498,3 +495,5 @@
     }, 500);
   }
 })();
+
+

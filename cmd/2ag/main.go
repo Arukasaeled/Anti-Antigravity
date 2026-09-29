@@ -17,7 +17,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/2ag/2ag/internal/api"
 	"github.com/2ag/2ag/internal/config"
+	"github.com/2ag/2ag/internal/core"
 	"github.com/2ag/2ag/internal/mcp"
 	"github.com/2ag/2ag/internal/netproxy"
 	"github.com/2ag/2ag/internal/patcher"
@@ -136,6 +138,18 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 	}
 	defer sidecars.StopAll()
 	defer managed.Close()
+
+	bus := core.NewEventBus()
+	sm := core.NewStateMachine(cfg, configPath, bus)
+	apiServer := api.NewServer(sm, bus)
+	go func() {
+		log.Printf("[2ag] starting local API on :28472")
+		if err := apiServer.Start(":28472"); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Printf("[2ag] API server error: %v", err)
+		}
+	}()
+	defer apiServer.Stop()
+
 	done := make(chan error, 1)
 	go func() { done <- managed.Wait() }()
 	go func() {
@@ -160,34 +174,44 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 			entry["displayName"], entry["version"], entry["author"], entry["description"] = manifest.Name, manifest.Version, manifest.Author, manifest.Description
 			if manifest.UI != nil {
 				entry["ui"] = manifest.UI
-				entryPath := filepath.ToSlash(manifest.UI.Entry)
-				segments := strings.Split(entryPath, "/")
-				for index := range segments {
-					segments[index] = url.PathEscape(segments[index])
+				if manifest.UI.Type == "iframe" && manifest.UI.Entry != "" {
+					entryPath := filepath.ToSlash(manifest.UI.Entry)
+					segments := strings.Split(entryPath, "/")
+					for index := range segments {
+						segments[index] = url.PathEscape(segments[index])
+					}
+					entry["uiURL"] = "http://" + sidecars.Address() + "/plugins/" + url.PathEscape(manifest.ID) + "/ui/" + strings.Join(segments, "/")
 				}
-				entry["uiURL"] = "http://" + sidecars.Address() + "/plugins/" + url.PathEscape(manifest.ID) + "/ui/" + strings.Join(segments, "/")
 			}
 		}
 		injector.Initial = patcher.HubConfig{Language: cfg.Language, WallpaperPath: cfg.WallpaperPath, GlobalRules: cfg.GlobalRules, Network: cfg.Network, Privacy: cfg.Privacy, Plugins: pluginState, PluginURL: "http://" + sidecars.Address(), CDPPort: cdpPort, HostPID: managed.PID(), Env: cfg.EnvOverrides}
 		injector.BridgeHandlers = coreBridgeHandlers(runtimeConfig, sidecars, injector.SetWallpaperPath, func(ctx context.Context) (any, error) { return openDevTools(ctx, cdpPort) }, func(ctx context.Context) (any, error) { return probeGateway(ctx, injector.ProxyURL) })
-		// The wallpaper service uses the launcher context. The CDP wait has
-		// its own deadline, so the image remains available after injection.
-		if err := injector.WaitAndInject(ctx, cfg.WallpaperPath, cfg.Blur, cfg.Opacity, 15*time.Second); err != nil {
+		
+		currentState := sm.GetState()
+		if err := injector.WaitAndInject(ctx, currentState.WallpaperPath, currentState.Blur, currentState.Opacity, 15*time.Second); err != nil {
 			if ctx.Err() == nil {
 				log.Printf("[2ag] CDP injection failed: %v", err)
 			}
 			return
 		}
 		log.Println("[2ag] Dream Skin injected successfully via CDP!")
-		// Antigravity can replace its renderer document after the initial local
-		// service boot. Reapply the hub periodically so a navigation cannot
-		// remove the runtime skin or extension shell.
+		
+		stateCh := bus.Subscribe(core.StateChangedEvent)
+		defer bus.Unsubscribe(core.StateChangedEvent, stateCh)
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case event := <-stateCh:
+				if newState, ok := event.Payload.(config.Config); ok {
+					if err := injector.Inject(ctx, newState.WallpaperPath, newState.Blur, newState.Opacity); err != nil && ctx.Err() == nil {
+						log.Printf("[2ag] CDP event injection failed: %v", err)
+					}
+				}
 			case <-time.After(5 * time.Second):
-				if err := injector.Inject(ctx, cfg.WallpaperPath, cfg.Blur, cfg.Opacity); err != nil && ctx.Err() == nil {
+				currentState := sm.GetState()
+				if err := injector.Inject(ctx, currentState.WallpaperPath, currentState.Blur, currentState.Opacity); err != nil && ctx.Err() == nil {
 					log.Printf("[2ag] CDP maintenance injection failed: %v", err)
 				}
 			}
