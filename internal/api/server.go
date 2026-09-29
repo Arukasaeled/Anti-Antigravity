@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -34,6 +35,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/host/status", s.handleGetHostStatus)
 	s.mux.HandleFunc("/api/v1/accounts", s.handleGetAccounts)
 	s.mux.HandleFunc("/api/v1/accounts/refresh", s.handleRefreshAccounts)
+	s.mux.HandleFunc("/api/v1/oauth/login-browser", s.handleOAuthLoginBrowser)
+	s.mux.HandleFunc("/api/v1/oauth/status", s.handleOAuthStatus)
+	s.mux.HandleFunc("/api/v1/accounts/import-json", s.handleImportAccountsJSON)
 }
 
 func (s *Server) HandleStatic(prefix string, fs http.FileSystem) {
@@ -135,8 +139,61 @@ func (s *Server) handleRefreshAccounts(w http.ResponseWriter, r *http.Request) {
 	accounts := supervisor.ScanLocalAccounts()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"accounts": accounts,
+		"accounts":  accounts,
 		"refreshed": true,
 		"timestamp": time.Now().Unix(),
+	})
+}
+
+func (s *Server) handleOAuthLoginBrowser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Proxy string `json:"proxy"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	authURL, err := supervisor.StartBrowserOAuth(r.Context(), req.Proxy)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"auth_url": authURL,
+		"status":   "WAITING",
+	})
+}
+
+func (s *Server) handleOAuthStatus(w http.ResponseWriter, r *http.Request) {
+	status := supervisor.GetOAuthStatus()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+func (s *Server) handleImportAccountsJSON(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "读取请求失败: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	accounts, err := supervisor.ImportAccountsJSON(body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"success":  true,
+		"accounts": accounts,
 	})
 }

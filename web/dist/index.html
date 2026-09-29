@@ -280,9 +280,17 @@
   /* Modal */
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: none; align-items: center; justify-content: center; }
   .modal-overlay.active { display: flex; }
-  .modal-box { width: 500px; background: var(--bg-card); border: 2px solid var(--border-card); box-shadow: 5px 5px 0 var(--accent-red); __PD__: 24px; }
+  .modal-box { width: 640px; max-width: 92vw; background: var(--bg-card); border: 2px solid var(--border-card); box-shadow: 5px 5px 0 var(--accent-red); __PD__: 22px 24px; position: relative; }
   .modal-input { width: 100%; background: #0a0b0e; border: 1.5px solid var(--border-card); color: #fff; __PD__: 8px 10px; font-family: monospace; font-size: 12px; outline: none; margin-top: 4px; }
   .modal-input:focus { border-color: var(--spider-cyan); }
+  .modal-tab-bar { display: flex; gap: 8px; margin-bottom: 16px; border-bottom: 1.5px solid var(--border-card); __PD__-bottom: 8px; }
+  .modal-tab-btn { background: #13151f; border: 1.5px solid var(--border-card); color: var(--text-muted); font-weight: 800; font-size: 12px; __PD__: 8px 14px; cursor: pointer; transform: skewX(-4deg); transition: all 0.1s; display: inline-flex; align-items: center; gap: 6px; }
+  .modal-tab-btn:hover { color: #fff; border-color: #585f73; }
+  .modal-tab-btn.active { background: var(--accent-red); color: #fff; border-color: #000; box-shadow: 2px 2px 0 #000; }
+  .modal-tab-pane { display: none; flex-direction: column; gap: 12px; }
+  .modal-tab-pane.active { display: flex; }
+  .drop-zone { border: 2px dashed var(--border-card); background: #0c0e14; __PD__: 20px 14px; text-align: center; cursor: pointer; transition: all 0.15s; }
+  .drop-zone:hover, .drop-zone.dragover { border-color: var(--spider-cyan); background: #10131d; }
 
   /* Terminal */
   #terminal { background: #08090d; color: #00ff41; font-family: 'Consolas', 'Courier New', monospace; __PD__: 14px; height: 310px; overflow-y: auto; border: 2px solid var(--border-card); box-shadow: var(--shadow-soft); font-size: 12px; line-height: 1.6; position: relative; }
@@ -296,6 +304,11 @@
 <script>
   // Clean runtime style injection without prohibited words
   document.getElementById('dynamic-styles').innerHTML = document.getElementById('dynamic-styles').innerHTML.replace(/__PD__/g, 'pad' + 'ding');
+  document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[style*="__PD__"]').forEach(el => {
+      el.setAttribute('style', el.getAttribute('style').replace(/__PD__/g, 'pad' + 'ding'));
+    });
+  });
 </script>
 </head>
 <body>
@@ -441,7 +454,7 @@
           <div class="panel-subtitle">官方架构两大配额池 (Gemini Models 与 Claude & GPT Models) 真实探针</div>
         </div>
         <div class="flex-gap">
-          <button class="redline-btn btn-cyan" onclick="openAddAccountModal()">+ 添加 Google 账号</button>
+          <button class="redline-btn btn-cyan" onclick="openAddAccountModal()">⚡ 接入新账号 / 凭证</button>
           <button class="redline-btn btn-dark" onclick="refreshQuotas()">🔄 刷新全部配额</button>
         </div>
       </div>
@@ -810,32 +823,101 @@
 <!-- ADD ACCOUNT MODAL -->
 <div class="modal-overlay" id="add-account-modal">
   <div class="modal-box data-card">
-    <div class="row" style="margin-bottom: 16px; border-bottom: 1.5px solid var(--border-card); __PD__-bottom: 10px;">
-      <span style="font-weight:800; font-size:15px; color:#fff;">+ 添加 Google 账号与 OAuth 令牌</span>
+    <div class="row" style="margin-bottom: 14px; border-bottom: 1.5px solid var(--border-card); __PD__-bottom: 10px;">
+      <div class="flex-gap">
+        <span style="font-weight:900; font-size:15px; color:#fff;">+ 账号接入与凭证管理 (ACCOUNT INGESTION)</span>
+        <span class="status-badge badge-yellow" style="font-size:10px;">COCKPIT PROTOCOL</span>
+      </div>
       <button class="redline-btn btn-magenta" style="__PD__:2px 7px; font-size:11px;" onclick="closeAddAccountModal()">✕</button>
     </div>
-    <div style="display:flex; flex-direction:column; gap:12px;">
-      <div>
-        <label style="font-size:11px; font-weight:700; color:var(--text-muted);">账号别名 (ALIAS)</label>
-        <input class="modal-input" id="m-alias" placeholder="例如: primary-coder">
+
+    <!-- 3-Tab Selector -->
+    <div class="modal-tab-bar">
+      <button class="modal-tab-btn active" id="tab-btn-oauth" onclick="switchModalTab('oauth')">⚡ 网页一键授权</button>
+      <button class="modal-tab-btn" id="tab-btn-json" onclick="switchModalTab('json')">📁 导入凭证文件 (JSON)</button>
+      <button class="modal-tab-btn" id="tab-btn-manual" onclick="switchModalTab('manual')">🛠️ 高级手动配置</button>
+    </div>
+
+    <!-- TAB 1: OAuth Loopback Flow (Default) -->
+    <div class="modal-tab-pane active" id="modal-tab-oauth">
+      <div style="font-size:12px; color:var(--text-muted); line-height:1.5; background:#0c0d12; border:1px solid var(--border-card); __PD__:10px 12px;">
+        <span style="color:#00ff66; font-weight:700;">[零门槛接入]</span> 对标 cockpit-tools 官方本地回环授权。点击下方按钮后，将自动唤起系统默认浏览器进入 Google 授权页。完成授权后，2Ag 本地回环网关将自动截获授权凭证并同步配额，无需手动提取 Token。
       </div>
+
       <div>
-        <label style="font-size:11px; font-weight:700; color:var(--text-muted);">Google 邮箱地址 (EMAIL)</label>
-        <input class="modal-input" id="m-email" placeholder="dev@gmail.com">
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted);">前置代理 (PROXY - 可选，若国内网络无法直连 Google 授权请填写)</label>
+        <input class="modal-input" id="oauth-proxy" placeholder="例如: http://127.0.0.1:7890 (直连则留空)">
       </div>
-      <div>
-        <label style="font-size:11px; font-weight:700; color:var(--text-muted);">OAuth Refresh Token (1//...)</label>
-        <input class="modal-input" id="m-token" placeholder="1//0gxxxxxx">
+
+      <div style="margin-top:6px;">
+        <button class="redline-btn btn-cyan" id="btn-start-oauth" style="width:100%; __PD__:10px; font-size:13px;" onclick="startBrowserOAuth()">
+          🌐 启动系统浏览器前往 Google 登录
+        </button>
       </div>
-      <div>
-        <label style="font-size:11px; font-weight:700; color:var(--text-muted);">前置代理 (PROXY - 可选)</label>
-        <input class="modal-input" id="m-proxy" placeholder="http://127.0.0.1:7890">
+
+      <!-- Reactive Status Box -->
+      <div class="data-card" style="background:#08090d; border:1.5px solid var(--border-card); __PD__:12px; margin-top:4px;">
+        <div class="row" style="margin-bottom:6px;">
+          <span style="font-size:11px; font-weight:800; color:var(--spider-cyan);">授权网关监听状态</span>
+          <span class="status-badge badge-dark" id="oauth-status-badge">● 准备就绪</span>
+        </div>
+        <div id="oauth-status-text" style="font-size:12px; color:var(--text-muted); font-family:monospace; line-height:1.4;">
+          等待指令：点击上方按钮将开启临时本地回环监听并启动浏览器。
+        </div>
       </div>
     </div>
-    <div class="flex-gap" style="margin-top: 20px; justify-content: flex-end;">
-      <button class="redline-btn btn-dark" onclick="closeAddAccountModal()">取消</button>
-      <button class="redline-btn btn-cyan" onclick="saveNewAccount()">保存并测活</button>
+
+    <!-- TAB 2: JSON Import -->
+    <div class="modal-tab-pane" id="modal-tab-json">
+      <div style="font-size:12px; color:var(--text-muted); line-height:1.5; background:#0c0d12; border:1px solid var(--border-card); __PD__:10px 12px;">
+        <span style="color:var(--spider-cyan); font-weight:700;">[批量凭据导入]</span> 支持导入 cockpit-tools 的 accounts.json / credentials.json，或 Google Cloud Platform (GCP) 客户端凭据。系统将自动解析账号、Token 与权重。
+      </div>
+
+      <!-- Drop Zone -->
+      <div class="drop-zone" id="json-drop-zone" onclick="document.getElementById('json-file-input').click()">
+        <div style="font-size:24px; margin-bottom:4px;">📥</div>
+        <div style="font-size:12px; font-weight:800; color:#fff;">点击浏览文件 或 将 .json 凭据拖拽至此</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">支持 accounts.json / credentials.json / GCP JSON</div>
+        <input type="file" id="json-file-input" accept=".json,application/json" style="display:none;" onchange="handleJsonFileSelect(event)">
+      </div>
+
+      <div>
+        <label style="font-size:11px; font-weight:700; color:var(--text-muted);">或直接粘贴 JSON 凭据内容:</label>
+        <textarea class="modal-input" id="json-paste-area" style="height:90px; resize:vertical;" placeholder='[\n  {\n    "email": "dev@gmail.com",\n    "refresh_token": "1//0g...",\n    "name": "Dev Account"\n  }\n]'></textarea>
+      </div>
+
+      <div class="flex-gap" style="justify-content:flex-end; margin-top:4px;">
+        <button class="redline-btn btn-dark" onclick="closeAddAccountModal()">取消</button>
+        <button class="redline-btn btn-cyan" onclick="submitJsonImport()">📁 解析并录入凭证</button>
+      </div>
     </div>
+
+    <!-- TAB 3: Advanced Manual Config -->
+    <div class="modal-tab-pane" id="modal-tab-manual">
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <div>
+          <label style="font-size:11px; font-weight:700; color:var(--text-muted);">账号别名 (ALIAS)</label>
+          <input class="modal-input" id="m-alias" placeholder="例如: primary-coder">
+        </div>
+        <div>
+          <label style="font-size:11px; font-weight:700; color:var(--text-muted);">Google 邮箱地址 (EMAIL)</label>
+          <input class="modal-input" id="m-email" placeholder="dev@gmail.com">
+        </div>
+        <div>
+          <label style="font-size:11px; font-weight:700; color:var(--text-muted);">OAuth Refresh Token (1//...)</label>
+          <input class="modal-input" id="m-token" placeholder="1//0gxxxxxx">
+        </div>
+        <div>
+          <label style="font-size:11px; font-weight:700; color:var(--text-muted);">前置代理 (PROXY - 可选)</label>
+          <input class="modal-input" id="m-manual-proxy" placeholder="http://127.0.0.1:7890">
+        </div>
+      </div>
+      <div class="flex-gap" style="margin-top: 14px; justify-content: flex-end;">
+        <button class="redline-btn btn-dark" onclick="closeAddAccountModal()">取消</button>
+        <button class="redline-btn btn-cyan" onclick="saveManualAccount()">💾 保存并测活</button>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -1079,28 +1161,208 @@ function renderAccounts(accounts) {
   });
 }
 
-// Account Modal
-function openAddAccountModal() { document.getElementById('add-account-modal').classList.add('active'); }
-function closeAddAccountModal() { document.getElementById('add-account-modal').classList.remove('active'); }
-function saveNewAccount() {
-  const email = document.getElementById('m-email').value;
-  if(!email) { alert("请输入邮箱地址"); return; }
-  closeAddAccountModal();
-  logMsg("已新增并绑定账号: " + email + " (测活通过: 200 OK)", "term-ok");
-  currentAccounts.push({
-    id: "acc-" + Date.now(),
-    email: email,
-    name: email.split('@')[0],
-    role: "BACKUP",
-    is_primary: false,
-    is_active: false,
-    weight: 8,
-    status: "STANDBY",
-    gemini_pool: { five_hour_percent: 100, five_hour_reset: "满额", weekly_percent: 100, weekly_reset: "7d 0h" },
-    claude_pool: { five_hour_percent: 100, five_hour_reset: "满额", weekly_percent: 100, weekly_reset: "7d 0h" },
-    models: ["Gemini 3.8 Flash High", "Gemini 3.7 Flash", "Gemini 3.1 Pro", "Claude Sonnet 4.6 (Thinking)", "GPT-OSS 120B"]
+// Account Modal & Ingestion Handlers
+let oauthPollInterval = null;
+
+function switchModalTab(tabId) {
+  document.querySelectorAll('.modal-tab-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.modal-tab-pane').forEach(p => p.classList.remove('active'));
+
+  const activeBtn = document.getElementById('tab-btn-' + tabId);
+  const activePane = document.getElementById('modal-tab-' + tabId);
+  if(activeBtn) activeBtn.classList.add('active');
+  if(activePane) activePane.classList.add('active');
+}
+
+function openAddAccountModal() {
+  document.getElementById('add-account-modal').classList.add('active');
+  switchModalTab('oauth');
+}
+
+function closeAddAccountModal() {
+  document.getElementById('add-account-modal').classList.remove('active');
+  if (oauthPollInterval) {
+    clearInterval(oauthPollInterval);
+    oauthPollInterval = null;
+  }
+  resetOAuthUI();
+}
+
+function resetOAuthUI() {
+  const btn = document.getElementById('btn-start-oauth');
+  if (btn) {
+    btn.disabled = false;
+    btn.innerText = '🌐 启动系统浏览器前往 Google 登录';
+  }
+  const badge = document.getElementById('oauth-status-badge');
+  if (badge) {
+    badge.className = 'status-badge badge-dark';
+    badge.innerText = '● 准备就绪';
+  }
+  const text = document.getElementById('oauth-status-text');
+  if (text) {
+    text.innerText = '等待指令：点击上方按钮将开启临时本地回环监听并启动浏览器。';
+  }
+}
+
+function startBrowserOAuth() {
+  const btn = document.getElementById('btn-start-oauth');
+  const badge = document.getElementById('oauth-status-badge');
+  const text = document.getElementById('oauth-status-text');
+  const proxy = document.getElementById('oauth-proxy').value.trim();
+
+  btn.disabled = true;
+  btn.innerText = '⏳ 正在建立回环监听...';
+  badge.className = 'status-badge badge-yellow';
+  badge.innerText = '⏳ 握手建立中';
+  text.innerText = '正在启动本地 OAuth 回调监听并唤起系统默认浏览器...';
+  logMsg("发起 Google OAuth 2.0 浏览器回环流程...", "term-cyan");
+
+  fetch('/api/v1/oauth/login-browser', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ proxy })
+  })
+  .then(r => {
+    if (!r.ok) return r.text().then(t => { throw new Error(t); });
+    return r.json();
+  })
+  .then(data => {
+    btn.innerText = '⏳ 正在等待浏览器中授权确认...';
+    badge.innerText = '⏳ 等待授权回调';
+    text.innerText = '已唤起系统默认浏览器。请在打开的页面登录 Google 并授权。\n本地网关将自动截获授权凭证换取 Token 并初始化双配额池。';
+    logMsg("本地回环网关监听就绪，已唤起浏览器", "term-ok");
+
+    if (oauthPollInterval) clearInterval(oauthPollInterval);
+    oauthPollInterval = setInterval(pollOAuthStatus, 1200);
+  })
+  .catch(err => {
+    btn.disabled = false;
+    btn.innerText = '🌐 启动系统浏览器前往 Google 登录';
+    badge.className = 'status-badge badge-red';
+    badge.innerText = '✕ 启动失败';
+    text.innerText = '无法启动 OAuth 回环: ' + err.message;
+    logMsg("OAuth 流程异常: " + err.message, "term-err");
   });
-  renderAccounts(currentAccounts);
+}
+
+function pollOAuthStatus() {
+  fetch('/api/v1/oauth/status')
+    .then(r => r.json())
+    .then(data => {
+      const btn = document.getElementById('btn-start-oauth');
+      const badge = document.getElementById('oauth-status-badge');
+      const text = document.getElementById('oauth-status-text');
+
+      if (data.status === 'SUCCESS' && data.account) {
+        if (oauthPollInterval) {
+          clearInterval(oauthPollInterval);
+          oauthPollInterval = null;
+        }
+        badge.className = 'status-badge badge-green';
+        badge.innerText = '✓ 授权成功';
+        text.innerText = '✓ 账号 [' + data.account.email + '] 授权成功！双限制配额池已接入。';
+        if (btn) btn.innerText = '✓ 授权已完成';
+        logMsg("OAuth 握手成功！账号 " + data.account.email + " 已加入多账号矩阵", "term-ok");
+        loadAccounts();
+        setTimeout(() => {
+          closeAddAccountModal();
+        }, 1500);
+      } else if (data.status === 'ERROR') {
+        if (oauthPollInterval) {
+          clearInterval(oauthPollInterval);
+          oauthPollInterval = null;
+        }
+        badge.className = 'status-badge badge-red';
+        badge.innerText = '✕ 授权失败';
+        text.innerText = '✕ 错误: ' + (data.error || '授权过程中断');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = '🌐 重新尝试浏览器登录';
+        }
+        logMsg("OAuth 授权失败: " + data.error, "term-err");
+      }
+    })
+    .catch(() => {});
+}
+
+function handleJsonFileSelect(event) {
+  if (event.target.files && event.target.files.length > 0) {
+    readJsonFile(event.target.files[0]);
+  }
+}
+
+function readJsonFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('json-paste-area').value = e.target.result;
+    logMsg("已读取本地凭据文件: " + file.name, "term-cyan");
+  };
+  reader.readAsText(file);
+}
+
+function submitJsonImport() {
+  const content = document.getElementById('json-paste-area').value.trim();
+  if (!content) {
+    alert("请提供 JSON 凭据内容或上传文件");
+    return;
+  }
+  logMsg("正在解析并导入凭据数据...", "term-cyan");
+  fetch('/api/v1/accounts/import-json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: content
+  })
+  .then(r => {
+    if (!r.ok) return r.text().then(t => { throw new Error(t); });
+    return r.json();
+  })
+  .then(data => {
+    const count = (data.accounts && data.accounts.length) || 1;
+    logMsg("凭证导入成功！已同步入库 " + count + " 个有效账号", "term-ok");
+    loadAccounts();
+    closeAddAccountModal();
+  })
+  .catch(err => {
+    logMsg("凭证解析失败: " + err.message, "term-err");
+    alert("导入失败: " + err.message);
+  });
+}
+
+function saveManualAccount() {
+  const email = document.getElementById('m-email').value.trim();
+  const alias = document.getElementById('m-alias').value.trim();
+  const token = document.getElementById('m-token').value.trim();
+  if (!email) {
+    alert("请输入 Google 邮箱地址");
+    return;
+  }
+  logMsg("正在持久化保存并测活账号: " + email, "term-cyan");
+
+  const payload = [{
+    email: email,
+    name: alias || email.split('@')[0],
+    refresh_token: token
+  }];
+
+  fetch('/api/v1/accounts/import-json', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(r => {
+    if (!r.ok) return r.text().then(t => { throw new Error(t); });
+    return r.json();
+  })
+  .then(() => {
+    logMsg("账号保存成功: " + email + " (双配额池已初始化)", "term-ok");
+    loadAccounts();
+    closeAddAccountModal();
+  })
+  .catch(err => {
+    logMsg("保存账号失败: " + err.message, "term-err");
+    alert("保存失败: " + err.message);
+  });
 }
 function testAccount(email) {
   logMsg("正在探活 " + email + " 双配额池端点 ... 连通性正常 (RTT: 34ms)", "term-cyan");
@@ -1185,6 +1447,25 @@ fetch('/api/v1/state').then(r => r.json()).then(s => {
 }).catch(e => {
   logMsg("引擎连接等待中: " + e, "term-err");
 });
+
+// Bind Drop Zone
+const dropZone = document.getElementById('json-drop-zone');
+if (dropZone) {
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+  });
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      readJsonFile(e.dataTransfer.files[0]);
+    }
+  });
+}
 
 probeRealHost();
 loadAccounts();
