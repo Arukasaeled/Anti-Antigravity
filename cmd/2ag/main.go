@@ -25,6 +25,7 @@ import (
 	"github.com/2ag/2ag/internal/patcher"
 	"github.com/2ag/2ag/internal/profile"
 	"github.com/2ag/2ag/internal/supervisor"
+	"github.com/2ag/2ag/web"
 )
 
 func main() {
@@ -58,6 +59,8 @@ func runCLI(args []string) error {
 		return profileCommand(args[1:])
 	case "skin":
 		return skinCommand(configPath, cfg, args[1:])
+	case "manager":
+		return exec.Command("msedge", "--app=http://localhost:28472/dist/").Start()
 	case "doctor":
 		return doctor(configPath, cfg)
 	case "help", "-h", "--help":
@@ -142,6 +145,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 	bus := core.NewEventBus()
 	sm := core.NewStateMachine(cfg, configPath, bus)
 	apiServer := api.NewServer(sm, bus)
+	apiServer.HandleStatic("/", http.FS(web.Assets))
 	go func() {
 		log.Printf("[2ag] starting local API on :28472")
 		if err := apiServer.Start(":28472"); err != nil && !errors.Is(err, http.ErrServerClosed) {

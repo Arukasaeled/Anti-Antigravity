@@ -29,6 +29,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/state", s.handleGetState)
 	s.mux.HandleFunc("/api/v1/action", s.handlePostAction)
 	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
+
+	// Serve the manager frontend
+	// We'll require web.Assets to be injected or we just expose a handler setter
+}
+
+func (s *Server) HandleStatic(prefix string, fs http.FileSystem) {
+	s.mux.Handle(prefix, http.StripPrefix(prefix, http.FileServer(fs)))
 }
 
 func (s *Server) handleGetState(w http.ResponseWriter, r *http.Request) {
