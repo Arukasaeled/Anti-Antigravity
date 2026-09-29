@@ -1,5 +1,6 @@
 # Build outputs and packaged distributions
 *.exe
+*.exe~
 /dist/
 
 # Local runtime configuration and logs

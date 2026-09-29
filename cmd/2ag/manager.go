@@ -135,8 +135,8 @@ func startManager(configPath string, cfg config.Config) error {
 	procDwmSetWindowAttribute.Call(hwnd, 20, uintptr(unsafe.Pointer(&darkMode)), 4)
 
 	// DWMWA_CAPTION_COLOR (35) and DWMWA_TEXT_COLOR (36) on Windows 11
-	captionColor := uint32(0x00120D0C) // 0x00BBGGRR for #0c0d12
-	textColor := uint32(0x00FFFFFF)
+	captionColor := uint32(0x00141313) // 0x00BBGGRR for Google dark #131314
+	textColor := uint32(0x00E3E3E3)
 	procDwmSetWindowAttribute.Call(hwnd, 35, uintptr(unsafe.Pointer(&captionColor)), 4)
 	procDwmSetWindowAttribute.Call(hwnd, 36, uintptr(unsafe.Pointer(&textColor)), 4)
 

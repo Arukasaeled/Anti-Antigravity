@@ -568,6 +568,7 @@ func emptyAsNone(value string) string {
 func usage() {
 	fmt.Println("2ag - Anti-Antigravity enhancement launcher")
 	fmt.Println("usage:")
+	fmt.Println("  2ag manager")
 	fmt.Println("  2ag run [--debug]")
 	fmt.Println("  2ag restore")
 	fmt.Println("  2ag skin show")
