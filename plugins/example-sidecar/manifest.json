@@ -1,0 +1,16 @@
+{
+  "id": "example-sidecar",
+  "name": "Example Sidecar",
+  "version": "1.0.0",
+  "author": "2Ag Community",
+  "description": "Reference manifest for a community sidecar plugin.",
+  "sidecar": {
+    "executable": "bin/example-sidecar.exe",
+    "args": ["--port", "${2AG_PORT}"]
+  },
+  "ui": {
+    "tabTitle": "Example",
+    "icon": "puzzle",
+    "entry": "ui/panel.js"
+  }
+}
