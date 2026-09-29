@@ -142,7 +142,7 @@ func startManager(configPath string, cfg config.Config) error {
 
 	setWindowIcon(hwnd, "assets/icon.ico")
 
-	w.Navigate("http://127.0.0.1:28472/dist/index.html")
+	w.Navigate("http://127.0.0.1:28472/")
 	w.Run()
 	return nil
 }
