@@ -183,7 +183,7 @@ func ResolveWallpaperDataURL(wallpaperPath string) string {
 // WatchAndInjectCDP 监听 CDP 端口并在目标页面就绪时物理注入 anti-Antigravity 补丁
 func WatchAndInjectCDP(targetAddr string, timeout time.Duration) error {
 	if targetAddr == "" {
-		targetAddr = "127.0.0.1:28472"
+		targetAddr = ResolveCDPAddr()
 	}
 	if timeout <= 0 {
 		timeout = 30 * time.Second
@@ -657,7 +657,7 @@ func QueryHostEmailViaCDP(timeout time.Duration) (string, error) {
 		timeout = 2 * time.Second
 	}
 	client := &http.Client{Timeout: timeout}
-	resp, err := client.Get("http://127.0.0.1:28472/json")
+	resp, err := client.Get("http://" + ResolveCDPAddr() + "/json")
 	if err != nil {
 		return "", err
 	}

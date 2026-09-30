@@ -182,7 +182,7 @@ func startManager(configPath string, cfg config.Config) error {
 						}
 					}
 				case core.HotReloadAction:
-					go supervisor.WatchAndInjectCDP("127.0.0.1:28472", 10*time.Second)
+					go supervisor.WatchAndInjectCDP(supervisor.ResolveCDPAddr(), 10*time.Second)
 				}
 			}
 		}
@@ -235,10 +235,10 @@ func startManager(configPath string, cfg config.Config) error {
 		log.Fatalf("Local API server failed to bind port :%d within timeout", managerPort)
 	}
 
-	// 启动时自动探测已有 Antigravity 宿主实例 (CDP 28472)，若已在线则立即激活并启动长效保活
+	// 启动时自动探测已有 Antigravity 宿主实例（CDP 端口经 DevToolsActivePort 动态解析），若已在线则立即激活并启动长效保活
 	go func() {
 		time.Sleep(600 * time.Millisecond)
-		_ = supervisor.WatchAndInjectCDP("127.0.0.1:28472", 3*time.Second)
+		_ = supervisor.WatchAndInjectCDP(supervisor.ResolveCDPAddr(), 3*time.Second)
 	}()
 
 	managerDataDir := filepath.Join(os.Getenv("LOCALAPPDATA"), "2Ag", "manager_webview2")

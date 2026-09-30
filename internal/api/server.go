@@ -515,7 +515,7 @@ func (s *Server) handleHostTakeover(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleProxyCDP(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get("http://127.0.0.1:28472" + r.URL.RequestURI())
+	resp, err := client.Get("http://" + supervisor.ResolveCDPAddr() + r.URL.RequestURI())
 	if err != nil {
 		http.Error(w, "CDP 端口未就绪或未运行: "+err.Error(), http.StatusBadGateway)
 		return

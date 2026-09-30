@@ -297,7 +297,8 @@ func findProcessInsensitive(targetExe string) (int, float64) {
 // ProbeHostStatus 彻底解耦系统级进程探活与 CDP 握手
 func ProbeHostStatus() RealHostMetrics {
 	var metrics RealHostMetrics
-	metrics.CDPPort = 28472
+	metrics.CDPPort = ResolveCDPPort()
+	cdpAddr := CDPAddrForPort(metrics.CDPPort)
 
 	// 1. 系统快照不区分大小写匹配 "antigravity.exe"
 	pid, mem := findProcessInsensitive("antigravity.exe")
@@ -308,8 +309,8 @@ func ProbeHostStatus() RealHostMetrics {
 		metrics.IsRunning = true
 	}
 
-	// 2. 独立探针检测 CDP 28472 端口
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:28472", 150*time.Millisecond)
+	// 2. 独立探针检测动态解析出的 CDP 端口
+	conn, err := net.DialTimeout("tcp", cdpAddr, 150*time.Millisecond)
 	if err == nil {
 		conn.Close()
 		metrics.CDPConnected = true

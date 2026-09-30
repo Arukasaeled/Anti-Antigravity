@@ -168,8 +168,12 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 	}
 
 	// 2. 构造启动命令：附加 CDP 调试端口与用户隔离目录
+	// CDP 端口改为动态预留：历史硬编码 28472 一旦被占用，宿主会静默换用随机端口，
+	// 而 2Ag 仍死盯 28472 → 注入链路整体哑火（502 / CDP 未就绪）。
+	cdpPort := ReserveCDPPort()
+	cdpAddr := CDPAddrForPort(cdpPort)
 	args := []string{
-		"--remote-debugging-port=28472",
+		fmt.Sprintf("--remote-debugging-port=%d", cdpPort),
 		"--user-data-dir=" + profileDir,
 		"--disable-features=IsolateOrigins,site-per-process",
 	}
@@ -198,10 +202,10 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 	}
 
 	SetManagedHostPID(cmd.Process.Pid)
-	log.Printf("[2ag] 物理启动 Antigravity 宿主 (PID %d), 启动路径: %s, 工作目录: %s, 账号沙箱: %s, CDP: 127.0.0.1:28472", cmd.Process.Pid, exePath, cmd.Dir, profileDir)
+	log.Printf("[2ag] 物理启动 Antigravity 宿主 (PID %d), 启动路径: %s, 工作目录: %s, 账号沙箱: %s, CDP: %s", cmd.Process.Pid, exePath, cmd.Dir, profileDir, cdpAddr)
 
 	// 3. 启动后台异步注入协程：CDP 就绪时立即打入 anti-Antigravity 补丁
-	go watchAndInjectCDP("127.0.0.1:28472", 15*time.Second)
+	go watchAndInjectCDP(cdpAddr, 15*time.Second)
 
 	return nil
 }
@@ -243,7 +247,7 @@ func RestartEnhancedHost(customPath string, activeAccountEmail string) error {
 	return LaunchEnhancedHost(customPath, activeAccountEmail)
 }
 
-// TakeoverHost 重新拉起宿主并附加当前激活沙箱路径与 --remote-debugging-port=28472
+// TakeoverHost 重新拉起宿主并附加当前激活沙箱路径与动态预留的 CDP 调试端口
 func TakeoverHost(customPath string, activeAccountEmail string) error {
 	// 如果当前有 2Ag 托管的旧实例，先精准安全停止（严禁误杀当前 IDE）
 	_ = StopHostClient()

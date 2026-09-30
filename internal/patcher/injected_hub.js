@@ -56,6 +56,47 @@
     } catch (_) {}
   }
 
+  // 2.5 发送按钮寻址与"终止语义"门禁
+  // 发送按钮候选选择器（派发前解阻断与回退点击共用同一份，保证寻址口径一致）
+  const FORCE_SEND_BUTTON_SELECTOR = 'button[aria-label*="Send" i], button[aria-label*="发送"], button.send-button, [data-tooltip*="Send" i], [data-tooltip*="发送"], [data-testid*="send" i], [class*="send-button"], [class*="send_button"], button[type="submit"]';
+  // 终止语义：命中即"坚决不点"。宿主在提交后常把这颗按钮原地复用为「停止生成」，
+  // 回退点击若盲点上去，就会把用户刚发出的请求自己取消掉。
+  const STOP_LABEL_RE = /(stop|停止|cancel|abort)/i;
+  // 回退点击只用于等宿主完成一次同步 flush，不再信任派发瞬间抓到的静态节点快照
+  const FALLBACK_CLICK_DELAY_MS = 35;
+  // 窗口级句柄命名槽：与 OBSERVER_KEY / TIMER_KEY 同一惯例，保证重挂载幂等（不再线性泄漏）
+  const HOOKS_KEY = '__2ag_hub_hooks';
+
+  // 2.6 窗口级句柄：跨重挂载只装一次，回调通过下面两个"指向最新一次挂载"的闭包转发
+  let hubLayoutRefresher = null;   // → 最新一次挂载的 updateGHubLayout(false)
+  let hubQuotaRefresher = null;    // → 最新一次挂载的 pollTokenQuota
+  let hubDisposed = false;         // dispose() 之后彻底停摆，不再自愈/响应快捷键
+
+  function clearHubRuntimeHandles() {
+    const installed = window[HOOKS_KEY];
+    if (!installed) return;
+    try { window.removeEventListener('resize', installed.resizeHandler); } catch (_) {}
+    try { window.clearInterval(installed.quotaTimer); } catch (_) {}
+    window[HOOKS_KEY] = null;
+  }
+
+  // 幂等安装：重挂载时若句柄已存在则直接复用，绝不叠加第二份
+  function ensureHubRuntimeHooks() {
+    const installed = window[HOOKS_KEY];
+    if (installed && installed.resizeHandler && installed.quotaTimer) return;
+    clearHubRuntimeHandles();
+    const resizeHandler = () => {
+      if (hubDisposed) return;
+      if (typeof hubLayoutRefresher === 'function') hubLayoutRefresher();
+    };
+    window.addEventListener('resize', resizeHandler);
+    const quotaTimer = window.setInterval(() => {
+      if (hubDisposed) return;
+      if (typeof hubQuotaRefresher === 'function') hubQuotaRefresher();
+    }, 4000);
+    window[HOOKS_KEY] = { resizeHandler, quotaTimer };
+  }
+
   // 3. 矢量 SVG 图标定义（严禁 Emoji，统一采用 Google 原色与极细单线）
   const SVG_ICONS = {
     googleG: `
@@ -523,7 +564,73 @@
   }
 
   // 8. 模块 3：“强制发送”穿透引擎 (Force Dispatch Engine)
-  function executeForceDispatch() {
+
+  // 8.1 受控输入写值链路：绕过 React 的 _valueTracker
+  // 直接 `el.value = x` 会同步更新框架的 value tracker，随后的 input 事件被
+  // updateValueIfChanged 判定为"无变化"→ onChange 不触发 → 宿主 state 仍是旧值。
+  // 必须走原型链上的原生 setter，让 tracker 与 DOM 产生真实差异，再用 InputEvent 通知框架。
+  function writeValueIntoInput(el, text) {
+    if (!el || typeof text !== 'string') return false;
+    try {
+      const proto = el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype
+        : el.tagName === 'INPUT' ? window.HTMLInputElement.prototype : null;
+      const desc = proto && Object.getOwnPropertyDescriptor(proto, 'value');
+      if (desc && typeof desc.set === 'function') {
+        desc.set.call(el, text);
+      } else if (el.isContentEditable) {
+        el.textContent = text;
+      } else {
+        el.value = text;
+      }
+      // contenteditable 走 beforeinput/input 双发，普通表单控件只需 input
+      el.dispatchEvent(new InputEvent('input', {
+        bubbles: true,
+        cancelable: false,
+        composed: true,
+        inputType: 'insertText',
+        data: text
+      }));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 8.2 发送按钮语义门禁
+  // 返回 'stop' 表示命中终止语义（坚决不点）；返回 'send' 表示可安全回退点击。
+  function classifySendButton(btn) {
+    const label = [
+      btn.getAttribute('aria-label') || '',
+      btn.getAttribute('data-tooltip') || '',
+      btn.getAttribute('title') || '',
+      btn.textContent || ''
+    ].join(' ');
+    return STOP_LABEL_RE.test(label) ? 'stop' : 'send';
+  }
+
+  // 8.3 回退点击：必须在"点击那一刻"重新寻址，并对终止语义做最后一道否决
+  function fallbackClickVisibleSendButton() {
+    let candidates;
+    try {
+      candidates = document.querySelectorAll(FORCE_SEND_BUTTON_SELECTOR);
+    } catch (_) {
+      return false;
+    }
+    for (const btn of candidates) {
+      if (!btn.isConnected) continue;          // 卸载重建后留下的孤儿：事件冒泡不到宿主根
+      if (btn.disabled) continue;              // 规范级 no-op，点了也不会派发
+      if (classifySendButton(btn) === 'stop') continue;   // 命中终止语义：坚决不点
+      const rect = btn.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      try {
+        btn.click();
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  function executeForceDispatch(text) {
     console.log('[2AG_FORCE_SEND_TRIGGERED]', {
       timestamp: Date.now(),
       subsystems: Object.assign({}, subsystems)
@@ -548,17 +655,11 @@
       if (typeof target.focus === 'function') target.focus();
     }
 
-    // 强行解除所有发送按钮及其容器的 disabled / pointer-events 阻断
-    const sendButtons = document.querySelectorAll(
-      'button[aria-label*="Send" i], button[aria-label*="发送"], button.send-button, [data-tooltip*="Send" i], [data-tooltip*="发送"], [data-testid*="send" i], [class*="send-button"], [class*="send_button"], button[type="submit"]'
-    );
-    sendButtons.forEach(btn => {
-      btn.removeAttribute('disabled');
-      btn.setAttribute('aria-disabled', 'false');
-      btn.style.setProperty('pointer-events', 'auto', 'important');
-      btn.style.setProperty('cursor', 'pointer', 'important');
-      btn.style.setProperty('z-index', '9999', 'important');
-    });
+    // Step 1b: 受控输入（React/Vue）写值穿透
+    // 仅在调用方显式给了文本时写入（快捷键路径不传文本 → 保持原有行为，绝不改写用户已输入的内容）
+    if (target && typeof text === 'string' && text.length > 0) {
+      writeValueIntoInput(target, text);
+    }
 
     // Step 2: 向当前输入焦点按时序严格派发冒泡键盘事件
     // 负向验证 B: 带上 customEventFlag: true 与 __2ag_synthetic: true，杜绝递归捕获死锁
@@ -590,16 +691,11 @@
       target.dispatchEvent(evUp);
     }
 
-    // Step 3: 若宿主界面仍未提交，抓取 DOM 树内临近的发送图标/按钮并触发原生 .click()
+    // Step 3: 若宿主界面仍未提交，等一次同步 flush 后重新寻址当前可见的发送按钮并触发原生 .click()
+    // 已废除：静态 sendButtons 快照（:552 抓到的链表，35ms 后可能已全是孤儿或已复用为 Stop）
     setTimeout(() => {
-      for (const btn of sendButtons) {
-        const rect = btn.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          btn.click();
-          break;
-        }
-      }
-    }, 35);
+      fallbackClickVisibleSendButton();
+    }, FALLBACK_CLICK_DELAY_MS);
 
     // 触发成功反馈 Toast
     showToast('[2Ag] 强制发送已派发 (Bypassed Frontend Lock)');
@@ -643,6 +739,7 @@
   if (!window.__2ag_dispatch_shortcut_installed) {
     window.__2ag_dispatch_shortcut_installed = true;
     window.addEventListener('keydown', (event) => {
+      if (hubDisposed) return;
       // 负向验证 B: 防止事件死循环，若为自身派发的合成事件，直接放行
       if (event.__2ag_synthetic || event.customEventFlag) {
         return;
@@ -666,8 +763,34 @@
   function mountShadowUI() {
     if (!document.body && !document.documentElement) return;
     let rootHost = document.getElementById(SHADOW_HOST_ID);
+
     if (rootHost && rootHost.shadowRoot) {
-      return; // 已经就绪
+      // 就绪判定必须包含"仍在 body 上 + 浮标仍真的可见"：
+      // 宿主 div 自身没有布局（子元素全是 position:fixed），拿它量 rect 恒为 0，
+      // 所以只能量 shadow 里的浮标。仅判 shadowRoot 存在会让宿主把 host 搬进
+      // 隐藏容器 / content-visibility:hidden 祖先之后永远早退（静默哑火、不自愈）。
+      const ghubEl = rootHost.shadowRoot.getElementById('twoag-ghub');
+      const ghubRect = ghubEl ? ghubEl.getBoundingClientRect() : null;
+      // rect 非零 ≠ 可见：content-visibility:hidden 的祖先、visibility:hidden、opacity:0
+      // 都会保留下层布局（rect 照旧）却让浮标完全不可见 —— 这类"隐形哑火"必须判为不可用
+      let cssVisible = true;
+      if (ghubEl && typeof ghubEl.checkVisibility === 'function') {
+        try {
+          cssVisible = ghubEl.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, contentVisibilityAuto: true });
+        } catch (_) {}
+      }
+      const stillUsable = rootHost.isConnected
+        && rootHost.parentNode === document.body
+        && !!ghubEl
+        && ghubRect.width > 0 && ghubRect.height > 0
+        && cssVisible;
+      if (stillUsable) {
+        return; // 已经就绪
+      }
+      // 节点还活着但已不可用（被搬走 / 被藏起来）：shadow tree 无法二次 attachShadow，
+      // 必须丢弃旧节点重建，否则会退化成"每 2s 都认为已完成"的永久哑火
+      try { rootHost.remove(); } catch (_) {}
+      rootHost = null;
     }
 
     if (!rootHost) {
@@ -676,7 +799,24 @@
       (document.body || document.documentElement).appendChild(rootHost);
     }
 
-    const shadow = rootHost.attachShadow({ mode: 'open' });
+    let shadow;
+    try {
+      shadow = rootHost.attachShadow({ mode: 'open' });
+    } catch (err) {
+      // 该节点已被他人以 closed 模式抢注 shadow tree —— attachShadow 对此节点永久抛错。
+      // 丢弃抢注节点、用同一 id 重建，而不是每 2s 抛一次被 try{}catch{} 吞掉（静默哑火）。
+      console.warn('[2Ag] attachShadow 失败（疑被 closed-shadow 抢注），改用新建同 id 宿主重试：', err && err.message);
+      try { rootHost.remove(); } catch (_) {}
+      rootHost = document.createElement('div');
+      rootHost.id = SHADOW_HOST_ID;
+      (document.body || document.documentElement).appendChild(rootHost);
+      try {
+        shadow = rootHost.attachShadow({ mode: 'open' });
+      } catch (err2) {
+        console.warn('[2Ag] attachShadow 在新建宿主上仍失败，本轮放弃挂载：', err2 && err2.message);
+        return;
+      }
+    }
 
     // 挂载独立样式
     const styleEl = document.createElement('style');
@@ -953,10 +1093,8 @@
       }, 300);
     });
 
-    // 窗口尺寸自适应
-    window.addEventListener('resize', () => {
-      updateGHubLayout(false);
-    });
+    // 窗口尺寸自适应：回调体走窗口级命名槽（重挂载时只更新指向，不再叠加第二份监听）
+    hubLayoutRefresher = () => updateGHubLayout(false);
 
     // 初始化布局
     updateGHubLayout(false);
@@ -991,24 +1129,60 @@
           const res = await fetch(`http://127.0.0.1:${p}/api/v1/accounts/active`, { cache: 'no-store' });
           if (!res.ok) continue;
           const data = await res.json();
-          const g5h = data.gemini_5h_percent !== undefined ? data.gemini_5h_percent : (data.active_account ? data.active_account.gemini_5h_percent : 88.4);
-          updateQuotaDisplay(g5h);
+          const raw = data.gemini_5h_percent !== undefined
+            ? data.gemini_5h_percent
+            : (data.active_account ? data.active_account.gemini_5h_percent : undefined);
+          if (raw === undefined || raw === null || isNaN(Number(raw))) continue;
+          updateQuotaDisplay(Number(raw));
           return;
         } catch (_) {}
       }
-      // 网关未连接时保持优雅默认值
-      updateQuotaDisplay(88.4);
+      // 网关不可达：如实标注为"未知"，绝不再编造 88.4 这种假水位
+      const textEl = shadow.getElementById('quota-val-text');
+      const barEl = shadow.getElementById('quota-fill-bar');
+      if (textEl) { textEl.textContent = '-- (网关未连接)'; textEl.style.color = '#9AA0A6'; }
+      if (barEl) { barEl.style.width = '0%'; barEl.style.background = '#9AA0A6'; }
     }
 
+    // 配额轮询：同样走窗口级命名槽（4s 周期只保留一份，dispose 时随 resize 一并清理）
+    hubQuotaRefresher = pollTokenQuota;
+    ensureHubRuntimeHooks();
+
     pollTokenQuota();
-    setInterval(pollTokenQuota, 4000);
 
     // 关键挂载断言日志（按规范格式输出）
-    console.log('[2AG_UI_MOUNTED]', { version: '2.0', root: '#' + SHADOW_HOST_ID });
+    console.log('[2AG_UI_MOUNTED]', { version: '2.1', root: '#' + SHADOW_HOST_ID });
   }
+
+  // 11.1 对外应急接口：快捷键被抢占/宿主假死时的编程逃生口
+  function disposeHub() {
+    hubDisposed = true;
+    clearHubRuntimeHandles();
+    if (window[TIMER_KEY]) {
+      try { window.clearInterval(window[TIMER_KEY]); } catch (_) {}
+      window[TIMER_KEY] = null;
+    }
+    if (window[OBSERVER_KEY]) {
+      try { window[OBSERVER_KEY].disconnect(); } catch (_) {}
+      window[OBSERVER_KEY] = null;
+    }
+    hubLayoutRefresher = null;
+    hubQuotaRefresher = null;
+    try {
+      document.querySelectorAll('#' + SHADOW_HOST_ID).forEach((n) => n.remove());
+    } catch (_) {}
+    console.log('[2AG_DISPOSED]');
+  }
+
+  window.__2ag = {
+    version: '2.1',
+    forceSend: (text) => executeForceDispatch(text),
+    dispose: disposeHub
+  };
 
   // 12. 统一初始化守护巡检流水线
   function tick() {
+    if (hubDisposed) return;
     try { ensureNativeStyles(); } catch (_) {}
     try { ensureDreamSkin(); } catch (_) {}
     try { mountShadowUI(); } catch (_) {}
