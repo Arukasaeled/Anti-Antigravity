@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,6 +40,7 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("read Dream Skin config: %w", err)
 	}
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("decode Dream Skin config: %w", err)
 	}

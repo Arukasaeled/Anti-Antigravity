@@ -160,8 +160,6 @@ func (sm *StateMachine) ApplyAction(action StateAction) error {
 		case "session_id_tag": sm.state.GravityBoost.SessionIdTag = val
 		case "centered_width": sm.state.GravityBoost.CenteredWidth = val
 		case "preserve_scroll": sm.state.GravityBoost.PreserveScroll = val
-		case "stepwise": sm.state.GravityBoost.Stepwise = val
-		case "answer_outline": sm.state.GravityBoost.AnswerOutline = val
 		case "force_zh_cn": sm.state.GravityBoost.ForceZhCn = val
 		case "enable_devtools": sm.state.GravityBoost.EnableDevtools = val
 		case "disable_auto_update": sm.state.GravityBoost.DisableAutoUpdate = val

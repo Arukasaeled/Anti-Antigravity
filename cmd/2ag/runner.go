@@ -28,6 +28,15 @@ func reserveCDPPort() (int, error) {
 	return port, nil
 }
 
+type safeLogWriter struct {
+	file *os.File
+}
+
+func (s *safeLogWriter) Write(p []byte) (n int, err error) {
+	_, _ = os.Stderr.Write(p)
+	return s.file.Write(p)
+}
+
 func setupLogging() func() {
 	logPath := "2ag.log"
 	if executable, err := os.Executable(); err == nil {
@@ -39,6 +48,6 @@ func setupLogging() func() {
 		return func() {}
 	}
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
-	log.SetOutput(io.MultiWriter(os.Stderr, file))
+	log.SetOutput(&safeLogWriter{file: file})
 	return func() { _ = file.Close() }
 }

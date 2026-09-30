@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/2ag/2ag/internal/config"
@@ -51,9 +52,57 @@ func TestAPISessionsAndHost(t *testing.T) {
 	if wHost.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK for /api/v1/host/status, got %d", wHost.Code)
 	}
-	var status supervisor.HostStatus
-	if err := json.NewDecoder(wHost.Body).Decode(&status); err != nil {
-		t.Fatalf("failed to decode host status: %v", err)
+	// 4. Test GET /api/v1/dashboard
+	reqDash := httptest.NewRequest(http.MethodGet, "/api/v1/dashboard", nil)
+	wDash := httptest.NewRecorder()
+	s.mux.ServeHTTP(wDash, reqDash)
+	if wDash.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/v1/dashboard, got %d", wDash.Code)
 	}
-	t.Logf("Host status: running=%v, pid=%d, memory=%.1fMB", status.IsRunning, status.PID, status.MemoryMB)
+	var dashRes struct {
+		ActiveAccount supervisor.AccountInstance `json:"active_account"`
+	}
+	if err := json.NewDecoder(wDash.Body).Decode(&dashRes); err != nil {
+		t.Fatalf("failed to decode dashboard response: %v", err)
+	}
+	t.Logf("Dashboard Active Account: %s, Gemini 5h: %d%%, Claude 5h: %d%%",
+		dashRes.ActiveAccount.Email, dashRes.ActiveAccount.GeminiPool.FiveHourPercent, dashRes.ActiveAccount.ClaudePool.FiveHourPercent)
+
+	// 5. Test POST /api/v1/accounts/primary -> switch to user@example.com
+	switchBody := `{"email":"user@example.com"}`
+	reqSwitch := httptest.NewRequest(http.MethodPost, "/api/v1/accounts/primary", strings.NewReader(switchBody))
+	wSwitch := httptest.NewRecorder()
+	s.mux.ServeHTTP(wSwitch, reqSwitch)
+	if wSwitch.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/v1/accounts/primary, got %d", wSwitch.Code)
+	}
+
+	// 6. Test GET /api/v1/accounts/active -> verify user is active
+	reqActive := httptest.NewRequest(http.MethodGet, "/api/v1/accounts/active", nil)
+	wActive := httptest.NewRecorder()
+	s.mux.ServeHTTP(wActive, reqActive)
+	if wActive.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/v1/accounts/active, got %d", wActive.Code)
+	}
+	var activeRes struct {
+		ActiveAccount supervisor.AccountInstance `json:"active_account"`
+		Email         string                     `json:"email"`
+	}
+	if err := json.NewDecoder(wActive.Body).Decode(&activeRes); err != nil {
+		t.Fatalf("failed to decode active account: %v", err)
+	}
+	if !strings.EqualFold(activeRes.Email, "user@example.com") {
+		t.Fatalf("expected user@example.com to be active, got %s", activeRes.Email)
+	}
+	t.Logf("Active account verified as: %s (Gemini: %d%%, Claude: %d%%)",
+		activeRes.Email, activeRes.ActiveAccount.GeminiPool.FiveHourPercent, activeRes.ActiveAccount.ClaudePool.FiveHourPercent)
+
+	// 7. Test /api/v1/host/takeover method restriction
+	reqTakeoverGet := httptest.NewRequest(http.MethodGet, "/api/v1/host/takeover", nil)
+	wTakeoverGet := httptest.NewRecorder()
+	s.mux.ServeHTTP(wTakeoverGet, reqTakeoverGet)
+	if wTakeoverGet.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed for GET /api/v1/host/takeover, got %d", wTakeoverGet.Code)
+	}
 }
+

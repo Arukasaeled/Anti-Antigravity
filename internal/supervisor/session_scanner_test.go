@@ -15,8 +15,9 @@ func TestCleanSessionTitle(t *testing.T) {
 func TestScanLocalSessions(t *testing.T) {
 	result := ScanLocalSessions()
 	t.Logf("Total sessions scanned: %d", result.Total)
+	t.Logf("Projects scanned: %v", result.Projects)
 	for i, s := range result.Sessions {
-		t.Logf("[%d] ID: %s | Title: %s | Updated: %s | Turns: %d", i+1, s.ID, s.Title, s.UpdatedAt, s.Turns)
+		t.Logf("[%d] ID: %s | Project: %s | Title: %s | Updated: %s | Turns: %d", i+1, s.ID, s.Project, s.Title, s.UpdatedAt, s.Turns)
 	}
 	if result.Total == 0 {
 		t.Log("Note: No sessions found, but scanner executed successfully")

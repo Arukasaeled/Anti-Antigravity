@@ -28,6 +28,26 @@ import (
 	"github.com/2ag/2ag/web"
 )
 
+func init() {
+	// 如果是通过终端命令行运行子命令，附加到父进程控制台以便输出日志与命令回显
+	if len(os.Args) > 1 {
+		kernel32 := syscall.NewLazyDLL("kernel32.dll")
+		attachConsole := kernel32.NewProc("AttachConsole")
+		if attachConsole.Find() == nil {
+			const ATTACH_PARENT_PROCESS = ^uintptr(0) // (DWORD)-1
+			attachConsole.Call(ATTACH_PARENT_PROCESS)
+		}
+	}
+
+	// 强制声明 Per-Monitor DPI Aware V2 (Context = -4)，防止 Windows 125%/150% 缩放导致 WebView2 模糊
+	user32 := syscall.NewLazyDLL("user32.dll")
+	setDpiAwareness := user32.NewProc("SetProcessDpiAwarenessContext")
+	if setDpiAwareness.Find() == nil {
+		// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+		setDpiAwareness.Call(uintptr(0xfffffffc))
+	}
+}
+
 func main() {
 	closeLog := setupLogging()
 	defer closeLog()
@@ -48,7 +68,7 @@ func runCLI(args []string) error {
 		return err
 	}
 	if len(args) == 0 {
-		return run(configPath, cfg)
+		return startManager(configPath, cfg)
 	}
 	switch args[0] {
 	case "run":
@@ -423,7 +443,9 @@ func openFileDialog(ctx context.Context, params map[string]any) (any, error) {
 	// The filter is selected from a fixed allow-list above, so no user input is
 	// interpolated into the PowerShell command.
 	command := "$d=New-Object System.Windows.Forms.OpenFileDialog; $d.Filter='" + filter + "'; if($d.ShowDialog() -eq 'OK'){Write-Output $d.FileName}"
-	output, err := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", "Add-Type -AssemblyName System.Windows.Forms; "+command).Output()
+	cmd := exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-Command", "Add-Type -AssemblyName System.Windows.Forms; "+command)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}

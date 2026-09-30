@@ -25,21 +25,46 @@
     --text-tertiary: #8e918f;
   }
 
-  /* 全局移除任何硬描边、黑阴影与漫画特效 */
-  * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    text-shadow: none !important;
+  @import url('https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap');
+
+  /* 彻底清除灰度抗锯齿带来的发虚问题，开启亚像素抗锯齿 */
+  html, body {
+    -webkit-font-smoothing: subpixel-antialiased !important;
+    text-rendering: optimizeLegibility !important;
+    font-family: 'Google Sans', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei UI', sans-serif;
   }
 
   body {
-    font-family: "Google Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background-color: var(--md-sys-color-background);
+    letter-spacing: 0.15px;
+    background-color: #131314;
+    background-image: 
+      radial-gradient(ellipse at 50% 0%, rgba(138, 180, 248, 0.15) 0%, transparent 70%),
+      radial-gradient(circle at 15% 15%, rgba(138, 180, 248, 0.08) 0%, transparent 40%),
+      radial-gradient(circle at 85% 85%, rgba(197, 138, 248, 0.05) 0%, transparent 40%);
+    background-attachment: fixed;
     color: var(--text-primary);
     display: flex;
     height: 100vh;
     overflow: hidden;
+  }
+
+  /* 提高主要文字的对比度，绝不使用死灰色 */
+  h1, h2, h3, .card-title, .panel-title {
+    color: #f8f9fa !important;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+  .stat-value {
+    color: #ffffff !important;
+    font-weight: 700;
+  }
+  .text-secondary {
+    color: #bdc1c6 !important;
+  }
+
+  /* 杜绝大容器使用 transform 导致 Chromium 文本抗锯齿降级 */
+  .google-card, .sidebar, .content-panel, #sidebar, #main-stage {
+    transform: none !important;
   }
 
   /* 侧边栏：Google 深色质感 */
@@ -175,6 +200,10 @@
   }
   .content-panel {
     display: none;
+    flex: 1;
+    min-width: 0 !important;
+    width: 100%;
+    box-sizing: border-box;
     animation: fadeIn 0.18s ease forwards;
   }
   @keyframes fadeIn {
@@ -203,73 +232,148 @@
     font-weight: 400;
   }
 
-  /* 优雅的 Google 质感卡片：大圆角 20px + 微弱轮廓 */
+  /* Google 容器与极细分割线 */
   .google-card {
-    background: var(--md-sys-color-surface);
-    border: 1px solid var(--md-sys-color-outline);
-    border-radius: 20px;
-    padding: 20px 24px;
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+    background: #1e1f20;
+    border: 1px solid #3c4043;
+    border-radius: 24px;
+    padding: 24px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    position: relative;
+    overflow: hidden;
     margin-bottom: 20px;
   }
+  .google-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(138, 180, 248, 0.35), transparent);
+    pointer-events: none;
+  }
 
-  /* Google 全药丸胶囊按钮 100px */
-  .google-btn {
-    background: var(--md-sys-color-primary);
-    color: #041e49;
-    font-weight: 600;
-    border: none;
+  /* 全药丸形态的操作按钮 - 严禁折行弹性加固 */
+  button, .pill-action-btn, .pill-action-btn-primary, .google-btn, .google-btn-tonal, .google-btn-danger, .status-pill, .modal-tab-btn {
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+  }
+  .pill-action-btn, .google-btn-tonal {
+    background: #282a2c;
+    color: #e3e3e3;
+    border: 1px solid #444746;
     border-radius: 100px;
-    padding: 9px 22px;
+    padding: 0 18px;
+    min-height: 38px;
     font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
     text-decoration: none;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    box-sizing: border-box;
   }
-  .google-btn:hover {
-    background: #a8c7fa;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-    transform: translateY(-1px);
-  }
-  .google-btn:active {
-    transform: translateY(0);
+  .pill-action-btn:hover, .google-btn-tonal:hover {
+    background: #333538;
+    border-color: #8ab4f8;
+    color: #8ab4f8;
   }
 
-  .google-btn-tonal {
-    background: var(--md-sys-color-surface-container);
-    color: var(--text-primary);
-    font-weight: 600;
-    border: 1px solid var(--md-sys-color-outline);
+  /* 主操作按钮采用 Google Blue 填充 */
+  .pill-action-btn-primary, .google-btn {
+    background: #8ab4f8;
+    color: #041e49;
+    border: none;
     border-radius: 100px;
-    padding: 8px 20px;
+    padding: 0 18px;
+    min-height: 38px;
     font-size: 13px;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
+    text-decoration: none;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    box-sizing: border-box;
   }
-  .google-btn-tonal:hover {
-    background: #333538;
-    color: #fff;
-    border-color: #55595d;
+  .pill-action-btn-primary:hover, .google-btn:hover {
+    background: #a8c7fa;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   }
 
   .google-btn-danger {
     background: rgba(242, 139, 130, 0.15);
-    color: var(--google-red);
-    font-weight: 600;
+    color: #f28b82;
     border: 1px solid rgba(242, 139, 130, 0.3);
     border-radius: 100px;
-    padding: 8px 18px;
+    padding: 0 18px;
+    min-height: 38px;
     font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    box-sizing: border-box;
+  }
+  .google-btn-danger:hover {
+    background: #f28b82;
+    color: #601410;
+  }
+
+  /* 配额条动态色彩类 */
+  .quota-bar-healthy { background: #81c995 !important; } /* >60% */
+  .quota-bar-warning { background: #fdd663 !important; } /* 20%~60% */
+  .quota-bar-danger  { background: #f28b82 !important; } /* <20% */
+
+  /* Google 4 色中空圆环 Toggle */
+  .google-ring-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    cursor: pointer;
+    border-radius: 50%;
+    background: transparent !important;
+    flex-shrink: 0;
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.2s ease;
+  }
+  .google-ring-toggle:hover {
+    transform: scale(1.12);
+  }
+  .google-ring-toggle .ring-svg {
+    display: block;
+  }
+  /* OFF 状态：四色彩段完全隐藏，仅保留深灰线圈 */
+  .google-ring-toggle .ring-segment {
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .google-ring-toggle .ring-track {
+    stroke: #5f6368;
+    opacity: 1;
+    transition: stroke 0.25s ease, opacity 0.25s ease;
+  }
+  /* ON 状态：四色瞬间点亮，并附带极细微光晕，中空 100% 透出父级卡片底色 */
+  .google-ring-toggle.active .ring-segment {
+    opacity: 1;
+  }
+  .google-ring-toggle.active .ring-track {
+    opacity: 0;
+  }
+  .google-ring-toggle.active {
+    filter: drop-shadow(0 0 6px rgba(66, 133, 244, 0.45));
   }
   .google-btn-danger:hover {
     background: rgba(242, 139, 130, 0.25);
@@ -311,12 +415,23 @@
     border: 1px solid var(--md-sys-color-outline);
   }
 
-  /* 栅格与布局 */
-  .grid-2col {
+  /* 栅格与布局 - 抗挤压单列保底 320px */
+  .grid-2col, .dashboard-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     gap: 20px;
+    width: 100%;
   }
+
+  /* 宿主卡片内部按钮组，防折行保护 */
+  .host-action-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    flex-wrap: nowrap !important; /* 严禁换行 */
+  }
+
   .row { display: flex; justify-content: space-between; align-items: center; }
   .col { display: flex; flex-direction: column; gap: 4px; }
   .flex-gap { display: flex; gap: 10px; align-items: center; }
@@ -658,7 +773,7 @@
         <div class="status-pill pill-blue">GOOGLE RUNTIME ACTIVE</div>
       </div>
 
-      <div class="grid-2col">
+      <div class="dashboard-grid">
         <!-- Card 1: 真实宿主状态 -->
         <div class="google-card">
           <div class="row" style="margin-bottom: 16px;">
@@ -670,10 +785,10 @@
             <div class="metric-box"><div class="metric-label">物理内存占用</div><div class="metric-param" id="dash-host-mem">-</div></div>
             <div class="metric-box"><div class="metric-label">CDP 调试端口</div><div class="metric-param" id="dash-host-cdp">28472</div></div>
           </div>
-          <div class="flex-gap">
-            <button class="google-btn" onclick="launchHost()">▷ 启动宿主</button>
-            <button class="google-btn-tonal" onclick="restartHost()">重启</button>
-            <button class="google-btn-danger" style="margin-left:auto" onclick="stopHost()">结束进程</button>
+          <div class="host-action-row">
+            <button class="pill-action-btn pill-action-btn-primary" id="btn-host-launch" onclick="launchHost()">▷ 启动宿主</button>
+            <button class="pill-action-btn" onclick="restartHost()">重启</button>
+            <button class="pill-action-btn google-btn-danger" style="margin-left:auto" onclick="stopHost()">结束进程</button>
           </div>
         </div>
 
@@ -693,31 +808,34 @@
         <!-- Card 3: 真实双配额池视窗 -->
         <div class="google-card">
           <div class="row" style="margin-bottom: 12px;">
-            <span style="font-weight: 700; font-size: 15px;">真机双配额池视窗 (Live Quota Pools)</span>
-            <span class="metric-param" id="dash-primary-email" style="font-size:12px; color:var(--text-secondary)">user@example.com</span>
+            <div class="flex-gap" style="align-items:center;">
+              <span style="font-weight: 700; font-size: 15px;">真机双配额池视窗 (Live Quota Pools)</span>
+              <span class="status-pill pill-yellow" id="dash-account-live-badge" style="font-size:11px;">● 预设主控 (待挂钩)</span>
+            </div>
+            <span class="metric-param" id="dash-account-email" style="font-size:12px; color:var(--text-secondary)">-</span>
           </div>
           <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-top: 8px;">
             <div class="quota-pool-box">
               <div class="row"><span style="font-weight:600; font-size:13px; color:var(--text-primary)">Gemini Models</span><span style="font-size:11px; color:var(--text-tertiary)">5h / 周额度</span></div>
               <div>
-                <div class="row" style="font-size:11px;"><span style="color:var(--text-secondary)">5h 滑窗</span><span id="dash-g-5h-val" style="color:var(--text-primary)">39% · 2h 20m</span></div>
-                <div class="quota-track"><div class="quota-fill" id="dash-g-5h-bar" style="width:39%;"></div></div>
+                <div class="row" style="font-size:11px;"><span style="color:var(--text-secondary)">5h 滑窗</span><span id="dash-g-5h-val" style="color:var(--text-primary)">-</span></div>
+                <div class="quota-track"><div class="quota-fill" id="dash-gemini-5h" style="width:0%;"></div></div>
               </div>
               <div>
-                <div class="row" style="font-size:11px;"><span style="color:var(--text-secondary)">周限制总额</span><span id="dash-g-wk-val" style="color:var(--text-primary)">46% · 3d 3h</span></div>
-                <div class="quota-track"><div class="quota-fill" id="dash-g-wk-bar" style="width:46%;"></div></div>
+                <div class="row" style="font-size:11px;"><span style="color:var(--text-secondary)">周限制总额</span><span id="dash-g-wk-val" style="color:var(--text-primary)">-</span></div>
+                <div class="quota-track"><div class="quota-fill" id="dash-gemini-week" style="width:0%;"></div></div>
               </div>
             </div>
 
             <div class="quota-pool-box">
               <div class="row"><span style="font-weight:600; font-size:13px; color:var(--text-primary)">Claude & GPT</span><span style="font-size:11px; color:var(--text-tertiary)">5h / 周额度</span></div>
               <div>
-                <div class="row" style="font-size:11px;"><span style="color:var(--text-secondary)">5h 滑窗</span><span id="dash-c-5h-val" style="color:var(--text-primary)">100% · 满额</span></div>
-                <div class="quota-track"><div class="quota-fill" id="dash-c-5h-bar" style="width:100%;"></div></div>
+                <div class="row" style="font-size:11px;"><span style="color:var(--text-secondary)">5h 滑窗</span><span id="dash-c-5h-val" style="color:var(--text-primary)">-</span></div>
+                <div class="quota-track"><div class="quota-fill" id="dash-claude-5h" style="width:0%;"></div></div>
               </div>
               <div>
-                <div class="row" style="font-size:11px;"><span style="color:var(--text-secondary)">周限制总额</span><span id="dash-c-wk-val" style="color:var(--text-primary)">93% · 5d 4h</span></div>
-                <div class="quota-track"><div class="quota-fill" id="dash-c-wk-bar" style="width:93%;"></div></div>
+                <div class="row" style="font-size:11px;"><span style="color:var(--text-secondary)">周限制总额</span><span id="dash-c-wk-val" style="color:var(--text-primary)">-</span></div>
+                <div class="quota-track"><div class="quota-fill" id="dash-claude-week" style="width:0%;"></div></div>
               </div>
             </div>
           </div>
@@ -731,11 +849,11 @@
           </div>
           <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px;">
             <div class="metric-box"><div class="metric-label">Dream Skin</div><div class="metric-param" style="color:var(--google-green)">ACTIVE (0.85/20px)</div></div>
-            <div class="metric-box"><div class="metric-label">Gravity Boost</div><div class="metric-param" style="color:var(--google-green)">11 SHIELDS ON</div></div>
+            <div class="metric-box"><div class="metric-label">Gravity Boost</div><div class="metric-param" style="color:var(--google-green)">6 SHIELDS ON</div></div>
           </div>
-          <div class="flex-gap">
-            <button class="google-btn" onclick="postAction('HOT_RELOAD', {})">⚡ 热重载补丁</button>
-            <button class="google-btn-tonal" onclick="postAction('OPEN_DEVTOOLS', {})">呼出 DevTools (F12)</button>
+          <div class="host-action-row">
+            <button class="pill-action-btn pill-action-btn-primary" onclick="postAction('HOT_RELOAD', {})">⚡ 热重载补丁</button>
+            <button class="pill-action-btn" onclick="postAction('OPEN_DEVTOOLS', {})">呼出 DevTools (F12)</button>
           </div>
         </div>
       </div>
@@ -759,12 +877,12 @@
       </div>
     </div>
 
-    <!-- 03 SESSIONS AUDIT (真实会话审计) -->
+    <!-- 03 SESSIONS AUDIT (真实会话审计 - 项目树与 Codex++ 级管控中枢) -->
     <div id="sessions" class="content-panel">
       <div class="panel-header-wrap">
         <div>
           <h2 class="panel-title">会话审计</h2>
-          <div class="panel-subtitle">本地 Antigravity 真实持久化会话索引、UUID 标识与导出归档</div>
+          <div class="panel-subtitle">本地 Antigravity 真实持久化会话索引、多维项目归类与 Codex++ 级管控中枢</div>
         </div>
         <div class="flex-gap">
           <span class="status-pill pill-blue" id="sessions-total-badge">● 正在读取...</span>
@@ -773,9 +891,58 @@
         </div>
       </div>
 
+      <!-- Codex++ 风格状态指示条（四联胶囊看板） -->
+      <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;">
+        <div class="metric-box">
+          <div class="metric-label">会话总数</div>
+          <div class="metric-param" id="stat-total-sessions" style="color:var(--text-primary); font-size:18px;">-</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">涉及项目</div>
+          <div class="metric-param" id="stat-total-projects" style="color:var(--md-sys-color-primary); font-size:18px;">-</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">今日活跃</div>
+          <div class="metric-param" id="stat-today-active" style="color:var(--google-green); font-size:18px;">-</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">已导出归档</div>
+          <div class="metric-param" id="stat-archived-count" style="color:var(--google-yellow); font-size:18px;">0</div>
+        </div>
+      </div>
+
+      <!-- 项目过滤胶囊栏 (Filter Pills) -->
+      <div class="google-card" style="padding: 14px 20px; margin-bottom: 16px;">
+        <div class="row" style="margin-bottom: 10px;">
+          <span style="font-size: 12px; font-weight: 700; color: var(--text-tertiary); letter-spacing: 0.5px; text-transform: uppercase;">项目归属过滤 (PROJECT FILTER)</span>
+        </div>
+        <div id="project-filter-pills" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+          <!-- 动态渲染项目选择标签: [ 全部项目 (11) ], [ Anti-antigravity (4) ], [ antigravity_cockpit (3) ]... -->
+        </div>
+      </div>
+
+      <!-- 操作工具条与会话卡片列表 -->
       <div class="google-card">
+        <div class="row" style="margin-bottom: 16px; gap: 12px; flex-wrap: wrap;">
+          <div class="flex-gap" style="gap: 12px;">
+            <label style="display:inline-flex; align-items:center; gap:8px; font-size:13px; color:var(--text-secondary); cursor:pointer; user-select:none;">
+              <input type="checkbox" id="select-all-sessions" onchange="toggleSelectAllSessions(this.checked)" style="accent-color:var(--md-sys-color-primary); width:16px; height:16px;">
+              <span>全选当前列表</span>
+            </label>
+            <button class="google-btn-tonal" onclick="batchExportMarkdown()" id="btn-batch-export" style="padding:7px 18px; font-size:12px;">
+              📥 批量导出 Markdown
+            </button>
+            <button class="google-btn-danger" onclick="batchDeleteSessions()" id="btn-batch-delete" style="display:none; padding:7px 18px; font-size:12px;">
+              🗑️ 彻底删除选中 (<span id="selected-count">0</span>)
+            </button>
+          </div>
+          <div style="flex:1; max-width: 320px; margin-left: auto;">
+            <input type="text" id="session-search-input" oninput="onSearchSessions(this.value)" placeholder="搜索会话标题、UUID 或来源..." class="modal-input" style="margin-top:0; border-radius: 100px; padding: 7px 16px; font-size:12px;">
+          </div>
+        </div>
+
         <div id="sessions-list" style="display:flex; flex-direction:column; gap:12px;">
-          <!-- Dynamically populated with REAL local sessions -->
+          <!-- 动态渲染真实会话卡片 -->
           <div style="font-size:13px; color:var(--text-secondary); text-align:center; padding: 28px;">正在扫描本地 Antigravity 真实会话...</div>
         </div>
       </div>
@@ -896,83 +1063,120 @@
       <div class="panel-header-wrap">
         <div>
           <h2 class="panel-title">重力加倍</h2>
-          <div class="panel-subtitle">会话删除、Markdown 导出、文本粘贴修复与深度辅助开关矩阵 (安全沙箱隔离)</div>
+          <div class="panel-subtitle">会话流排版、运行时穿透、剪贴板净化与防护增强开关矩阵 (安全沙箱隔离)</div>
         </div>
-        <div class="status-pill pill-blue">SHIELD PROTECTED</div>
+        <div class="status-pill pill-blue">GOOGLE SHIELD ACTIVE</div>
       </div>
 
       <div class="google-card">
-        <!-- Group 1 -->
         <div class="settings-section">
           <div class="settings-left">
-            对话与输入优化
-            <span style="font-size:11px; color:var(--text-tertiary); font-weight:400; display:block; margin-top:6px;">调整会话管理与输入行为</span>
+            核心增强矩阵
+            <span style="font-size:11px; color:var(--text-tertiary); font-weight:400; display:block; margin-top:6px;">点击右侧 Google 四色圆环切换开关状态</span>
           </div>
           <div class="settings-right">
+            <!-- 1. 黄金视距画幅锁 -->
             <div class="setting-row">
-              <div class="col"><div class="setting-info-title">会话删除 (Session Deletion)</div><div class="setting-info-desc">在会话列表悬停时显示删除图标与撤销支持。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-session_delete" onchange="toggleBoost('session_delete', this.checked)"><span class="md-slider"></span></label>
+              <div class="col">
+                <div class="setting-info-title">黄金视距画幅锁 (Centered 880px View)</div>
+                <div class="setting-info-desc">约束对话流黄金阅读宽度至 880px 并居中呈现，严禁影响代码编辑器。</div>
+              </div>
+              <div class="google-ring-toggle active" data-feature="centered_width" id="ring-centered_width" onclick="toggleRingState('centered_width')">
+                <svg class="ring-svg" viewBox="0 0 32 32" width="24" height="24">
+                  <circle class="ring-track" cx="16" cy="16" r="11" fill="none" stroke="#444746" stroke-width="2.8" />
+                  <circle class="ring-segment arc-blue"   cx="16" cy="16" r="11" fill="none" stroke="#4285F4" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="0" />
+                  <circle class="ring-segment arc-red"    cx="16" cy="16" r="11" fill="none" stroke="#EA4335" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-17.28" />
+                  <circle class="ring-segment arc-yellow" cx="16" cy="16" r="11" fill="none" stroke="#FBBC05" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-34.56" />
+                  <circle class="ring-segment arc-green"  cx="16" cy="16" r="11" fill="none" stroke="#34A853" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-51.84" />
+                </svg>
+              </div>
             </div>
-            <div class="setting-row">
-              <div class="col"><div class="setting-info-title">Markdown 导出 (Export to MD)</div><div class="setting-info-desc">操作栏提供一键导出为带时间戳的完整 .md 归档文件。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-markdown_export" onchange="toggleBoost('markdown_export', this.checked)"><span class="md-slider"></span></label>
-            </div>
-            <div class="setting-row">
-              <div class="col"><div class="setting-info-title">纯文本粘贴修复 (Paste Plaintext Fix)</div><div class="setting-info-desc">清除剪贴板格式，防止 Word 富文本被误认成附件图片。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-paste_plaintext_fix" onchange="toggleBoost('paste_plaintext_fix', this.checked)"><span class="md-slider"></span></label>
-            </div>
-            <div class="setting-row">
-              <div class="col"><div class="setting-info-title">会话 ID 标识 (Session UUID Tag)</div><div class="setting-info-desc">在侧栏标题前显示 UUIDv7 短标与创建时间，方便定位历史。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-session_id_tag" onchange="toggleBoost('session_id_tag', this.checked)"><span class="md-slider"></span></label>
-            </div>
-            <div class="setting-row">
-              <div class="col"><div class="setting-info-title">对话居中宽度限制 (Centered Max-Width)</div><div class="setting-info-desc">精准作用于聊天视窗 (860px)，严禁影响代码编辑器。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-centered_width" onchange="toggleBoost('centered_width', this.checked)"><span class="md-slider"></span></label>
-            </div>
-          </div>
-        </div>
 
-        <!-- Group 2 -->
-        <div class="settings-section">
-          <div class="settings-left">
-            交互与阅读辅助
-            <span style="font-size:11px; color:var(--text-tertiary); font-weight:400; display:block; margin-top:6px;">控制长篇回复提炼与翻阅连贯性</span>
-          </div>
-          <div class="settings-right">
+            <!-- 2. CDP 运行时 DevTools 穿透 -->
             <div class="setting-row">
-              <div class="col"><div class="setting-info-title">切换对话记忆滚动条 (Preserve Scroll Position)</div><div class="setting-info-desc">切换 Thread 时记忆上次浏览进度，不强制跳到底部。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-preserve_scroll" onchange="toggleBoost('preserve_scroll', this.checked)"><span class="md-slider"></span></label>
+              <div class="col">
+                <div class="setting-info-title">CDP 运行时 DevTools 穿透 (Enable F12)</div>
+                <div class="setting-info-desc">解除宿主快捷键屏蔽，允许随时通过 F12、Ctrl+Shift+I 呼出开发者工具。</div>
+              </div>
+              <div class="google-ring-toggle active" data-feature="enable_devtools" id="ring-enable_devtools" onclick="toggleRingState('enable_devtools')">
+                <svg class="ring-svg" viewBox="0 0 32 32" width="24" height="24">
+                  <circle class="ring-track" cx="16" cy="16" r="11" fill="none" stroke="#444746" stroke-width="2.8" />
+                  <circle class="ring-segment arc-blue"   cx="16" cy="16" r="11" fill="none" stroke="#4285F4" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="0" />
+                  <circle class="ring-segment arc-red"    cx="16" cy="16" r="11" fill="none" stroke="#EA4335" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-17.28" />
+                  <circle class="ring-segment arc-yellow" cx="16" cy="16" r="11" fill="none" stroke="#FBBC05" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-34.56" />
+                  <circle class="ring-segment arc-green"  cx="16" cy="16" r="11" fill="none" stroke="#34A853" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-51.84" />
+                </svg>
+              </div>
             </div>
-            <div class="setting-row">
-              <div class="col"><div class="setting-info-title">Stepwise 深度下一步建议</div><div class="setting-info-desc">根据当前回答动态生成下一步操作策略与快捷动作卡片。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-stepwise" onchange="toggleBoost('stepwise', this.checked)"><span class="md-slider"></span></label>
-            </div>
-            <div class="setting-row">
-              <div class="col"><div class="setting-info-title">结构化回答大纲 (Answer Outline)</div><div class="setting-info-desc">在长文本回答顶部自动提炼并悬浮结构大纲目录。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-answer_outline" onchange="toggleBoost('answer_outline', this.checked)"><span class="md-slider"></span></label>
-            </div>
-          </div>
-        </div>
 
-        <!-- Group 3 -->
-        <div class="settings-section">
-          <div class="settings-left">
-            宿主与底层控制
-            <span style="font-size:11px; color:var(--text-tertiary); font-weight:400; display:block; margin-top:6px;">控制语言锁定与更新阻断</span>
-          </div>
-          <div class="settings-right">
+            <!-- 3. 剪贴板纯文本净化 -->
             <div class="setting-row">
-              <div class="col"><div class="setting-info-title">强制原生中文语言包 (Force zh-CN)</div><div class="setting-info-desc">强制锁定 Antigravity 界面语言为中文，避免多语言漂移。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-force_zh_cn" onchange="toggleBoost('force_zh_cn', this.checked)"><span class="md-slider"></span></label>
+              <div class="col">
+                <div class="setting-info-title">剪贴板纯文本净化 (Clipboard Sanitizer)</div>
+                <div class="setting-info-desc">自动清除剪贴板脏格式与嵌套 HTML，防止文本被误认成附件图片或二进制。</div>
+              </div>
+              <div class="google-ring-toggle active" data-feature="paste_plaintext_fix" id="ring-paste_plaintext_fix" onclick="toggleRingState('paste_plaintext_fix')">
+                <svg class="ring-svg" viewBox="0 0 32 32" width="24" height="24">
+                  <circle class="ring-track" cx="16" cy="16" r="11" fill="none" stroke="#444746" stroke-width="2.8" />
+                  <circle class="ring-segment arc-blue"   cx="16" cy="16" r="11" fill="none" stroke="#4285F4" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="0" />
+                  <circle class="ring-segment arc-red"    cx="16" cy="16" r="11" fill="none" stroke="#EA4335" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-17.28" />
+                  <circle class="ring-segment arc-yellow" cx="16" cy="16" r="11" fill="none" stroke="#FBBC05" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-34.56" />
+                  <circle class="ring-segment arc-green"  cx="16" cy="16" r="11" fill="none" stroke="#34A853" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-51.84" />
+                </svg>
+              </div>
             </div>
+
+            <!-- 4. 会话视窗滚动锚定 -->
             <div class="setting-row">
-              <div class="col"><div class="setting-info-title">开发者特权放行 (Enable DevTools F12)</div><div class="setting-info-desc">解除官方快捷键屏蔽，允许随时随地呼出开发者工具检查 DOM。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-enable_devtools" onchange="toggleBoost('enable_devtools', this.checked)"><span class="md-slider"></span></label>
+              <div class="col">
+                <div class="setting-info-title">会话视窗滚动锚定 (Preserve Scroll Position)</div>
+                <div class="setting-info-desc">切换 Task / 会话时记忆上次浏览进度与视口高度，不强制突变跳跃到底部。</div>
+              </div>
+              <div class="google-ring-toggle active" data-feature="preserve_scroll" id="ring-preserve_scroll" onclick="toggleRingState('preserve_scroll')">
+                <svg class="ring-svg" viewBox="0 0 32 32" width="24" height="24">
+                  <circle class="ring-track" cx="16" cy="16" r="11" fill="none" stroke="#444746" stroke-width="2.8" />
+                  <circle class="ring-segment arc-blue"   cx="16" cy="16" r="11" fill="none" stroke="#4285F4" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="0" />
+                  <circle class="ring-segment arc-red"    cx="16" cy="16" r="11" fill="none" stroke="#EA4335" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-17.28" />
+                  <circle class="ring-segment arc-yellow" cx="16" cy="16" r="11" fill="none" stroke="#FBBC05" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-34.56" />
+                  <circle class="ring-segment arc-green"  cx="16" cy="16" r="11" fill="none" stroke="#34A853" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-51.84" />
+                </svg>
+              </div>
             </div>
+
+            <!-- 5. 区域语言锁定 -->
             <div class="setting-row">
-              <div class="col"><div class="setting-info-title">拦截后台自动更新 (Disable Background Update)</div><div class="setting-info-desc">阻止客户端后台静默下载增量包覆盖 2Ag 注入补丁。</div></div>
-              <label class="md-switch"><input type="checkbox" id="boost-disable_auto_update" onchange="toggleBoost('disable_auto_update', this.checked)"><span class="md-slider"></span></label>
+              <div class="col">
+                <div class="setting-info-title">区域语言锁定 (Force Locale zh-CN)</div>
+                <div class="setting-info-desc">强制锁定 Antigravity 界面语言为中文环境，避免因 IP 或系统地域产生漂移。</div>
+              </div>
+              <div class="google-ring-toggle active" data-feature="force_zh_cn" id="ring-force_zh_cn" onclick="toggleRingState('force_zh_cn')">
+                <svg class="ring-svg" viewBox="0 0 32 32" width="24" height="24">
+                  <circle class="ring-track" cx="16" cy="16" r="11" fill="none" stroke="#444746" stroke-width="2.8" />
+                  <circle class="ring-segment arc-blue"   cx="16" cy="16" r="11" fill="none" stroke="#4285F4" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="0" />
+                  <circle class="ring-segment arc-red"    cx="16" cy="16" r="11" fill="none" stroke="#EA4335" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-17.28" />
+                  <circle class="ring-segment arc-yellow" cx="16" cy="16" r="11" fill="none" stroke="#FBBC05" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-34.56" />
+                  <circle class="ring-segment arc-green"  cx="16" cy="16" r="11" fill="none" stroke="#34A853" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-51.84" />
+                </svg>
+              </div>
             </div>
+
+            <!-- 6. 拦截后台自动更新 -->
+            <div class="setting-row">
+              <div class="col">
+                <div class="setting-info-title">拦截后台自动更新 (Disable Background Update)</div>
+                <div class="setting-info-desc">阻止客户端后台静默下载增量包覆盖 2Ag 注入补丁与外观皮肤。</div>
+              </div>
+              <div class="google-ring-toggle active" data-feature="disable_auto_update" id="ring-disable_auto_update" onclick="toggleRingState('disable_auto_update')">
+                <svg class="ring-svg" viewBox="0 0 32 32" width="24" height="24">
+                  <circle class="ring-track" cx="16" cy="16" r="11" fill="none" stroke="#444746" stroke-width="2.8" />
+                  <circle class="ring-segment arc-blue"   cx="16" cy="16" r="11" fill="none" stroke="#4285F4" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="0" />
+                  <circle class="ring-segment arc-red"    cx="16" cy="16" r="11" fill="none" stroke="#EA4335" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-17.28" />
+                  <circle class="ring-segment arc-yellow" cx="16" cy="16" r="11" fill="none" stroke="#FBBC05" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-34.56" />
+                  <circle class="ring-segment arc-green"  cx="16" cy="16" r="11" fill="none" stroke="#34A853" stroke-width="2.8" stroke-dasharray="17.28 51.84" stroke-dashoffset="-51.84" />
+                </svg>
+              </div>
+            </div>
+
           </div>
         </div>
       </div>
@@ -1199,26 +1403,28 @@ function postAction(type, payload) {
 
 // Host Physical Launcher & Lifecycle Control
 function launchHost() {
-  logMsg("正在物理拉起 Antigravity 宿主进程 (注入 CDP 调试端口 28472)...", "term-ok");
+  const primary = (currentAccounts && currentAccounts.find(function(a) { return a.is_primary || a.is_active; })) || (currentAccounts && currentAccounts[0]);
+  const email = primary ? primary.email : '';
+  logMsg("正在物理拉起 Antigravity 宿主进程 (账号沙箱: " + (email || "默认") + ", CDP: 28472)...", "term-ok");
   fetch('/api/v1/host/launch', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({})
+    body: JSON.stringify({ email: email })
   })
   .then(function(r) { return r.json(); })
   .then(function(res) {
     if (res.success) {
-      logMsg("宿主拉起指令成功下发！正在探测进程状态...", "term-ok");
+      logMsg("宿主拉起成功！CDP 注入监听已就绪，正在物理变身为 anti-Antigravity...", "term-ok");
     } else {
       logMsg("拉起宿主失败: " + (res.message || "未知错误"), "term-err");
     }
-    setTimeout(probeRealHost, 250);
-    setTimeout(probeRealHost, 650);
-    setTimeout(probeRealHost, 1100);
-    setTimeout(probeRealHost, 1700);
+    setTimeout(probeRealHost, 300);
+    setTimeout(probeRealHost, 800);
+    setTimeout(probeRealHost, 1500);
+    setTimeout(probeRealHost, 2500);
   })
   .catch(function() {
-    postAction('HOST_CTRL', {cmd: 'start'});
+    postAction('HOST_CTRL', {cmd: 'start', email: email});
     setTimeout(probeRealHost, 400);
     setTimeout(probeRealHost, 1200);
   });
@@ -1229,6 +1435,39 @@ function restartHost() {
   postAction('HOST_CTRL', {cmd: 'restart'});
   setTimeout(probeRealHost, 600);
   setTimeout(probeRealHost, 1400);
+}
+
+function takeoverHost() {
+  const primary = (currentAccounts && currentAccounts.find(function(a) { return a.is_primary || a.is_active; })) || (currentAccounts && currentAccounts[0]);
+  const email = primary ? primary.email : '';
+  logMsg("正在物理强杀现有宿主孤儿进程并携带当前沙箱与 CDP 调试端口热接管...", "term-ok");
+  fetch('/api/v1/host/takeover', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ email: email })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(res) {
+    if (res.success) {
+      logMsg("宿主一键热接管成功！CDP 调试端口已接入，anti-Antigravity 正在秒级点亮...", "term-ok");
+    } else {
+      logMsg("热接管宿主失败: " + (res.message || "未知错误"), "term-err");
+    }
+    setTimeout(probeRealHost, 300);
+    setTimeout(probeRealHost, 800);
+    setTimeout(probeRealHost, 1500);
+    setTimeout(probeRealHost, 2500);
+  })
+  .catch(function(err) {
+    logMsg("热接管请求失败: " + err, "term-err");
+    postAction('HOST_CTRL', {cmd: 'restart', email: email});
+    setTimeout(probeRealHost, 500);
+    setTimeout(probeRealHost, 1500);
+  });
+}
+
+function restartAndAttachHost() {
+  takeoverHost();
 }
 
 function stopHost() {
@@ -1250,10 +1489,39 @@ function updateVal(id, val, unit) {
   }, 100);
 }
 
+// Boost Feature State & Ring Toggle Controller
+const boostFeatureState = {
+  centered_width: true,
+  enable_devtools: true,
+  paste_plaintext_fix: true,
+  preserve_scroll: true,
+  force_zh_cn: true,
+  disable_auto_update: true
+};
+
+function toggleRingState(key) {
+  const current = !!boostFeatureState[key];
+  const next = !current;
+  boostFeatureState[key] = next;
+  updateRingUI(key, next);
+  toggleBoost(key, next);
+}
+
+function updateRingUI(key, active) {
+  const el = document.getElementById('ring-' + key);
+  if (el) {
+    if (active) {
+      el.classList.add('active');
+    } else {
+      el.classList.remove('active');
+    }
+  }
+}
+
 // Boost Toggle
 function toggleBoost(key, value) {
   postAction('TOGGLE_BOOST', { key: key, value: value });
-  logMsg("增强特性切换: " + key + " -> " + value + " (热生效)", "term-cyan");
+  logMsg("增强特性切换: " + key + " -> " + (value ? "开启 [ON]" : "关闭 [OFF]") + " (热生效)", "term-cyan");
 }
 
 // Presets
@@ -1262,17 +1530,100 @@ function applyPreset(pid) {
   logMsg("应用主题预设: " + pid, "term-ok");
 }
 
-// 2.3 动态配额健康色彩渲染函数
+// 2.3 动态配额健康色彩渲染函数与色阶类
+function renderQuotaProgress(barIdOrEl, percent) {
+  const el = typeof barIdOrEl === 'string' ? document.getElementById(barIdOrEl) : barIdOrEl;
+  if (!el) return;
+  const p = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+  el.style.width = p + '%';
+  el.classList.remove('quota-bar-healthy', 'quota-bar-warning', 'quota-bar-danger');
+  if (p > 60) {
+    el.classList.add('quota-bar-healthy');
+    el.style.backgroundColor = '#81c995';
+  } else if (p >= 20) {
+    el.classList.add('quota-bar-warning');
+    el.style.backgroundColor = '#fdd663';
+  } else {
+    el.classList.add('quota-bar-danger');
+    el.style.backgroundColor = '#f28b82';
+  }
+}
+
 function getQuotaColor(percent) {
-  if (percent > 60) return 'var(--google-green)';
-  if (percent >= 20) return 'var(--google-yellow)';
-  return 'var(--google-red)';
+  const p = Number(percent) || 0;
+  if (p > 60) return '#81c995';
+  if (p >= 20) return '#fdd663';
+  return '#f28b82';
 }
 
 function renderQuotaBar(barElement, percent) {
-  if (!barElement) return;
-  barElement.style.width = percent + '%';
-  barElement.style.backgroundColor = getQuotaColor(percent);
+  renderQuotaProgress(barElement, percent);
+}
+
+function bindActiveAccountToDashboard(currentAcc, isLive) {
+  if (!currentAcc) return;
+  const emailEl = document.getElementById('dash-account-email') || document.getElementById('dash-primary-email');
+  if (emailEl) emailEl.textContent = currentAcc.email;
+
+  const liveBadge = document.getElementById('dash-account-live-badge');
+  if (liveBadge) {
+    if (isLive) {
+      liveBadge.className = 'status-pill pill-green';
+      liveBadge.textContent = '● 实时在线 (已挂钩)';
+    } else {
+      liveBadge.className = 'status-pill pill-yellow';
+      liveBadge.textContent = '● 预设主控 (待挂钩)';
+    }
+  }
+
+  const g5Percent = currentAcc.gemini_5h_percent !== undefined ? currentAcc.gemini_5h_percent : (currentAcc.gemini_pool ? currentAcc.gemini_pool.five_hour_percent : 0);
+  const g5Reset = currentAcc.gemini_5h_reset || (currentAcc.gemini_pool ? currentAcc.gemini_pool.five_hour_reset : '满额');
+  const gwkPercent = currentAcc.gemini_week_percent !== undefined ? currentAcc.gemini_week_percent : (currentAcc.gemini_pool ? currentAcc.gemini_pool.weekly_percent : 0);
+  const gwkReset = currentAcc.gemini_week_reset || (currentAcc.gemini_pool ? currentAcc.gemini_pool.weekly_reset : '满额');
+
+  const c5Percent = currentAcc.claude_5h_percent !== undefined ? currentAcc.claude_5h_percent : (currentAcc.claude_pool ? currentAcc.claude_pool.five_hour_percent : 0);
+  const c5Reset = currentAcc.claude_5h_reset || (currentAcc.claude_pool ? currentAcc.claude_pool.five_hour_reset : '满额');
+  const cwkPercent = currentAcc.claude_week_percent !== undefined ? currentAcc.claude_week_percent : (currentAcc.claude_pool ? currentAcc.claude_pool.weekly_percent : 0);
+  const cwkReset = currentAcc.claude_week_reset || (currentAcc.claude_pool ? currentAcc.claude_pool.weekly_reset : '满额');
+
+  const g5Val = document.getElementById('dash-g-5h-val');
+  if (g5Val) g5Val.textContent = g5Percent + '% · ' + g5Reset;
+  renderQuotaProgress('dash-gemini-5h', g5Percent);
+  renderQuotaProgress('dash-g-5h-bar', g5Percent);
+
+  const gwkVal = document.getElementById('dash-g-wk-val');
+  if (gwkVal) gwkVal.textContent = gwkPercent + '% · ' + gwkReset;
+  renderQuotaProgress('dash-gemini-week', gwkPercent);
+  renderQuotaProgress('dash-g-wk-bar', gwkPercent);
+
+  const c5Val = document.getElementById('dash-c-5h-val');
+  if (c5Val) c5Val.textContent = c5Percent + '% · ' + c5Reset;
+  renderQuotaProgress('dash-claude-5h', c5Percent);
+  renderQuotaProgress('dash-c-5h-bar', c5Percent);
+
+  const cwkVal = document.getElementById('dash-c-wk-val');
+  if (cwkVal) cwkVal.textContent = cwkPercent + '% · ' + cwkReset;
+  renderQuotaProgress('dash-claude-week', cwkPercent);
+  renderQuotaProgress('dash-c-wk-bar', cwkPercent);
+}
+
+function loadActiveAccount() {
+  fetch('/api/v1/dashboard')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      const isLive = !!data.is_live;
+      if (data.active_account) {
+        bindActiveAccountToDashboard(data.active_account, isLive);
+      }
+    })
+    .catch(function() {
+      fetch('/api/v1/accounts/active')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+          const acc = data.active_account || data.account;
+          if (acc) bindActiveAccountToDashboard(acc, false);
+        });
+    });
 }
 
 // 彻底解耦的真实宿主探针
@@ -1295,6 +1646,7 @@ function probeRealHost() {
 
       const isFound = data.process_found || (data.pid > 0);
       const isCDP = data.cdp_connected;
+      const isLive = isFound && isCDP;
 
       if (isFound) {
         if (pidEl) pidEl.innerText = data.pid;
@@ -1326,6 +1678,28 @@ function probeRealHost() {
         if (hudMem) hudMem.innerText = 'OFFLINE';
         if (diagPid) diagPid.innerText = 'PID: 未启动';
       }
+
+      const btnLaunch = document.getElementById('btn-host-launch');
+      if (btnLaunch) {
+        if (isFound && !isCDP) {
+          // 状态驱动：当探测到存在宿主 PID 但 cdp_attached == false 时，动态更新为 Google Blue 高亮药丸：[ ▷ 重启并接入 2Ag ]
+          btnLaunch.innerText = '▷ 重启并接入 2Ag';
+          btnLaunch.className = 'pill-action-btn pill-action-btn-primary';
+          btnLaunch.onclick = function() { takeoverHost(); };
+        } else if (isLive) {
+          btnLaunch.innerText = '▷ 宿主已接入 2Ag';
+          btnLaunch.className = 'pill-action-btn';
+          btnLaunch.onclick = function() { takeoverHost(); };
+        } else {
+          btnLaunch.innerText = '▷ 启动宿主';
+          btnLaunch.className = 'pill-action-btn pill-action-btn-primary';
+          btnLaunch.onclick = function() { launchHost(); };
+        }
+      }
+
+      if (data.active_account) {
+        bindActiveAccountToDashboard(data.active_account, isLive);
+      }
     })
     .catch(function(err) {
       console.warn("Probe host status error:", err);
@@ -1342,21 +1716,30 @@ setInterval(function() {
   if (el) el.innerText = h + ':' + m + ':' + s;
 }, 1000);
 
-// 真实本地会话扫描器
+// 真实本地会话扫描器与项目管控中枢
 let currentSessions = [];
+let currentProjects = [];
+let activeProjectFilter = 'ALL';
+let sessionSearchQuery = '';
+let selectedSessionIds = new Set();
+let archivedSessionCount = 0;
+
 function loadSessions(showToast) {
-  if (showToast) logMsg("正在扫描 Antigravity 宿主真实本地持久化会话...", "term-cyan");
+  if (showToast) logMsg("正在扫描 Antigravity 宿主真实本地持久化会话与项目归类...", "term-cyan");
   fetch('/api/v1/sessions')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       currentSessions = data.sessions || [];
+      currentProjects = data.projects || [];
       const badge = document.getElementById('sessions-total-badge');
       if (badge) {
         badge.innerText = '● 真实会话: ' + (data.total !== undefined ? data.total : currentSessions.length) + ' 条';
       }
-      renderSessions(currentSessions);
+      renderSessionMetrics(currentSessions, currentProjects);
+      renderProjectPills(currentProjects, currentSessions);
+      renderFilteredSessions();
       if (showToast) {
-        logMsg("会话扫描完成，本地索引到 " + (data.total !== undefined ? data.total : currentSessions.length) + " 个真实历史会话", "term-ok");
+        logMsg("会话扫描完成，索引到 " + currentSessions.length + " 个会话，涉及 " + currentProjects.length + " 个项目", "term-ok");
       }
     })
     .catch(function(err) {
@@ -1364,6 +1747,107 @@ function loadSessions(showToast) {
       const list = document.getElementById('sessions-list');
       if (list) list.innerHTML = '<div style="color:var(--google-red); padding:16px;">读取会话失败: ' + escapeHtml(err) + '</div>';
     });
+}
+
+function renderSessionMetrics(sessions, projects) {
+  const totalSessionsEl = document.getElementById('stat-total-sessions');
+  const totalProjectsEl = document.getElementById('stat-total-projects');
+  const todayActiveEl = document.getElementById('stat-today-active');
+  const archivedCountEl = document.getElementById('stat-archived-count');
+
+  if (totalSessionsEl) totalSessionsEl.innerText = sessions.length;
+
+  const validProjects = projects.filter(function(p) { return p && p !== '未分类项目'; });
+  if (totalProjectsEl) totalProjectsEl.innerText = validProjects.length + ' 个';
+
+  // 计算今日活跃会话数 (按当前本地日期比较 YYYY-MM-DD)
+  const todayPrefix = new Date().toISOString().slice(0, 10);
+  let todayCount = 0;
+  sessions.forEach(function(s) {
+    if (s.updated_at && s.updated_at.startsWith(todayPrefix)) {
+      todayCount++;
+    }
+  });
+  if (todayActiveEl) todayActiveEl.innerText = todayCount + ' 条';
+  if (archivedCountEl) archivedCountEl.innerText = archivedSessionCount;
+}
+
+function renderProjectPills(projects, sessions) {
+  const container = document.getElementById('project-filter-pills');
+  if (!container) return;
+  container.innerHTML = '';
+
+  // 1. 全部项目胶囊
+  const allBtn = document.createElement('button');
+  allBtn.type = 'button';
+  allBtn.className = 'google-btn-tonal';
+  const isAllActive = (activeProjectFilter === 'ALL');
+  allBtn.style.cssText = isAllActive
+    ? 'background:var(--md-sys-color-primary-container); color:var(--md-sys-color-primary); border-color:var(--md-sys-color-primary); font-weight:600; padding:5px 14px; font-size:12px;'
+    : 'padding:5px 14px; font-size:12px;';
+  allBtn.innerHTML = '全部项目 <span style="opacity:0.75; font-size:11px; margin-left:4px;">(' + sessions.length + ')</span>';
+  allBtn.onclick = function() {
+    activeProjectFilter = 'ALL';
+    renderProjectPills(projects, sessions);
+    renderFilteredSessions();
+  };
+  container.appendChild(allBtn);
+
+  // 2. 各独立项目胶囊
+  const counts = {};
+  sessions.forEach(function(s) {
+    const p = s.project || '未分类项目';
+    counts[p] = (counts[p] || 0) + 1;
+  });
+
+  projects.forEach(function(p) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'google-btn-tonal';
+    const isActive = (activeProjectFilter === p);
+    btn.style.cssText = isActive
+      ? 'background:var(--md-sys-color-primary-container); color:var(--md-sys-color-primary); border-color:var(--md-sys-color-primary); font-weight:600; padding:5px 14px; font-size:12px;'
+      : 'padding:5px 14px; font-size:12px;';
+    const count = counts[p] || 0;
+    btn.innerHTML = escapeHtml(p) + ' <span style="opacity:0.75; font-size:11px; margin-left:4px;">(' + count + ')</span>';
+    btn.onclick = function() {
+      activeProjectFilter = p;
+      renderProjectPills(projects, sessions);
+      renderFilteredSessions();
+    };
+    container.appendChild(btn);
+  });
+}
+
+function onSearchSessions(query) {
+  sessionSearchQuery = (query || '').trim().toLowerCase();
+  renderFilteredSessions();
+}
+
+function getFilteredSessions() {
+  return currentSessions.filter(function(s) {
+    // 项目胶囊过滤
+    if (activeProjectFilter !== 'ALL') {
+      const proj = s.project || '未分类项目';
+      if (proj !== activeProjectFilter) return false;
+    }
+    // 搜索词过滤
+    if (sessionSearchQuery) {
+      const title = (s.title || '').toLowerCase();
+      const id = (s.id || '').toLowerCase();
+      const proj = (s.project || '').toLowerCase();
+      const src = (s.source || '').toLowerCase();
+      if (!title.includes(sessionSearchQuery) && !id.includes(sessionSearchQuery) && !proj.includes(sessionSearchQuery) && !src.includes(sessionSearchQuery)) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+function renderFilteredSessions() {
+  const filtered = getFilteredSessions();
+  renderSessions(filtered);
 }
 
 function escapeHtml(text) {
@@ -1375,17 +1859,26 @@ function renderSessions(sessions) {
   const list = document.getElementById('sessions-list');
   if (!list) return;
   if (!sessions || sessions.length === 0) {
-    list.innerHTML = '<div style="font-size:13px; color:var(--text-secondary); text-align:center; padding: 28px;">未检测到本地历史会话</div>';
+    list.innerHTML = '<div style="font-size:13px; color:var(--text-secondary); text-align:center; padding: 28px;">未检测到匹配的历史会话</div>';
     return;
   }
   list.innerHTML = '';
   sessions.forEach(function(s) {
     const item = document.createElement('div');
-    item.className = 'row';
-    item.style.cssText = 'background:var(--md-sys-color-surface-container); border:1px solid var(--md-sys-color-outline); padding:14px 18px; border-radius:14px;';
+    item.className = 'row session-card';
+    item.style.cssText = 'background:var(--md-sys-color-surface-container); border:1px solid var(--md-sys-color-outline); padding:14px 18px; border-radius:14px; gap:12px; transition:border-color 0.15s ease;';
     const shortId = s.id ? s.id.slice(0, 8) : 'unknown';
+    const isChecked = selectedSessionIds.has(s.id);
+    const projName = s.project || '未分类项目';
+
     item.innerHTML = [
-      '<div class="col" style="flex:1; overflow:hidden; padding-right:14px;">',
+      '<input type="checkbox" class="session-chk" data-id="' + escapeHtml(s.id) + '" ' + (isChecked ? 'checked' : '') + ' onchange="onSessionCheckChange(\'' + escapeHtml(s.id) + '\', this.checked)" style="accent-color:var(--md-sys-color-primary); width:16px; height:16px; cursor:pointer; flex-shrink:0;">',
+      '<div style="flex-shrink:0;">',
+        '<span style="background:rgba(138, 180, 248, 0.12); color:var(--md-sys-color-primary); border:1px solid rgba(138, 180, 248, 0.35); padding:3px 10px; border-radius:100px; font-size:11px; font-weight:600;">',
+          escapeHtml(projName),
+        '</span>',
+      '</div>',
+      '<div class="col" style="flex:1; overflow:hidden; padding-right:12px;">',
         '<div style="font-weight:600; font-size:14px; color:var(--text-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="' + escapeHtml(s.title) + '">',
           '#' + shortId + ' · ' + escapeHtml(s.title),
         '</div>',
@@ -1394,15 +1887,100 @@ function renderSessions(sessions) {
         '</div>',
       '</div>',
       '<div class="flex-gap" style="flex-shrink:0;">',
-        '<button class="google-btn" style="padding:6px 16px; font-size:12px;" onclick="downloadSessionMD(\'' + escapeHtml(s.id) + '\')">导出 MD</button>',
+        '<button class="google-btn-tonal" style="padding:6px 14px; font-size:12px;" onclick="downloadSessionMD(\'' + escapeHtml(s.id) + '\')">导出 .MD</button>',
+        '<button class="google-btn-danger" style="padding:6px 14px; font-size:12px;" onclick="deleteSessionSingle(\'' + escapeHtml(s.id) + '\')">彻底删除</button>',
       '</div>'
     ].join('');
     list.appendChild(item);
+  });
+  updateBatchButtons();
+}
+
+function onSessionCheckChange(id, checked) {
+  if (checked) {
+    selectedSessionIds.add(id);
+  } else {
+    selectedSessionIds.delete(id);
+  }
+  updateBatchButtons();
+}
+
+function toggleSelectAllSessions(checked) {
+  const filtered = getFilteredSessions();
+  filtered.forEach(function(s) {
+    if (checked) selectedSessionIds.add(s.id);
+    else selectedSessionIds.delete(s.id);
+  });
+  renderFilteredSessions();
+}
+
+function updateBatchButtons() {
+  const count = selectedSessionIds.size;
+  const countEl = document.getElementById('selected-count');
+  if (countEl) countEl.innerText = count;
+  const delBtn = document.getElementById('btn-batch-delete');
+  if (delBtn) delBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+  const allChk = document.getElementById('select-all-sessions');
+  const filtered = getFilteredSessions();
+  if (allChk && filtered.length > 0) {
+    const allSelected = filtered.every(function(s) { return selectedSessionIds.has(s.id); });
+    allChk.checked = allSelected;
+  }
+}
+
+function deleteSessionSingle(id) {
+  if (!confirm("确定彻底删除会话 #" + id.slice(0, 8) + " 及其历史数据吗？此操作无法撤销。")) {
+    return;
+  }
+  logMsg("正在物理删除会话 #" + id.slice(0, 8) + " ...", "term-err");
+  fetch('/api/v1/sessions/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: id })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function() {
+    selectedSessionIds.delete(id);
+    logMsg("会话 #" + id.slice(0, 8) + " 已彻底删除", "term-ok");
+    loadSessions(false);
+  })
+  .catch(function(err) {
+    logMsg("删除会话失败: " + err, "term-err");
+    alert("删除失败: " + err);
+  });
+}
+
+function batchDeleteSessions() {
+  const ids = Array.from(selectedSessionIds);
+  if (ids.length === 0) return;
+  if (!confirm("确定批量彻底删除选中的 " + ids.length + " 个会话吗？此操作不可逆。")) {
+    return;
+  }
+  logMsg("正在批量删除 " + ids.length + " 个会话...", "term-err");
+  let completed = 0;
+  ids.forEach(function(id) {
+    fetch('/api/v1/sessions/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id })
+    })
+    .finally(function() {
+      completed++;
+      if (completed >= ids.length) {
+        selectedSessionIds.clear();
+        logMsg("批量删除已完成", "term-ok");
+        loadSessions(false);
+      }
+    });
   });
 }
 
 function downloadSessionMD(id) {
   logMsg("正在下载单个会话 #" + id.slice(0, 8) + ".md 归档...", "term-cyan");
+  archivedSessionCount++;
+  const archivedCountEl = document.getElementById('stat-archived-count');
+  if (archivedCountEl) archivedCountEl.innerText = archivedSessionCount;
+
   const link = document.createElement('a');
   link.href = '/api/v1/sessions/export?id=' + encodeURIComponent(id);
   link.download = 'session-' + id.slice(0, 8) + '.md';
@@ -1411,32 +1989,48 @@ function downloadSessionMD(id) {
   document.body.removeChild(link);
 }
 
-function exportAllSessions() {
-  logMsg("正在全量汇总历史会话归档...", "term-ok");
-  if (!currentSessions || currentSessions.length === 0) {
-    alert("当前暂无会话可导出");
+function batchExportMarkdown() {
+  const ids = selectedSessionIds.size > 0 ? Array.from(selectedSessionIds) : getFilteredSessions().map(function(s) { return s.id; });
+  if (ids.length === 0) {
+    alert("当前无可用会话导出");
     return;
   }
-  let md = "# 2Ag Suite - Antigravity 全量会话审计汇总\n\n";
+  logMsg("正在批量导出 " + ids.length + " 个会话 Markdown 归档...", "term-ok");
+  const targetSessions = currentSessions.filter(function(s) { return ids.includes(s.id); });
+  
+  let md = "# 2Ag Suite - Antigravity 会话批量审计归档\n\n";
   md += "- 导出时间: " + new Date().toLocaleString() + "\n";
-  md += "- 会话总数: " + currentSessions.length + "\n\n---\n\n";
-  currentSessions.forEach(function(s, idx) {
+  md += "- 归档会话数: " + targetSessions.length + "\n";
+  md += "- 项目过滤上下文: " + activeProjectFilter + "\n\n---\n\n";
+
+  targetSessions.forEach(function(s, idx) {
     md += "### " + (idx + 1) + ". " + s.title + "\n";
+    md += "- **所属项目**: `" + (s.project || '未分类项目') + "`\n";
     md += "- **UUID**: `" + s.id + "`\n";
     md += "- **更新时间**: " + s.updated_at + "\n";
     md += "- **对话步数**: " + s.turns + "\n";
     md += "- **持久化来源**: " + s.source + "\n\n";
   });
+
   const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = '2ag-all-sessions-' + Date.now() + '.md';
+  a.download = '2ag-sessions-batch-' + (activeProjectFilter === 'ALL' ? 'all' : activeProjectFilter) + '-' + Date.now() + '.md';
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  logMsg("已全量导出所有历史会话摘要 (Markdown)", "term-ok");
+
+  archivedSessionCount += targetSessions.length;
+  const archivedCountEl = document.getElementById('stat-archived-count');
+  if (archivedCountEl) archivedCountEl.innerText = archivedSessionCount;
+
+  logMsg("已批量导出 " + targetSessions.length + " 个会话归档 (Markdown)", "term-ok");
+}
+
+function exportAllSessions() {
+  batchExportMarkdown();
 }
 
 // 真实双配额池加载与健康色渲染
@@ -1456,31 +2050,21 @@ function loadAccounts() {
 
 function updateDashboardPools(accounts) {
   if (!accounts || accounts.length === 0) return;
-  const primary = accounts.find(function(a) { return a.is_primary || a.is_active; }) || accounts[0];
-  const emailEl = document.getElementById('dash-primary-email');
-  if (emailEl) emailEl.innerText = primary.email;
-
-  if (primary.gemini_pool) {
-    const gp = primary.gemini_pool;
-    const g5Val = document.getElementById('dash-g-5h-val');
-    if (g5Val) g5Val.innerText = gp.five_hour_percent + '% · ' + gp.five_hour_reset;
-    renderQuotaBar(document.getElementById('dash-g-5h-bar'), gp.five_hour_percent);
-
-    const gwkVal = document.getElementById('dash-g-wk-val');
-    if (gwkVal) gwkVal.innerText = gp.weekly_percent + '% · ' + gp.weekly_reset;
-    renderQuotaBar(document.getElementById('dash-g-wk-bar'), gp.weekly_percent);
-  }
-
-  if (primary.claude_pool) {
-    const cp = primary.claude_pool;
-    const c5Val = document.getElementById('dash-c-5h-val');
-    if (c5Val) c5Val.innerText = cp.five_hour_percent + '% · ' + cp.five_hour_reset;
-    renderQuotaBar(document.getElementById('dash-c-5h-bar'), cp.five_hour_percent);
-
-    const cwkVal = document.getElementById('dash-c-wk-val');
-    if (cwkVal) cwkVal.innerText = cp.weekly_percent + '% · ' + cp.weekly_reset;
-    renderQuotaBar(document.getElementById('dash-c-wk-bar'), cp.weekly_percent);
-  }
+  fetch('/api/v1/accounts/active')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      const active = data.active_account || data.account;
+      if (active) {
+        bindActiveAccountToDashboard(active);
+        return;
+      }
+      const primary = accounts.find(function(a) { return a.is_primary || a.is_active; }) || accounts[0];
+      bindActiveAccountToDashboard(primary);
+    })
+    .catch(function() {
+      const primary = accounts.find(function(a) { return a.is_primary || a.is_active; }) || accounts[0];
+      bindActiveAccountToDashboard(primary);
+    });
 }
 
 function renderAccounts(accounts) {
@@ -1513,9 +2097,9 @@ function renderAccounts(accounts) {
           cdInfo,
         '</div>',
         '<div class="flex-gap">',
-          (isPrimary ? '<button class="google-btn-tonal" style="cursor:default;">主控活跃</button>' : '<button class="google-btn" onclick="setPrimaryAccount(\'' + escapeHtml(acc.email) + '\')">设为主控</button>'),
-          '<button class="google-btn-tonal" onclick="testAccount(\'' + escapeHtml(acc.email) + '\')">探活测试</button>',
-          '<button class="google-btn-danger" onclick="removeAccount(\'' + escapeHtml(acc.email) + '\')">移除</button>',
+          (isPrimary ? '<button class="pill-action-btn" style="cursor:default; color:var(--google-green); border-color:rgba(129,201,149,0.4);">● 主控活跃</button>' : '<button class="pill-action-btn pill-action-btn-primary" onclick="setPrimaryAccount(\'' + escapeHtml(acc.email) + '\')">设为主控</button>'),
+          '<button class="pill-action-btn" onclick="testAccount(\'' + escapeHtml(acc.email) + '\')">探活测试</button>',
+          '<button class="pill-action-btn google-btn-danger" onclick="removeAccount(\'' + escapeHtml(acc.email) + '\')">移除</button>',
         '</div>',
       '</div>',
 
@@ -1758,13 +2342,34 @@ function testAccount(email) {
   logMsg("正在探活 " + email + " 双配额池端点 ... 连通性正常 (RTT: 34ms)", "term-cyan");
 }
 function setPrimaryAccount(email) {
-  currentAccounts.forEach(function(a) {
-    a.is_primary = (a.email === email);
-    a.is_active = (a.email === email);
+  logMsg("正在切换主控激活账号至: " + email, "term-cyan");
+  fetch('/api/v1/accounts/primary', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ email: email })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    currentAccounts.forEach(function(a) {
+      const match = (a.email.toLowerCase() === email.toLowerCase());
+      a.is_primary = match;
+      a.is_active = match;
+      a.role = match ? 'PRIMARY' : 'BACKUP';
+      a.status = match ? 'ACTIVE' : 'STANDBY';
+      if (match) a.cooldown_msg = '';
+    });
+    renderAccounts(currentAccounts);
+    if (data.active_account) {
+      bindActiveAccountToDashboard(data.active_account);
+    } else {
+      updateDashboardPools(currentAccounts);
+    }
+    loadActiveAccount();
+    logMsg("主控账号切换生效 (物理沙箱已绑定): " + email, "term-ok");
+  })
+  .catch(function(err) {
+    logMsg("主控切换失败: " + err, "term-err");
   });
-  renderAccounts(currentAccounts);
-  updateDashboardPools(currentAccounts);
-  logMsg("主控账号切换生效: " + email, "term-ok");
 }
 function removeAccount(email) {
   if (confirm("确定移除账号 " + email + " 吗？")) {
@@ -1824,13 +2429,14 @@ function renderState() {
   if (globalState.gravity_boost) {
     const b = globalState.gravity_boost;
     const keys = [
-      'session_delete', 'markdown_export', 'paste_plaintext_fix', 'session_id_tag',
-      'centered_width', 'preserve_scroll', 'stepwise', 'answer_outline',
-      'force_zh_cn', 'enable_devtools', 'disable_auto_update'
+      'centered_width', 'enable_devtools', 'paste_plaintext_fix',
+      'preserve_scroll', 'force_zh_cn', 'disable_auto_update'
     ];
     keys.forEach(function(k) {
-      const el = document.getElementById('boost-' + k);
-      if (el) el.checked = !!b[k];
+      if (b[k] !== undefined) {
+        boostFeatureState[k] = !!b[k];
+        updateRingUI(k, !!b[k]);
+      }
     });
   }
 }
@@ -1865,6 +2471,7 @@ if (dropZone) {
 
 // Startup
 probeRealHost();
+loadActiveAccount();
 loadAccounts();
 loadSessions();
 setInterval(probeRealHost, 1500);

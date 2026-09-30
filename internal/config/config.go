@@ -56,8 +56,6 @@ type GravityBoost struct {
 	SessionIdTag       bool `json:"session_id_tag"`
 	CenteredWidth      bool `json:"centered_width"`
 	PreserveScroll     bool `json:"preserve_scroll"`
-	Stepwise           bool `json:"stepwise"`
-	AnswerOutline      bool `json:"answer_outline"`
 	ForceZhCn          bool `json:"force_zh_cn"`
 	EnableDevtools     bool `json:"enable_devtools"`
 	DisableAutoUpdate  bool `json:"disable_auto_update"`

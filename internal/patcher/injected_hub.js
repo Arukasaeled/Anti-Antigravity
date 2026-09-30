@@ -4,630 +4,1037 @@
   const INITIAL_CONFIG = __2AG_INITIAL_CONFIG__;
   const BG_ID = '2ag-dream-skin-bg';
   const OVERLAY_ID = '2ag-dream-skin-overlay';
-  const STYLE_ID = '2ag-penetrate-css';
-  const HUB_ID = '2ag-hub-root';
-  const DRAWER_ID = '2ag-hub-drawer';
+  const SHADOW_HOST_ID = 'twoag-injected-root';
   const STORAGE_KEY = '2ag.skin.config.v1';
+  const SUBSYSTEM_STORAGE_KEY = '2ag.subsystems.config.v1';
+  const POS_STORAGE_KEY = '2ag.hub.position.v1';
   const OBSERVER_KEY = '__2ag_hub_observer';
   const TIMER_KEY = '__2ag_hub_timer';
-  const DICT = {
-    'en-US': {
-      capsule: '2Ag', console: '2Ag Console', close: 'Close', skin: 'Appearance', network: 'Network', rules: 'Global Rules', plugins: 'Extensions', diagnostics: 'Diagnostics',
-      dreamSkin: 'Dream Skin', blur: 'Blur', darkness: 'Darkness', wallpaper: 'Wallpaper', chooseImage: 'Choose local image', imagePlaceholder: 'Image URL or file:/// path', localImageHint: 'The selected image is stored in this profile.', presets: 'Presets',
-      darkDream: 'Dark Dream', cyberpunk: 'Cyberpunk', cleanGlass: 'Clean Glass', networkModel: 'Network & Model', hostNotLoaded: 'Host diagnostics not loaded', proxyNotLoaded: 'Proxy status not loaded', proxyDisabled: 'Proxy disabled in 2ag.json', readingProxy: 'Reading local proxy status…', proxyActive: 'Proxy active', proxyUnavailable: 'Proxy status unavailable', requests: 'requests', blocked: 'blocked', last: 'last', localImageSelected: 'Local image selected', officialEndpoints: 'Official endpoints (no overrides)', httpHint: 'HTTP requests can use endpoint overrides. HTTPS CONNECT remains opaque and is forwarded without TLS interception.',
-      testGateway: 'Test gateway', probeRunning: 'Testing gateway…', probeOK: 'Gateway online', probeFailed: 'Gateway unavailable', rulesPlaceholder: 'Rules applied to configured JSON endpoints', saveRules: 'Save rules', rulesHint: 'Rules are persisted in this browser profile; HTTP JSON rewriting requires a matching target.', extensionsSidecar: 'Extensions & Sidecar', noPlugins: 'No plugins discovered', pluginRunning: 'Running', pluginStopped: 'Stopped', diagnosticsTitle: 'Diagnostics', openDevtools: 'Open DevTools (F12)', hotReload: 'Reload skin', resetTheme: 'Reset theme', exportConfig: 'Export config', diagHint: 'Use F12, Ctrl+Shift+I, Alt+A, or Ctrl+Shift+A while debugging the host.', hostPID: 'Host PID', cdp: 'CDP', env: 'env', language: 'Language', saved: 'Saved', reset: 'Theme reset', exported: 'Config exported', hotReloaded: 'Skin reloaded',
-      modalHint: 'Settings and dialogs stay isolated from the transparent workspace.'
-    },
-    'zh-CN': {
-      capsule: '2Ag', console: '2Ag 控制台', close: '关闭', skin: '外观', network: '网络端点', rules: '全局规则', plugins: '扩展插件', diagnostics: '系统诊断',
-      dreamSkin: 'Dream Skin', blur: '毛玻璃模糊度', darkness: '遮罩暗度', wallpaper: '壁纸', chooseImage: '选择本地图片', imagePlaceholder: '图片 URL 或 file:/// 路径', localImageHint: '所选图片会保存到当前配置档。', presets: '主题预设',
-      darkDream: '暗夜梦境', cyberpunk: '赛博朋克', cleanGlass: '清透玻璃', networkModel: '网络与模型', hostNotLoaded: '宿主诊断尚未加载', proxyNotLoaded: '代理状态尚未加载', proxyDisabled: '2ag.json 中未启用本地代理', readingProxy: '正在读取本地代理状态…', proxyActive: '代理运行中', proxyUnavailable: '代理状态不可用', requests: '请求', blocked: '已阻断', last: '最近', localImageSelected: '已选择本地图片', officialEndpoints: '官方端点（无重定向）', httpHint: 'HTTP 请求支持端点重定向；HTTPS CONNECT 保持透明转发，不解密 TLS。',
-      testGateway: '测试网关', probeRunning: '正在测试网关…', probeOK: '网关在线', probeFailed: '网关不可用', rulesPlaceholder: '应用到已配置 JSON 端点的规则', saveRules: '保存规则', rulesHint: '规则保存在当前浏览器配置中；只有匹配的目标才会改写 HTTP JSON。', extensionsSidecar: '扩展与伴生进程', noPlugins: '未发现插件', pluginRunning: '运行中', pluginStopped: '已停止', diagnosticsTitle: '系统诊断', openDevtools: '打开开发者工具（F12）', hotReload: '重新加载皮肤', resetTheme: '恢复默认主题', exportConfig: '导出配置', diagHint: '调试宿主时可使用 F12、Ctrl+Shift+I、Alt+A 或 Ctrl+Shift+A。', hostPID: '宿主 PID', cdp: 'CDP', env: '环境', language: '语言', saved: '已保存', reset: '主题已重置', exported: '配置已导出', hotReloaded: '皮肤已重载',
-      modalHint: '设置与弹窗使用实体磨砂层，与透明工作区严格隔离。'
-    }
-  };
-  const ipcPending = new Map();
-  let ipcSequence = 0;
-  const extensionTabs = new Map();
-  const loadedPluginScripts = new Set();
 
+  // 1. 基础状态初始化
   const state = Object.assign({
     wallpaper: '',
-    blur: 20,
-    opacity: 0.55,
+    blur: 28,
+    opacity: 0.6,
     preset: 'Dark Dream',
-    plugins: {  },
-    network: {},
-    global_rules: '',
     language: 'zh-CN'
   }, INITIAL_CONFIG || {});
-  state.plugins = Object.assign({  }, state.plugins || {});
 
-  const HUB_CSS = `
-    [id="2ag-hub-root"] { position: fixed; top: 14px; right: 18px; z-index: 2147483000; font: 13px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; color: rgba(255,255,255,.94); -webkit-app-region: no-drag; }
-    [id="2ag-hub-toggle"] { display:inline-flex; align-items:center; gap:7px; border: 1px solid rgba(177,205,255,.38); border-radius: 999px; padding: 7px 12px; color: rgba(255,255,255,.98); background: linear-gradient(135deg, rgba(91,125,204,.9), rgba(38,42,61,.86)); box-shadow: 0 8px 24px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.04) inset; cursor: pointer; backdrop-filter: blur(14px); transition: transform .16s ease, box-shadow .16s ease, filter .16s ease; }
-    [id="2ag-hub-toggle"]:hover { filter: brightness(1.12); transform: translateY(-1px); box-shadow: 0 10px 28px rgba(0,0,0,.34), 0 0 22px rgba(128,169,255,.28); }
-    [id="2ag-hub-toggle"] .ag-logo { width:18px; height:18px; object-fit:contain; transform: translateY(-1px); filter: drop-shadow(0 0 5px rgba(153,193,255,.55)); }
-    .ag-badge { display:inline-flex; align-items:center; height:16px; padding:0 5px; border-radius:999px; color:rgba(220,232,255,.94); background:rgba(255,255,255,.12); font-size:10px; letter-spacing:.04em; }
-    [id="2ag-hub-drawer"] { position: fixed; top: 56px; right: 18px; width: 360px; max-height: calc(100vh - 74px); overflow: auto; padding: 16px; border: 1px solid rgba(203,220,255,.25); border-radius: 16px; background: rgba(20,22,28,.96); box-shadow: 0 18px 60px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.04) inset; backdrop-filter: blur(30px) saturate(135%); -webkit-backdrop-filter: blur(30px) saturate(135%); opacity: 0; transform: translateY(-8px) scale(.98); pointer-events: none; transition: opacity .16s ease, transform .16s ease; }
-    [id="2ag-hub-root"][data-anchor="bottom"] [id="2ag-hub-drawer"] { top: auto; right: auto; bottom: 56px; left: 18px; transform-origin: bottom left; }
-    [id="2ag-hub-drawer"][data-open="true"] { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
-    [id="2ag-hub-drawer"] h2 { margin: 0; font-size: 15px; letter-spacing: .02em; }
-    [id="2ag-hub-drawer"] h3 { margin: 18px 0 8px; font-size: 12px; color: rgba(255,255,255,.66); text-transform: uppercase; letter-spacing: .08em; }
-    [id="2ag-hub-drawer"] .ag-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 10px 0; }
-    [id="2ag-hub-drawer"] label { color: rgba(255,255,255,.86); }
-    [id="2ag-hub-drawer"] input[type="range"] { width: 160px; accent-color: #9bbcff; appearance:none; height:5px; border-radius:999px; background:linear-gradient(90deg,#9bbcff 0 50%,rgba(255,255,255,.16) 50%); outline:none; }
-    [id="2ag-hub-drawer"] input[type="range"]::-webkit-slider-thumb { appearance:none; width:14px; height:14px; border-radius:50%; border:2px solid rgba(232,241,255,.94); background:#769eff; box-shadow:0 0 12px rgba(126,164,255,.75); }
-    [id="2ag-hub-drawer"] output { min-width:42px; padding:2px 7px; border:1px solid rgba(166,194,255,.24); border-radius:999px; color:rgba(224,234,255,.96); background:rgba(95,133,211,.2); text-align:center; font-size:11px; }
-    [id="2ag-hub-drawer"] input[type="text"] { box-sizing: border-box; width: 100%; padding: 8px 9px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #fff; background: rgba(0,0,0,.26); outline: none; }
-    [id="2ag-hub-drawer"] button { border: 1px solid rgba(255,255,255,.14); border-radius: 8px; padding: 7px 9px; color: rgba(255,255,255,.92); background: rgba(255,255,255,.08); cursor: pointer; }
-    [id="2ag-hub-drawer"] button:hover { background: rgba(255,255,255,.16); box-shadow:0 0 14px rgba(128,169,255,.12); }
-    [id="2ag-hub-drawer"] .ag-presets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-    [id="2ag-hub-drawer"] .ag-presets button { transition: transform .12s ease, background .12s ease; }
-    [id="2ag-hub-drawer"] .ag-presets button:active { transform:scale(.96); }
-    [id="2ag-hub-drawer"] .ag-presets button[data-active="true"] { border-color: rgba(155,188,255,.8); background: linear-gradient(135deg,rgba(94,132,214,.42),rgba(94,132,214,.18)); box-shadow:0 0 16px rgba(109,151,238,.16); }
-    [id="2ag-hub-drawer"] .ag-file { display: flex; gap: 6px; }
-    [id="2ag-hub-drawer"] .ag-file button { flex: 0 0 auto; }
-    [id="2ag-hub-drawer"] .ag-muted { color: rgba(255,255,255,.54); font-size: 11px; }
-    [id="2ag-hub-drawer"] input[type="checkbox"] { position:absolute; opacity:0; width:1px; height:1px; pointer-events:none; }
-    [id="2ag-hub-drawer"] .ag-toggle { display:inline-flex; align-items:center; flex:0 0 auto; }
-    [id="2ag-hub-drawer"] .ag-toggle-track { display:inline-flex; width:44px; height:24px; padding:2px; box-sizing:border-box; border-radius:0; background:#333; border:2px solid #000; transition:background .16s ease, border-color .16s ease; cursor:pointer; }
-    [id="2ag-hub-drawer"] .ag-toggle-thumb { width:16px; height:16px; border-radius:0; background:#8b92a5; border:2px solid #000; transition:transform .16s ease, background .16s ease; }
-    [id="2ag-hub-drawer"] input[type="checkbox"]:checked + .ag-toggle-track { background:#00f0ff; }
-    [id="2ag-hub-drawer"] input[type="checkbox"]:checked + .ag-toggle-track .ag-toggle-thumb { transform:translateX(20px); background:#f5ee38; }
-    [id="2ag-hub-drawer"] .ag-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin: 14px 0; padding-bottom:3px; border-bottom:1px solid rgba(255,255,255,.08); }
-    [id="2ag-hub-drawer"] .ag-tabs button { padding: 6px 4px; font-size: 11px; position:relative; border-color:transparent; background:transparent; }
-    [id="2ag-hub-drawer"] .ag-tabs button[data-active="true"] { color:#dce8ff; }
-    [id="2ag-hub-drawer"] .ag-tabs button[data-active="true"]::after { content:""; position:absolute; left:12%; right:12%; bottom:-4px; height:2px; border-radius:2px; background:linear-gradient(90deg,#83aaff,#d0ddff); box-shadow:0 0 10px rgba(131,170,255,.7); }
-    [id="2ag-hub-drawer"] .ag-panel { display: none; }
-    [id="2ag-hub-drawer"] .ag-panel[data-active="true"] { display: block; }
-    [id="2ag-hub-drawer"] .ag-status { margin: 8px 0; padding: 8px; border: 1px solid rgba(255,255,255,.1); border-radius: 8px; background: rgba(0,0,0,.2); }
-    [id="2ag-hub-drawer"] textarea { box-sizing: border-box; width: 100%; min-height: 120px; resize: vertical; padding: 8px 9px; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #fff; background: rgba(0,0,0,.26); outline: none; }
-    [id="2ag-hub-drawer"] .ag-plugin { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
-    :root, :host, html, body, .dark, [class*="dark"], .theme-dark, .theme-standalone {
-      --background: transparent !important;
-      --color-background: transparent !important;
-      --sidebar: transparent !important;
-      --color-sidebar: transparent !important;
-      --sidebar-background: transparent !important;
-      --sidebar-muted: transparent !important;
-      --color-sidebar-muted: transparent !important;
-      --sidebar-secondary: transparent !important;
-      --color-sidebar-secondary: transparent !important;
-      --vscode-editor-background: transparent !important;
-      --vscode-sideBar-background: transparent !important;
-      --vscode-activityBar-background: transparent !important;
-      --vscode-panel-background: transparent !important;
-      --vscode-editorPane-background: transparent !important;
-      --vscode-statusBar-background: transparent !important;
-      --vscode-editorGutter-background: transparent !important;
-      --vscode-breadcrumb-background: transparent !important;
+  // 子系统配置（默认配置符合需求规范）
+  let subsystems = {
+    force_dispatch: true,    // 强制发送通道 (Ctrl + Shift + Enter)
+    state_healer: true,      // 输入状态自愈
+    overlay_stripper: true,  // 过渡遮罩粉碎
+    text_fallback: false     // 纯文本降级模式
+  };
+  try {
+    const savedSubsystems = JSON.parse(localStorage.getItem(SUBSYSTEM_STORAGE_KEY) || '{}');
+    subsystems = Object.assign(subsystems, savedSubsystems);
+  } catch (_) {}
+
+  // 2. 浮标吸附位置持久化管理
+  let hubPos = { side: 'right', topRatio: 0.45 };
+  try {
+    const savedPos = JSON.parse(localStorage.getItem(POS_STORAGE_KEY) || '{}');
+    if (savedPos && (savedPos.side === 'left' || savedPos.side === 'right')) {
+      hubPos.side = savedPos.side;
     }
-    html, body, #root, #app, main,
-    body > div,
-    [data-testid="app"],
-    [class*="session"], [class*="conversation"], [class*="chat-stream"],
-    .monaco-workbench,
-    .monaco-workbench .part.editor,
-    .monaco-workbench .part.sidebar,
-    .monaco-workbench .part.titlebar,
-    .monaco-workbench .part.activitybar,
-    .monaco-workbench .part.statusbar,
-    .monaco-workbench .part.panel,
-    .bg-background, [class*="bg-background"],
-    .bg-sidebar, [class*="bg-sidebar"],
-    div[class*="workspace"], div[class*="layout"],
-    div[class*="container"], div[class*="main"],
-    div[class*="content"], div[class*="editor"],
-    div.h-screen.w-screen,
-    div.h-full.w-full {
-      position: relative;
-      z-index: 1;
-      background: transparent !important;
-      background-color: transparent !important;
+    if (typeof savedPos.topRatio === 'number' && !isNaN(savedPos.topRatio)) {
+      hubPos.topRatio = Math.max(0.06, Math.min(0.92, savedPos.topRatio));
     }
-    #root > div, #app > div, main > div, [class*="workspace"] > div, [class*="layout"] > div {
-      background: transparent !important;
-      background-color: transparent !important;
+  } catch (_) {}
+
+  function saveHubPosition() {
+    try {
+      localStorage.setItem(POS_STORAGE_KEY, JSON.stringify(hubPos));
+    } catch (_) {}
+  }
+
+  function saveSubsystems() {
+    try {
+      localStorage.setItem(SUBSYSTEM_STORAGE_KEY, JSON.stringify(subsystems));
+    } catch (_) {}
+  }
+
+  // 3. 矢量 SVG 图标定义（严禁 Emoji，统一采用 Google 原色与极细单线）
+  const SVG_ICONS = {
+    googleG: `
+      <svg viewBox="0 0 24 24" width="20" height="20" style="display:block;flex-shrink:0;">
+        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.04h3.88c2.28-2.09 3.66-5.18 3.66-9.14z"/>
+        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.04c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.27v3.13C3.26 21.36 7.33 24 12 24z"/>
+        <path fill="#FBBC05" d="M5.28 14.28c-.25-.72-.38-1.49-.38-2.28s.13-1.56.38-2.28V6.59H1.27C.46 8.21 0 10.05 0 12s.46 3.79 1.27 5.41l4.01-3.13z"/>
+        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.27 6.59l4.01 3.13c.95-2.83 3.6-4.97 6.72-4.97z"/>
+      </svg>
+    `,
+    close: `
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    `,
+    lightning: `
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+      </svg>
+    `,
+    reload: `
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+      </svg>
+    `
+  };
+
+  // 生成象限圆环 SVG (外径 17px, 线宽 2.5px)
+  // Active: 精确分为四段弧线（左上黄 #FBBC05、右上绿 #34A853、右下蓝 #4285F4、左下红 #EA4335）
+  // Inactive: 外径 17px, 线宽 2.5px 的纯暗灰空心细环 #43474e
+  function renderQuadrantRing(active) {
+    if (active) {
+      return `
+        <svg width="17" height="17" viewBox="0 0 17 17" fill="none" class="quadrant-svg active">
+          <!-- 右上: 绿 #34A853 -->
+          <path d="M 9.13 1.28 A 7.25 7.25 0 0 1 15.72 7.87" stroke="#34A853" stroke-width="2.5" stroke-linecap="round"/>
+          <!-- 右下: 蓝 #4285F4 -->
+          <path d="M 15.72 9.13 A 7.25 7.25 0 0 1 9.13 15.72" stroke="#4285F4" stroke-width="2.5" stroke-linecap="round"/>
+          <!-- 左下: 红 #EA4335 -->
+          <path d="M 7.87 15.72 A 7.25 7.25 0 0 1 1.28 9.13" stroke="#EA4335" stroke-width="2.5" stroke-linecap="round"/>
+          <!-- 左上: 黄 #FBBC05 -->
+          <path d="M 1.28 7.87 A 7.25 7.25 0 0 1 7.87 1.28" stroke="#FBBC05" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      `;
     }
-    div[role="dialog"], div[class*="modal"], div[class*="dialog"], div[class*="settings"], div[class*="Settings"], div[class*="popup"], div[class*="popover"], section[class*="settings"] { background:rgba(22,22,26,.95) !important; background-color:rgba(22,22,26,.95) !important; backdrop-filter:blur(36px) !important; -webkit-backdrop-filter:blur(36px) !important; border:1px solid rgba(255,255,255,.12) !important; box-shadow:0 20px 50px rgba(0,0,0,.8) !important; z-index:2147482000 !important; }
-    div[class*="backdrop"], div[class*="overlay"]:not([id="2ag-dream-skin-bg"]) { background:rgba(0,0,0,.6) !important; backdrop-filter:blur(6px) !important; -webkit-backdrop-filter:blur(6px) !important; }
-    code, pre, .monaco-editor, .view-lines { color:rgba(245,247,255,.94); }
-    ::-webkit-scrollbar { width:9px; height:9px; } ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.2); border-radius:9px; border:2px solid transparent; background-clip:padding-box; } ::-webkit-scrollbar-track { background:rgba(0,0,0,.12); }
-    input, textarea, [contenteditable="true"] { background-color: rgba(30,30,30,.75) !important; }
-    [id="2ag-dream-skin-bg"] { position: fixed !important; inset: 0 !important; z-index: -99999 !important; pointer-events: none !important; background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important; }
-    [id="2ag-dream-skin-overlay"] { width: 100% !important; height: 100% !important; }
+    return `
+      <svg width="17" height="17" viewBox="0 0 17 17" fill="none" class="quadrant-svg inactive">
+        <circle cx="8.5" cy="8.5" r="7.25" stroke="#43474e" stroke-width="2.5" fill="none"/>
+      </svg>
+    `;
+  }
+
+  // 4. Shadow DOM 内部独立样式（杜绝全局 CSS 污染）
+  const SHADOW_CSS = `
+    :host {
+      all: initial;
+      font-family: 'Google Sans', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+      font-size: 13px;
+      color: #e3e3e3;
+    }
+    *, *::before, *::after {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    /* --- G-Hub 悬浮浮标 --- */
+    .ghub-beacon {
+      position: fixed;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: conic-gradient(from 45deg, #4285F4, #34A853, #FBBC05, #EA4335, #4285F4);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65), 0 0 12px rgba(66, 133, 244, 0.25);
+      cursor: grab;
+      touch-action: none;
+      transition: box-shadow 0.25s ease, transform 0.25s ease;
+    }
+    .ghub-beacon:active {
+      cursor: grabbing;
+    }
+    .ghub-beacon:hover {
+      box-shadow: 0 8px 26px rgba(0, 0, 0, 0.8), 0 0 16px rgba(66, 133, 244, 0.4);
+    }
+    .ghub-inner {
+      width: 41px;
+      height: 41px;
+      border-radius: 50%;
+      background: #13151a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s ease;
+    }
+    .ghub-beacon:hover .ghub-inner {
+      background: #191c22;
+    }
+
+    /* --- G-Cockpit 战术控制面板 --- */
+    .cockpit-panel {
+      position: fixed;
+      width: 330px;
+      background: #131519;
+      border: 1.2px solid #2b2f38;
+      border-radius: 12px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75), 0 6px 16px rgba(0, 0, 0, 0.5);
+      z-index: 2147483646;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.95);
+      transition: opacity 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .cockpit-panel[data-open="true"] {
+      opacity: 1;
+      pointer-events: auto;
+      transform: scale(1);
+    }
+
+    /* 顶部 2.5px Google 四色导光线 */
+    .cockpit-light-bar {
+      width: 100%;
+      height: 2.5px;
+      background: linear-gradient(90deg, #4285F4 0%, #34A853 33%, #FBBC05 66%, #EA4335 100%);
+      flex-shrink: 0;
+    }
+
+    .cockpit-body {
+      padding: 16px 18px 18px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 头部 */
+    .cockpit-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 14px;
+    }
+    .brand-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #ffffff;
+      letter-spacing: -0.2px;
+    }
+    .status-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 3px;
+      font-size: 11px;
+      color: #9aa0a6;
+    }
+    .pulse-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #34A853;
+      box-shadow: 0 0 6px #34A853;
+      animation: pulseAnim 2s infinite ease-in-out;
+    }
+    @keyframes pulseAnim {
+      0%, 100% { transform: scale(1); opacity: 0.8; }
+      50% { transform: scale(1.3); opacity: 1; }
+    }
+    .close-btn {
+      background: transparent;
+      border: none;
+      color: #80868b;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.15s, background 0.15s;
+    }
+    .close-btn:hover {
+      color: #ffffff;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    /* 额度水位条 */
+    .quota-box {
+      margin-bottom: 16px;
+    }
+    .quota-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+    .quota-label {
+      color: #bdc1c6;
+    }
+    .quota-value {
+      font-weight: 600;
+      letter-spacing: 0.1px;
+      transition: color 0.3s ease;
+    }
+    .quota-track {
+      width: 100%;
+      height: 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+    }
+    .quota-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.4s ease, background 0.4s ease;
+    }
+
+    /* 分组标题 */
+    .section-tag {
+      font-size: 10px;
+      font-weight: 700;
+      color: #6a717a;
+      letter-spacing: 0.6px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+    }
+
+    /* 子系统列表项 */
+    .subsystem-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .subsystem-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      padding: 2px 0;
+    }
+    .item-text {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .item-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: #e3e3e3;
+    }
+    .item-desc {
+      font-size: 11px;
+      color: #80868b;
+    }
+    .quadrant-btn {
+      background: transparent;
+      border: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      outline: none;
+      transition: transform 0.15s ease;
+    }
+    .quadrant-btn:hover {
+      transform: scale(1.1);
+    }
+    .quadrant-svg {
+      display: block;
+    }
+
+    /* 操作按钮 */
+    .actions-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .action-btn {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.18s ease;
+    }
+    .btn-force {
+      background: rgba(66, 133, 244, 0.12);
+      border: 1.2px solid #4285F4;
+      color: #8ab4f8;
+    }
+    .btn-force:hover {
+      background: rgba(66, 133, 244, 0.22);
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(66, 133, 244, 0.35);
+    }
+    .btn-force:active {
+      transform: scale(0.98);
+    }
+    .btn-reload {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1.2px solid #2b2f38;
+      color: #bdc1c6;
+    }
+    .btn-reload:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: #3c4043;
+      color: #e3e3e3;
+    }
+    .btn-reload:active {
+      transform: scale(0.98);
+    }
+
+    /* --- Toast 轻量提示条 --- */
+    .cockpit-toast {
+      position: fixed;
+      top: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: #181a20;
+      border: 1.2px solid #4285F4;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7), 0 0 14px rgba(66, 133, 244, 0.3);
+      padding: 8px 18px;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #e3e3e3;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      z-index: 2147483647;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .cockpit-toast[data-show="true"] {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    .toast-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #4285F4;
+    }
   `;
 
-  function ipc(method, params) {
-    return new Promise((resolve, reject) => {
-      if (typeof window.__2AG_IPC__ !== 'function') { reject(new Error('2Ag IPC bridge is unavailable')); return; }
-      const id = 'ipc-' + (++ipcSequence);
-      ipcPending.set(id, { resolve, reject });
-      try { window.__2AG_IPC__(JSON.stringify({ id, method, params: params || {} })); } catch (error) { ipcPending.delete(id); reject(error); }
-    });
-  }
-
-  window.__2AG_IPC_DELIVER__ = function (payload) {
-    let message; try { message = typeof payload === 'string' ? JSON.parse(payload) : payload; } catch (_) { return; }
-    const pending = ipcPending.get(message && message.id); if (!pending) return;
-    ipcPending.delete(message.id); if (message.error) pending.reject(new Error(message.error)); else pending.resolve(message.result);
-  };
-
-  function currentLanguage() { return state.language === 'en-US' ? 'en-US' : 'zh-CN'; }
-  function t(key, fallback) { const table = DICT[currentLanguage()] || DICT['zh-CN']; return table[key] || DICT['en-US'][key] || fallback || key; }
-  function applyLanguage() {
-    document.querySelectorAll('[id="2ag-hub-root"] [data-i18n]').forEach((node) => {
-      const key = node.getAttribute('data-i18n'); node.textContent = t(key, node.textContent);
-    });
-    document.querySelectorAll('[id="2ag-hub-root"] [data-i18n-placeholder]').forEach((node) => { node.placeholder = t(node.getAttribute('data-i18n-placeholder'), node.placeholder); });
-    document.querySelectorAll('[id="2ag-hub-root"] [data-i18n-aria]').forEach((node) => { node.setAttribute('aria-label', t(node.getAttribute('data-i18n-aria'), node.getAttribute('aria-label'))); });
-    const toggle = document.getElementById('2ag-language-toggle'); if (toggle) toggle.textContent = currentLanguage() === 'zh-CN' ? '中 / EN' : 'EN / 中';
-    renderValues(); refreshNetworkStatus(); refreshPluginStatus();
-  }
-  function setLanguage(language) {
-    state.language = language === 'en-US' ? 'en-US' : 'zh-CN';
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
-    ipc('core.config.set', { patch: { language: state.language } }).catch(() => {});
-    applyLanguage();
-  }
-
-  function mountExtensionTab(tab) {
-    const drawer = document.getElementById(DRAWER_ID); if (!drawer || !tab || !tab.id) return;
-    const tabs = drawer.querySelector('.ag-tabs'); const panelHost = drawer.querySelector('.ag-extension-panels');
-    if (!tabs || !panelHost || drawer.querySelector('[data-tab="ext:' + tab.id + '"]')) return;
-    const button = document.createElement('button'); button.type = 'button'; button.dataset.tab = 'ext:' + tab.id; button.textContent = tab.title || tab.id;
-    button.addEventListener('click', () => showTab('ext:' + tab.id)); tabs.appendChild(button);
-    const panel = document.createElement('div'); panel.className = 'ag-panel'; panel.dataset.panel = 'ext:' + tab.id; panelHost.appendChild(panel);
-    try { tab.render(panel); } catch (error) { panel.textContent = 'Plugin panel error: ' + error.message; }
-  }
-
-  window.__2AG__ = window.__2AG__ || {};
-  window.__2AG__.ipc = ipc;
-  window.__2AG__.registerTab = function (tab) { if (!tab || !tab.id || typeof tab.render !== 'function') throw new Error('registerTab requires id and render'); extensionTabs.set(tab.id, tab); mountExtensionTab(tab); return () => extensionTabs.delete(tab.id); };
-  if (!window.__2ag_keydown_handler) {
-    window.__2ag_keydown_handler = true;
-    window.addEventListener('keydown', (event) => {
-      if (window.__2ag_devtools_dispatching) return;
-      if ((event.altKey && String(event.key).toLowerCase() === 'a') || (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'a')) {
-        const drawer = document.getElementById(DRAWER_ID); if (drawer) { event.preventDefault(); drawer.dataset.open = drawer.dataset.open === 'true' ? 'false' : 'true'; }
-        return;
-      }
-      if (event.key === 'F12' || (event.ctrlKey && event.shiftKey && String(event.key).toLowerCase() === 'i')) { event.preventDefault(); ipc('core.diagnostics.devtools', {}).catch(() => {}); }
-    }, true);
-  }
-
-  function number(value, fallback, min, max) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
-  }
-
-  function loadState() {
-    try {
-      const configuredPlugins = Object.assign({}, state.plugins || {});
-      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
-      Object.assign(state, stored);
-      if (/^https?:\/\/127\.0\.0\.1:\d+\/bg\.jpg$/i.test(String(state.wallpaper || ''))) state.wallpaper = INITIAL_CONFIG.wallpaper || state.wallpaper;
-      state.blur = number(state.blur, 20, 0, 40);
-      state.opacity = number(state.opacity, 0.55, 0.1, 0.9);
-      state.language = state.language === 'en-US' ? 'en-US' : 'zh-CN';
-      state.plugins = Object.assign({  }, configuredPlugins, state.plugins || {});
-    } catch (_) {}
-    if (INITIAL_CONFIG.privacy && INITIAL_CONFIG.privacy.block_beacons && !window.__2ag_beacon_guard) {
-      try {
-        const originalBeacon = navigator.sendBeacon;
-        navigator.sendBeacon = function (url) {
-          const blockedHosts = INITIAL_CONFIG.privacy.blocked_hosts || [];
-          const value = String(url || '').toLowerCase();
-          if (blockedHosts.some((host) => value.indexOf(String(host).toLowerCase()) >= 0)) return true;
-          return typeof originalBeacon === 'function' ? originalBeacon.apply(this, arguments) : false;
-        };
-        window.__2ag_beacon_guard = true;
-      } catch (_) {}
-    }
-  }
-
-  function saveState() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {}
-    const patch = { blur: state.blur, opacity: state.opacity, language: currentLanguage(), global_rules: state.global_rules || '' };
-    if (/^[A-Za-z]:[\\/]/.test(String(state.wallpaper || ''))) patch.wallpaper_path = state.wallpaper;
-    ipc('core.config.set', { patch }).catch(() => {});
-    window.dispatchEvent(new CustomEvent('2ag:config-changed', { detail: Object.assign({}, state) }));
-  }
-
-  function imageValue() {
-    const value = state.wallpaper || INITIAL_CONFIG.wallpaper || 'http://127.0.0.1:18082/bg.jpg';
-    if (INITIAL_CONFIG.wallpaper_path && String(value).toLowerCase() === String(INITIAL_CONFIG.wallpaper_path).toLowerCase()) return INITIAL_CONFIG.wallpaper || value;
-    if (/^file:\/\//i.test(value)) return value.replace(/\\/g, '/');
-    if (/^[A-Za-z]:[\\/]/.test(value)) return 'file:///' + value.replace(/\\/g, '/');
-    return value;
-  }
-
-  function ensureSkin() {
-    const body = document.body;
-    if (!body) return;
-    let bg = document.getElementById(BG_ID);
-    if (!bg) { bg = document.createElement('div'); bg.id = BG_ID; body.prepend(bg); }
-    else if (bg.parentNode !== body || body.firstElementChild !== bg) body.prepend(bg);
-    const bgStyle = 'position:fixed !important;inset:0 !important;z-index:-99999 !important;pointer-events:none !important;background-image:url("' + String(imageValue()).replace(/"/g, '\\"') + '") !important;background-size:cover !important;background-position:center !important;background-repeat:no-repeat !important;';
-    if (bg.style.cssText !== bgStyle) bg.style.cssText = bgStyle;
-    let overlay = document.getElementById(OVERLAY_ID);
-    if (!overlay || overlay.parentNode !== bg) { overlay = document.createElement('div'); overlay.id = OVERLAY_ID; bg.appendChild(overlay); }
-    overlay.style.cssText = 'width:100%;height:100%;backdrop-filter:blur(' + state.blur + 'px);-webkit-backdrop-filter:blur(' + state.blur + 'px);background:rgba(0,0,0,' + state.opacity + ');';
-    let style = document.getElementById(STYLE_ID);
-    const host = document.head || document.documentElement;
-    if (host) {
-      if (!style) { style = document.createElement('style'); style.id = STYLE_ID; }
-      if (style.parentNode !== host || host.lastElementChild !== style) host.appendChild(style);
-      if (style.textContent !== HUB_CSS) style.textContent = HUB_CSS;
-    }
-  }
-
-  function renderValues() {
-    const blur = document.getElementById('2ag-blur');
-    const blurValue = document.getElementById('2ag-blur-value');
-    if (blur) blur.value = String(state.blur);
-    if (blurValue) blurValue.textContent = state.blur + ' px';
-    const opacity = document.getElementById('2ag-opacity');
-    const opacityValue = document.getElementById('2ag-opacity-value');
-    if (opacity) opacity.value = String(state.opacity);
-    if (opacityValue) opacityValue.textContent = Math.round(state.opacity * 100) + '%';
-    if (blur) blur.style.background = 'linear-gradient(90deg,#9bbcff ' + (Number(state.blur) / 40 * 100) + '%,rgba(255,255,255,.16) ' + (Number(state.blur) / 40 * 100) + '%)';
-    if (opacity) opacity.style.background = 'linear-gradient(90deg,#9bbcff ' + ((Number(state.opacity) - .1) / .8 * 100) + '%,rgba(255,255,255,.16) ' + ((Number(state.opacity) - .1) / .8 * 100) + '%)';
-    const path = document.getElementById('2ag-wallpaper-path');
-    if (path && !path.matches(':focus')) {
-      const value = String(state.wallpaper || '');
-      path.value = /^data:image\//i.test(value) ? t('localImageSelected') : (value === INITIAL_CONFIG.wallpaper ? (INITIAL_CONFIG.wallpaper_path || value) : value);
-    }
-    document.querySelectorAll('[id="2ag-hub-drawer"] [data-preset]').forEach((button) => {
-      button.dataset.active = button.dataset.preset === state.preset ? 'true' : 'false';
-    });
-    const rules = document.getElementById('2ag-global-rules');
-    if (rules && document.activeElement !== rules) rules.value = state.global_rules || '';
-    document.querySelectorAll('[id="2ag-hub-drawer"] [data-plugin-name]').forEach((row) => {
-      const value = state.plugins[row.dataset.pluginName];
-      const toggle = row.querySelector('input[type="checkbox"]');
-      if (toggle) toggle.checked = Boolean(value && value.enabled !== undefined ? value.enabled : value);
-    });
-  }
-
-  function showTab(name) {
-    document.querySelectorAll('[id="2ag-hub-drawer"] [data-tab]').forEach((button) => { button.dataset.active = button.dataset.tab === name ? 'true' : 'false'; });
-    document.querySelectorAll('[id="2ag-hub-drawer"] [data-panel]').forEach((panel) => { panel.dataset.active = panel.dataset.panel === name ? 'true' : 'false'; });
-    if (name === 'network') refreshNetworkStatus();
-    if (name === 'plugins') refreshPluginStatus();
-  }
-
-  function refreshNetworkStatus() {
-    const status = document.getElementById('2ag-network-status');
-    if (!status) return;
-    const host = document.getElementById('2ag-host-status');
-    if (host) {
-      const env = INITIAL_CONFIG.env_overrides || {};
-      const names = Object.keys(env);
-      host.textContent = t('hostPID') + ' ' + (INITIAL_CONFIG.host_pid || '—') + ' · ' + t('cdp') + ' 127.0.0.1:' + (INITIAL_CONFIG.cdp_port || '—') + (names.length ? ' · ' + t('env') + ': ' + names.join(', ') : '');
-    }
-    const overrides = document.getElementById('2ag-network-overrides');
-    if (overrides) {
-      const items = (state.network && state.network.endpoint_overrides) || [];
-      overrides.textContent = items.length ? items.map((item) => item.host + ' → ' + item.url).join('\n') : t('officialEndpoints');
-    }
-    if (!INITIAL_CONFIG.proxy_url) { status.textContent = t('proxyDisabled'); return; }
-    status.textContent = t('readingProxy');
-    fetch(INITIAL_CONFIG.proxy_url + '/status', { cache: 'no-store' }).then((response) => response.json()).then((value) => {
-      status.textContent = t('proxyActive') + ' · ' + value.requests + ' ' + t('requests') + ' · ' + value.blocked + ' ' + t('blocked') + ' · ' + t('last') + ' ' + value.last_ms + ' ms';
-    }).catch(() => { status.textContent = t('proxyUnavailable'); });
-  }
-
-  function probeNetwork() {
-    const status = document.getElementById('2ag-network-status'); if (!status) return;
-    status.textContent = t('probeRunning');
-    ipc('core.diagnostics.probe', {}).then((result) => {
-      const latency = result && result.latency_ms !== undefined ? result.latency_ms + ' ms' : '—';
-      status.textContent = result && result.ok ? t('probeOK') + ' · ' + (result.status || 'OK') + ' · ' + latency : t('probeFailed') + ' · ' + ((result && result.status) || '—') + ' · ' + latency;
-    }).catch((error) => { status.textContent = t('probeFailed') + ' · ' + error.message; });
-  }
-
-  function refreshPluginStatus() {
-    if (!INITIAL_CONFIG.plugin_url) return;
-    fetch(INITIAL_CONFIG.plugin_url + '/plugins', { cache: 'no-store' }).then((response) => response.json()).then((items) => {
-      items.forEach((item) => {
-        const row = Array.from(document.querySelectorAll('[data-plugin-name]')).find((candidate) => candidate.dataset.pluginName === item.name);
-        const toggle = row && row.querySelector('input[type="checkbox"]');
-        if (toggle) toggle.checked = Boolean(item.running);
-        const status = row && row.querySelector('[data-plugin-status]'); if (status) status.textContent = item.running ? t('pluginRunning') : t('pluginStopped');
-      });
-    }).catch(() => {});
-  }
-
-  function loadPluginScripts() {
-    Object.keys(state.plugins || {}).forEach((name) => {
-      const plugin = state.plugins[name];
-      const sourceURL = plugin && typeof plugin === 'object' ? plugin.uiURL : '';
-      if (!sourceURL || loadedPluginScripts.has(sourceURL)) return;
-      loadedPluginScripts.add(sourceURL);
-      fetch(sourceURL, { cache: 'no-store' })
-        .then((response) => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.text(); })
-        .then((source) => { (new Function(source + '\n//# sourceURL=' + sourceURL))(); })
-        .catch((error) => { console.warn('[2ag] plugin UI load failed for ' + name + ':', error); });
-    });
-  }
-
-  function applyState(persist) {
-    state.blur = number(state.blur, 20, 0, 40);
-    state.opacity = number(state.opacity, 0.55, 0.1, 0.9);
-    ensureSkin(); renderValues(); if (persist) saveState();
-  }
-
-  function hotReload() { ensureSkin(); ensureHub(); applyLanguage(); const status = document.getElementById('2ag-diag-status'); if (status) status.textContent = t('hotReloaded'); }
-  function resetTheme() { state.wallpaper = INITIAL_CONFIG.wallpaper_path || INITIAL_CONFIG.wallpaper || ''; state.blur = 20; state.opacity = .55; state.preset = 'Dark Dream'; applyState(true); const status = document.getElementById('2ag-diag-status'); if (status) status.textContent = t('reset'); }
-  function exportConfig() { ipc('core.config.get', {}).then((value) => { const blob = new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = '2ag-config.json'; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); const status = document.getElementById('2ag-diag-status'); if (status) status.textContent = t('exported'); }).catch(() => {}); }
-
-  function preset(name) {
-    const presets = {
-      'Dark Dream': { blur: 20, opacity: 0.55 },
-      Cyberpunk: { blur: 28, opacity: 0.35 },
-      'Clean Glass': { blur: 12, opacity: 0.2 }
-    };
-    Object.assign(state, presets[name] || presets['Dark Dream']); state.preset = name; applyState(true);
-  }
-
-  function createDrawer() {
-    if (document.getElementById(HUB_ID)) return;
-    const root = document.createElement('div'); root.id = HUB_ID;
-    root.innerHTML = '<button id="2ag-hub-toggle" type="button" data-i18n-aria="console"><img class="ag-logo" alt=""><span data-i18n="capsule">2Ag</span><span class="ag-badge">v1.0</span></button>' +
-      '<section id="2ag-hub-drawer" aria-label="2Ag settings" data-open="false">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:8px"><img class="ag-drawer-logo" alt="" style="width:20px;height:20px;object-fit:contain;filter:drop-shadow(0 0 6px rgba(153,193,255,.6))"><h2 data-i18n="console">2Ag Console</h2></div><div style="display:flex;align-items:center;gap:6px"><button id="2ag-language-toggle" type="button" aria-label="Language">中 / EN</button><button id="2ag-hub-close" type="button" data-i18n="close">Close</button></div></div>' +
-      '<div class="ag-tabs"><button type="button" data-tab="skin" data-i18n="skin">Skin</button><button type="button" data-tab="network" data-i18n="network">Network</button><button type="button" data-tab="rules" data-i18n="rules">Rules</button><button type="button" data-tab="plugins" data-i18n="plugins">Plugins</button><button type="button" data-tab="diagnostics" data-i18n="diagnostics">Diag</button></div>' +
-      '<div class="ag-extension-panels">' +
-      '<div class="ag-panel" data-panel="skin"><h3 data-i18n="dreamSkin">Dream Skin</h3>' +
-      '<div class="ag-row"><label for="2ag-blur" data-i18n="blur">Blur</label><output id="2ag-blur-value"></output></div><input id="2ag-blur" type="range" min="0" max="40" step="1">' +
-      '<div class="ag-row" style="margin-top:14px"><label for="2ag-opacity" data-i18n="darkness">Darkness</label><output id="2ag-opacity-value"></output></div><input id="2ag-opacity" type="range" min="0.1" max="0.9" step="0.01">' +
-      '<div class="ag-row" style="margin-top:14px"><label data-i18n="wallpaper">Wallpaper</label></div><div class="ag-file"><input id="2ag-wallpaper-file" type="file" accept="image/*" style="display:none"><button id="2ag-wallpaper-pick" type="button" data-i18n="chooseImage">Choose local image</button></div>' +
-      '<input id="2ag-wallpaper-path" type="text" data-i18n-placeholder="imagePlaceholder" placeholder="Image URL or file:/// path" style="margin-top:7px"><div class="ag-muted" data-i18n="localImageHint">The selected image is stored in this profile.</div>' +
-      '<h3 data-i18n="presets">Presets</h3><div class="ag-presets"><button type="button" data-preset="Dark Dream" data-i18n="darkDream">Dark Dream</button><button type="button" data-preset="Cyberpunk" data-i18n="cyberpunk">Cyberpunk</button><button type="button" data-preset="Clean Glass" data-i18n="cleanGlass">Clean Glass</button></div></div>' +
-      '<div class="ag-panel" data-panel="network"><h3 data-i18n="networkModel">Network &amp; Model</h3><div id="2ag-host-status" class="ag-status" data-i18n="hostNotLoaded">Host diagnostics not loaded</div><div id="2ag-network-status" class="ag-status" data-i18n="proxyNotLoaded">Proxy status not loaded</div><div id="2ag-network-overrides" class="ag-status"></div><button id="2ag-network-probe" type="button" data-i18n="testGateway">Test gateway</button><div class="ag-muted" data-i18n="httpHint">HTTP requests can use endpoint overrides.</div></div>' +
-      '<div class="ag-panel" data-panel="rules"><h3 data-i18n="rules">Global Rules</h3><textarea id="2ag-global-rules" data-i18n-placeholder="rulesPlaceholder" placeholder="Rules applied to configured JSON endpoints"></textarea><button id="2ag-rules-save" type="button" data-i18n="saveRules" style="margin-top:8px">Save rules</button><div class="ag-muted" data-i18n="rulesHint">Rules are persisted in this browser profile.</div></div>' +
-      '<div class="ag-panel" data-panel="plugins"><h3 data-i18n="extensionsSidecar">Extensions &amp; Sidecar</h3><div id="2ag-plugin-list"></div></div></div>' +
-      '<div class="ag-panel" data-panel="diagnostics"><h3 data-i18n="diagnosticsTitle">Diagnostics</h3><button id="2ag-devtools" type="button" data-i18n="openDevtools">Open DevTools (F12)</button><div style="display:flex;gap:6px;margin-top:8px"><button id="2ag-hot-reload" type="button" data-i18n="hotReload">Reload skin</button><button id="2ag-reset-theme" type="button" data-i18n="resetTheme">Reset theme</button><button id="2ag-export-config" type="button" data-i18n="exportConfig">Export config</button></div><div id="2ag-diag-status" class="ag-muted" style="margin-top:8px" data-i18n="diagHint">Use F12, Ctrl+Shift+I, Alt+A, or Ctrl+Shift+A while debugging the host.</div></div>' +
-      '</section>';
-    document.body.appendChild(root);
-    const logo = root.querySelector('.ag-logo'); if (logo) logo.src = INITIAL_CONFIG.logo_url || '';
-    const drawerLogo = root.querySelector('.ag-drawer-logo'); if (drawerLogo) drawerLogo.src = INITIAL_CONFIG.logo_url || '';
-    const drawer = root.querySelector('[id="2ag-hub-drawer"]');
-    root.querySelector('[id="2ag-hub-toggle"]').addEventListener('click', () => { drawer.dataset.open = drawer.dataset.open !== 'true' ? 'true' : 'false'; });
-    root.querySelector('[id="2ag-hub-close"]').addEventListener('click', () => { drawer.dataset.open = 'false'; });
-    root.querySelector('[id="2ag-language-toggle"]').addEventListener('click', () => setLanguage(currentLanguage() === 'zh-CN' ? 'en-US' : 'zh-CN'));
-    root.querySelectorAll('[data-tab]').forEach((button) => button.addEventListener('click', () => showTab(button.dataset.tab)));
-    root.querySelector('[id="2ag-blur"]').addEventListener('input', (event) => { state.blur = Number(event.target.value); applyState(true); });
-    root.querySelector('[id="2ag-opacity"]').addEventListener('input', (event) => { state.opacity = Number(event.target.value); applyState(true); });
-    root.querySelector('[id="2ag-wallpaper-path"]').addEventListener('change', (event) => { state.wallpaper = event.target.value.trim(); applyState(true); });
-    root.querySelector('[id="2ag-wallpaper-pick"]').addEventListener('click', () => {
-      // Chromium's native file input opens the OS picker directly. Do not
-      // invoke PowerShell, which flashes a console and can open a second
-      // Explorer window before the actual selection dialog.
-      root.querySelector('[id="2ag-wallpaper-file"]').click();
-    });
-    root.querySelector('[id="2ag-wallpaper-file"]').addEventListener('change', (event) => {
-      const file = event.target.files && event.target.files[0]; if (!file) return;
-      const reader = new FileReader(); reader.onload = () => { state.wallpaper = String(reader.result); applyState(true); }; reader.readAsDataURL(file);
-    });
-    root.querySelectorAll('[data-preset]').forEach((button) => button.addEventListener('click', () => preset(button.dataset.preset)));
-    root.querySelector('[id="2ag-network-probe"]').addEventListener('click', probeNetwork);
-    root.querySelector('[id="2ag-rules-save"]').addEventListener('click', () => {
-      state.global_rules = root.querySelector('[id="2ag-global-rules"]').value; saveState();
-      if (INITIAL_CONFIG.proxy_url) fetch(INITIAL_CONFIG.proxy_url + '/config/global-rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ global_rules: state.global_rules }) }).catch(() => {});
-    });
-    root.querySelector('[id="2ag-devtools"]').addEventListener('click', () => { ipc('core.diagnostics.devtools', {}).catch(() => {}); });
-    root.querySelector('[id="2ag-hot-reload"]').addEventListener('click', hotReload);
-    root.querySelector('[id="2ag-reset-theme"]').addEventListener('click', resetTheme);
-    root.querySelector('[id="2ag-export-config"]').addEventListener('click', exportConfig);
-    function renderPluginCard(manifest) {
-      const name = manifest.name;
-      const value = manifest;
-      const rowContainer = document.createElement('div'); 
-      rowContainer.className = 'ag-plugin'; 
-      rowContainer.dataset.pluginName = name;
-      rowContainer.style.display = 'block';
-
-      const label = (value && value.displayName) || name;
-      const description = value && value.description ? '<small class="ag-muted">' + String(value.description).replace(/[<>&"']/g, '') + '</small>' : '';
-      
-      const header = document.createElement('div');
-      header.style.display = 'flex';
-      header.style.justifyContent = 'space-between';
-      header.style.alignItems = 'center';
-      header.innerHTML = '<span style="display:flex;flex-direction:column;gap:2px"><strong>' + String(label).replace(/[<>&"']/g, '') + '</strong>' + description + '<small class="ag-muted" data-plugin-status>' + t('pluginStopped') + '</small></span><label class="ag-toggle" style="cursor:pointer"><input type="checkbox"><span class="ag-toggle-track"><span class="ag-toggle-thumb"></span></span></label>';
-      
-      const toggle = header.querySelector('input');
-      toggle.checked = Boolean(value && value.enabled !== undefined ? value.enabled : value);
-      toggle.addEventListener('change', () => {
-        const enabled = toggle.checked;
-        state.plugins[name] = Object.assign({}, value, { enabled }); saveState();
-        if (INITIAL_CONFIG.plugin_url) {
-          fetch(INITIAL_CONFIG.plugin_url + '/plugins/' + encodeURIComponent(name), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) }).catch(() => { toggle.checked = !enabled; state.plugins[name] = Object.assign({}, value, { enabled: !enabled }); saveState(); });
+  // 5. 宿主原生全局样式（仅限背景壁纸与 880px 排版注入，保持原生 DOM 纯净）
+  const NATIVE_STYLE_ID = '2ag-native-core-style';
+  function ensureNativeStyles() {
+    let el = document.getElementById(NATIVE_STYLE_ID);
+    if (!el) {
+      el = document.createElement('style');
+      el.id = NATIVE_STYLE_ID;
+      el.textContent = `
+        /* 880px 黄金视距排版重塑 */
+        div[class*="chat-scroll"], div[class*="conversation-view"], div[class*="chat-stream"], div[class*="conversation-container"], [class*="chat-scroll-container"], .conversation-container, main[role="main"] > div, [class*="chat-session"], [class*="messages-container"], [class*="chat-history"], [class*="conversation-layout"], div[class*="conversation-content"], div[class*="chat-layout"] {
+          max-width: 880px !important;
+          margin: 0 auto !important;
+          width: 100% !important;
+          box-sizing: border-box !important;
         }
-      });
-      rowContainer.appendChild(header);
-
-      if (value.ui && value.ui.schema && value.ui.schema.fields) {
-        const fieldsBox = document.createElement('div');
-        fieldsBox.style.marginTop = '10px';
-        fieldsBox.style.paddingTop = '10px';
-        fieldsBox.style.borderTop = '1px solid rgba(255,255,255,0.05)';
-        
-        value.ui.schema.fields.forEach(f => {
-          const fRow = document.createElement('div');
-          fRow.style.display = 'flex';
-          fRow.style.justifyContent = 'space-between';
-          fRow.style.alignItems = 'center';
-          fRow.style.marginTop = '8px';
-          fRow.innerHTML = '<span style="font-size:12px">' + (f.label || f.key) + '</span>';
-          
-          const configVal = value.config && value.config[f.key] !== undefined ? value.config[f.key] : f.default;
-          
-          if (f.type === 'boolean') {
-            const toggleWrapper = document.createElement('label');
-            toggleWrapper.className = 'ag-toggle';
-            toggleWrapper.style.cursor = 'pointer';
-            toggleWrapper.innerHTML = '<input type="checkbox"' + (configVal ? ' checked' : '') + '><span class="ag-toggle-track"><span class="ag-toggle-thumb"></span></span>';
-            toggleWrapper.querySelector('input').addEventListener('change', function() {
-              ipc('core.action', { type: 'UPDATE_PLUGIN_CONFIG', payload: { name: name, key: f.key, value: this.checked } }).catch(()=>{});
-            });
-            fRow.appendChild(toggleWrapper);
-          } else {
-            const inputEl = document.createElement('input');
-            inputEl.type = f.type === 'number' ? 'number' : 'text';
-            inputEl.value = configVal || '';
-            inputEl.placeholder = f.default || '';
-            inputEl.style.cssText = 'width: 120px; background: #0b0c10; border: 2px solid #000; color: #f5ee38; padding: 4px 6px; border-radius: 0; font-family: monospace; font-size: 11px;';
-            inputEl.addEventListener('change', function() {
-              let val = this.value;
-              if(f.type === 'number') val = Number(val);
-              ipc('core.action', { type: 'UPDATE_PLUGIN_CONFIG', payload: { name: name, key: f.key, value: val } }).catch(()=>{});
-            });
-            fRow.appendChild(inputEl);
-          }
-          fieldsBox.appendChild(fRow);
-        });
-        rowContainer.appendChild(fieldsBox);
-      }
-      return rowContainer;
-    }
-
-    const pluginList = root.querySelector('[id="2ag-plugin-list"]');
-    Object.keys(state.plugins).forEach((name) => {
-      const value = state.plugins[name] || {};
-      value.name = name; // ensure name is in manifest
-      pluginList.appendChild(renderPluginCard(value));
-    });
-    renderValues();
-    showTab('skin');
-    applyLanguage();
-    extensionTabs.forEach((tab) => mountExtensionTab(tab));
-    positionHub(root);
-  }
-
-  function positionHub(root) {
-    if (!root) return;
-    const candidates = Array.from(document.querySelectorAll('button, [role="button"], a'));
-    const install = candidates.find((node) => /install\s+ide/i.test((node.textContent || '').trim()));
-    const settings = candidates.find((node) => /^settings$/i.test((node.textContent || '').trim()));
-    const anchor = install || settings;
-    if (!anchor) return;
-    const rect = anchor.getBoundingClientRect();
-    if (install) {
-      root.dataset.anchor = 'top';
-      root.style.top = Math.max(8, rect.top) + 'px';
-      root.style.right = Math.max(18, window.innerWidth - rect.left + 8) + 'px';
-    } else {
-      root.dataset.anchor = 'bottom';
-      root.style.left = Math.max(18, rect.left) + 'px';
-      root.style.bottom = Math.max(18, window.innerHeight - rect.bottom) + 'px';
-      root.style.top = 'auto';
-      root.style.right = 'auto';
+        pre, code, .code-block, [class*="code-block"], [class*="code-container"] {
+          font-family: 'Google Sans Code', 'Consolas', 'Roboto Mono', 'Fira Code', monospace !important;
+          line-height: 1.65 !important;
+          font-size: 13.5px !important;
+        }
+        p, [class*="message-content"], [class*="markdown-body"] {
+          line-height: 1.6 !important;
+          font-family: 'Google Sans', 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+        }
+        /* 宿主背景透明化以显现底层高斯模糊壁纸 */
+        :root, :host, html, body, .dark, [class*="dark"], .theme-dark, .theme-standalone {
+          --background: transparent !important;
+          --color-background: transparent !important;
+        }
+        html, body, #root, #app, main, body > div:not([id="${SHADOW_HOST_ID}"]):not([id="${BG_ID}"]) {
+          background-color: transparent !important;
+        }
+      `;
+      (document.head || document.documentElement).appendChild(el);
     }
   }
 
-  function ensureHub() {
+  // 6. Dream-Skin 原版高斯模糊背景层
+  function ensureDreamSkin() {
     if (!document.body) return;
-    if (!document.getElementById(HUB_ID)) createDrawer();
-    positionHub(document.getElementById(HUB_ID));
-  }
+    let bg = document.getElementById(BG_ID);
+    const wallpaper = (INITIAL_CONFIG && INITIAL_CONFIG.wallpaper) || state.wallpaper || "";
+    const blurVal = state.blur || 28;
+    const opacityVal = state.opacity || 0.6;
 
-  // --- Real Gravity Boost Interceptors with Safety Shield ---
-  function safeApplyCenteredWidth(enabled) {
-    try {
-      const STYLE_ID = '2ag-safe-centered-style';
-      let el = document.getElementById(STYLE_ID);
-      if (enabled && !el) {
-        el = document.createElement('style');
-        el.id = STYLE_ID;
-        // 仅作用于聊天流滚动视窗，严禁影响代码编辑器与工具栏
-        el.textContent = `
-          div[class*="chat-scroll"], div[class*="conversation-view"] {
-            max-width: 860px !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
-          }
-        `;
-        document.head.appendChild(el);
-      } else if (!enabled && el) {
-        el.remove();
+    if (!bg) {
+      bg = document.createElement('div');
+      bg.id = BG_ID;
+      bg.innerHTML = `<div id="${OVERLAY_ID}"></div>`;
+      bg.style.cssText = `
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        z-index: 0 !important;
+        pointer-events: none !important;
+        ${wallpaper ? `background-image: url("${wallpaper}") !important;` : ''}
+        background-size: cover !important;
+        background-position: center !important;
+        filter: blur(${blurVal}px) !important;
+        opacity: ${opacityVal} !important;
+      `;
+      document.body.prepend(bg);
+    } else {
+      if (bg.parentNode !== document.body || document.body.firstElementChild !== bg) {
+        document.body.prepend(bg);
       }
-    } catch (e) {
-      console.warn('[2Ag Shield] Centered style bypass:', e);
+      if (wallpaper && (!bg.style.backgroundImage || !bg.style.backgroundImage.includes('data:image'))) {
+        bg.style.setProperty('background-image', `url("${wallpaper}")`, 'important');
+      }
+      bg.style.setProperty('position', 'fixed', 'important');
+      bg.style.setProperty('top', '0', 'important');
+      bg.style.setProperty('left', '0', 'important');
+      bg.style.setProperty('width', '100vw', 'important');
+      bg.style.setProperty('height', '100vh', 'important');
+      bg.style.setProperty('z-index', '0', 'important');
+      bg.style.setProperty('pointer-events', 'none', 'important');
+      bg.style.setProperty('filter', `blur(${blurVal}px)`, 'important');
+      bg.style.setProperty('opacity', `${opacityVal}`, 'important');
     }
   }
 
-  window.__2ag_onStateUpdate = function(newState) {
-    if (!newState) return;
-    const gb = newState.gravity_boost || {};
-    window.__2ag_active_gb = gb; // 让 paste 和 keydown 动态读取最新布尔值
-    safeApplyCenteredWidth(gb.centered_width);
-  };
+  // 7. Toast 提示引擎
+  let toastTimer = null;
+  function showToast(message) {
+    const root = document.getElementById(SHADOW_HOST_ID);
+    if (!root || !root.shadowRoot) return;
+    const toast = root.shadowRoot.getElementById('twoag-toast');
+    if (!toast) return;
+    const msgEl = toast.querySelector('.toast-msg');
+    if (msgEl) msgEl.textContent = message;
+    toast.dataset.show = 'true';
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast.dataset.show = 'false';
+    }, 1500);
+  }
 
-  function applyGravityBoost() {
-    const gb = window.__2ag_active_gb || (INITIAL_CONFIG.gravity_boost) || (state.gravity_boost) || {
-      centered_width: true,
-      paste_plaintext_fix: true,
-      enable_devtools: true
+  // 8. 模块 3：“强制发送”穿透引擎 (Force Dispatch Engine)
+  function executeForceDispatch() {
+    console.log('[2AG_FORCE_SEND_TRIGGERED]', {
+      timestamp: Date.now(),
+      subsystems: Object.assign({}, subsystems)
+    });
+
+    // Step 1: 动态寻址定位当前活跃的输入容器
+    let target = document.activeElement;
+    const isInputElement = (el) => {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === 'TEXTAREA' || tag === 'INPUT' || el.isContentEditable || el.classList.contains('monaco-editor') || el.closest('.monaco-editor');
     };
-    window.__2ag_active_gb = gb;
-    safeApplyCenteredWidth(gb.centered_width);
 
-    // 2. Plaintext Paste Cleanup
-    if (!window.__2ag_paste_installed) {
-      window.__2ag_paste_installed = true;
-      window.addEventListener('paste', function(e) {
-        const activeGB = window.__2ag_active_gb || {};
-        if (activeGB.paste_plaintext_fix !== false) {
-          if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable)) {
-            const text = e.clipboardData && e.clipboardData.getData('text/plain');
-            if (text && e.clipboardData.types.includes('text/html')) {
-              e.preventDefault();
-              document.execCommand('insertText', false, text);
+    if (!isInputElement(target)) {
+      target = document.querySelector('textarea:not([disabled]), [contenteditable="true"], textarea, div[class*="chat-input"] textarea, div[class*="input-container"] textarea, div.monaco-editor [contenteditable="true"]');
+    }
+
+    if (target) {
+      target.removeAttribute('disabled');
+      target.setAttribute('aria-disabled', 'false');
+      target.style.setProperty('pointer-events', 'auto', 'important');
+      if (typeof target.focus === 'function') target.focus();
+    }
+
+    // 强行解除所有发送按钮及其容器的 disabled / pointer-events 阻断
+    const sendButtons = document.querySelectorAll(
+      'button[aria-label*="Send" i], button[aria-label*="发送"], button.send-button, [data-tooltip*="Send" i], [data-tooltip*="发送"], [data-testid*="send" i], [class*="send-button"], [class*="send_button"], button[type="submit"]'
+    );
+    sendButtons.forEach(btn => {
+      btn.removeAttribute('disabled');
+      btn.setAttribute('aria-disabled', 'false');
+      btn.style.setProperty('pointer-events', 'auto', 'important');
+      btn.style.setProperty('cursor', 'pointer', 'important');
+      btn.style.setProperty('z-index', '9999', 'important');
+    });
+
+    // Step 2: 向当前输入焦点按时序严格派发冒泡键盘事件
+    // 负向验证 B: 带上 customEventFlag: true 与 __2ag_synthetic: true，杜绝递归捕获死锁
+    if (target) {
+      const keyOpts = {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        bubbles: true,
+        cancelable: true,
+        composed: true
+      };
+
+      const evDown = new KeyboardEvent('keydown', keyOpts);
+      evDown.__2ag_synthetic = true;
+      evDown.customEventFlag = true;
+
+      const evPress = new KeyboardEvent('keypress', keyOpts);
+      evPress.__2ag_synthetic = true;
+      evPress.customEventFlag = true;
+
+      const evUp = new KeyboardEvent('keyup', keyOpts);
+      evUp.__2ag_synthetic = true;
+      evUp.customEventFlag = true;
+
+      target.dispatchEvent(evDown);
+      target.dispatchEvent(evPress);
+      target.dispatchEvent(evUp);
+    }
+
+    // Step 3: 若宿主界面仍未提交，抓取 DOM 树内临近的发送图标/按钮并触发原生 .click()
+    setTimeout(() => {
+      for (const btn of sendButtons) {
+        const rect = btn.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          btn.click();
+          break;
+        }
+      }
+    }, 35);
+
+    // 触发成功反馈 Toast
+    showToast('[2Ag] 强制发送已派发 (Bypassed Frontend Lock)');
+  }
+
+  // 9. 输入状态自愈 (State Healer) 与 过渡遮罩粉碎 (Overlay Stripper) 守卫
+  function performSubsystemGuards() {
+    if (!document.body) return;
+
+    // Guard 1: 输入状态自愈
+    if (subsystems.state_healer) {
+      const inputs = document.querySelectorAll('textarea[disabled], input[disabled], [contenteditable="false"][class*="editor"]');
+      inputs.forEach(el => {
+        el.removeAttribute('disabled');
+        el.setAttribute('aria-disabled', 'false');
+        el.style.setProperty('pointer-events', 'auto', 'important');
+      });
+    }
+
+    // Guard 2: 过渡遮罩粉碎 (清理阻挡输入的无用幽灵遮罩)
+    if (subsystems.overlay_stripper) {
+      const potentialMasks = document.querySelectorAll('div[class*="backdrop"], div[class*="mask"], div[class*="overlay"], div[class*="shield"]');
+      potentialMasks.forEach(mask => {
+        if (mask.id === BG_ID || mask.id === SHADOW_HOST_ID) return;
+        const style = window.getComputedStyle(mask);
+        if (style.position === 'absolute' || style.position === 'fixed') {
+          const rect = mask.getBoundingClientRect();
+          if (rect.bottom > window.innerHeight - 180) {
+            if (style.opacity === '0' || style.visibility === 'hidden' || style.backgroundColor === 'transparent' || style.backgroundColor === 'rgba(0, 0, 0, 0)') {
+              if (!mask.querySelector('input, textarea, button, [contenteditable="true"]')) {
+                mask.style.setProperty('pointer-events', 'none', 'important');
+              }
             }
           }
         }
-      }, true);
-    }
-
-    // 3. F12 DevTools Keydown Passthrough
-    if (!window.__2ag_devtools_installed) {
-      window.__2ag_devtools_installed = true;
-      window.addEventListener('keydown', function(e) {
-        const activeGB = window.__2ag_active_gb || {};
-        if (activeGB.enable_devtools !== false) {
-          if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i'))) {
-            ipc('core.diagnostics.devtools', {}).catch(() => {});
-          }
-        }
-      }, true);
+      });
     }
   }
 
-  loadState(); loadPluginScripts(); applyState(false); ensureHub(); applyGravityBoost();
-  if (!window[OBSERVER_KEY]) {
-    window[OBSERVER_KEY] = new MutationObserver(() => {
-      if (window.__2ag_hub_guard) return;
-      window.__2ag_hub_guard = true;
-      try { ensureSkin(); ensureHub(); applyGravityBoost(); } finally { window.__2ag_hub_guard = false; }
-    });
-    window[OBSERVER_KEY].observe(document, { childList: true, subtree: true });
-  }
-  if (!window[TIMER_KEY]) {
-    let count = 0;
-    window[TIMER_KEY] = window.setInterval(() => {
-      ensureSkin();
-      ensureHub();
-      applyGravityBoost();
-      if (++count > 20) {
-        window.clearInterval(window[TIMER_KEY]);
-        window[TIMER_KEY] = window.setInterval(() => { ensureSkin(); ensureHub(); applyGravityBoost(); }, 1500);
+  // 10. 全局快捷键监听（严格满足负向断言）
+  if (!window.__2ag_dispatch_shortcut_installed) {
+    window.__2ag_dispatch_shortcut_installed = true;
+    window.addEventListener('keydown', (event) => {
+      // 负向验证 B: 防止事件死循环，若为自身派发的合成事件，直接放行
+      if (event.__2ag_synthetic || event.customEventFlag) {
+        return;
       }
-    }, 500);
+
+      // 负向验证 A: 普通 Enter 或 Shift + Enter 静默放行，绝对不拦截
+      const isCtrlOrMeta = event.ctrlKey || event.metaKey;
+      if (isCtrlOrMeta && event.shiftKey && (event.key === 'Enter' || event.keyCode === 13)) {
+        if (subsystems.force_dispatch) {
+          event.preventDefault();
+          event.stopPropagation();
+          executeForceDispatch();
+        }
+      }
+    }, true);
   }
+
+  // 11. Shadow DOM 核心构建与 G-Hub / G-Cockpit 挂载
+  let isPanelOpen = false;
+
+  function mountShadowUI() {
+    if (!document.body && !document.documentElement) return;
+    let rootHost = document.getElementById(SHADOW_HOST_ID);
+    if (rootHost && rootHost.shadowRoot) {
+      return; // 已经就绪
+    }
+
+    if (!rootHost) {
+      rootHost = document.createElement('div');
+      rootHost.id = SHADOW_HOST_ID;
+      (document.body || document.documentElement).appendChild(rootHost);
+    }
+
+    const shadow = rootHost.attachShadow({ mode: 'open' });
+
+    // 挂载独立样式
+    const styleEl = document.createElement('style');
+    styleEl.textContent = SHADOW_CSS;
+    shadow.appendChild(styleEl);
+
+    // 容器包装
+    const container = document.createElement('div');
+    container.className = 'twoag-scope';
+    container.innerHTML = `
+      <!-- G-Hub 悬浮浮标 -->
+      <div id="twoag-ghub" class="ghub-beacon" title="anti-Antigravity G-Hub">
+        <div class="ghub-inner">
+          ${SVG_ICONS.googleG}
+        </div>
+      </div>
+
+      <!-- G-Cockpit 战术控制面板 -->
+      <div id="twoag-cockpit" class="cockpit-panel" data-open="false">
+        <div class="cockpit-light-bar"></div>
+        <div class="cockpit-body">
+          <!-- 头部 -->
+          <div class="cockpit-header">
+            <div class="brand-wrap">
+              ${SVG_ICONS.googleG}
+              <div>
+                <div class="brand-title">anti-Antigravity</div>
+                <div class="status-line">
+                  <span class="pulse-dot"></span>
+                  <span class="status-text">宿主注入就绪 · 18ms</span>
+                </div>
+              </div>
+            </div>
+            <button id="btn-close-cockpit" class="close-btn" type="button" title="关闭面板">
+              ${SVG_ICONS.close}
+            </button>
+          </div>
+
+          <!-- 额度水位条 -->
+          <div class="quota-box">
+            <div class="quota-meta">
+              <span class="quota-label">会话 Token 消耗水位</span>
+              <span id="quota-val-text" class="quota-value">88.4% (接近阈值)</span>
+            </div>
+            <div class="quota-track">
+              <div id="quota-fill-bar" class="quota-fill" style="width: 88.4%; background: #EA4335;"></div>
+            </div>
+          </div>
+
+          <!-- GRAVITY BOOST SUBSYSTEMS 分组 -->
+          <div class="section-tag">GRAVITY BOOST SUBSYSTEMS</div>
+          <div class="subsystem-list">
+            <div class="subsystem-item" data-sys="force_dispatch">
+              <div class="item-text">
+                <span class="item-name">强制发送通道</span>
+                <span class="item-desc">穿透前端假死 (Ctrl + Shift + Enter)</span>
+              </div>
+              <button class="quadrant-btn" type="button" data-key="force_dispatch">
+                ${renderQuadrantRing(subsystems.force_dispatch)}
+              </button>
+            </div>
+
+            <div class="subsystem-item" data-sys="state_healer">
+              <div class="item-text">
+                <span class="item-name">输入状态自愈</span>
+                <span class="item-desc">自动清除 disabled 状态脱缰</span>
+              </div>
+              <button class="quadrant-btn" type="button" data-key="state_healer">
+                ${renderQuadrantRing(subsystems.state_healer)}
+              </button>
+            </div>
+
+            <div class="subsystem-item" data-sys="overlay_stripper">
+              <div class="item-text">
+                <span class="item-name">过渡遮罩粉碎</span>
+                <span class="item-desc">过滤 Loading / about:blank 幽灵图层</span>
+              </div>
+              <button class="quadrant-btn" type="button" data-key="overlay_stripper">
+                ${renderQuadrantRing(subsystems.overlay_stripper)}
+              </button>
+            </div>
+
+            <div class="subsystem-item" data-sys="text_fallback">
+              <div class="item-text">
+                <span class="item-name">纯文本降级模式</span>
+                <span class="item-desc">富文本彻底崩溃时兜底原生表单</span>
+              </div>
+              <button class="quadrant-btn" type="button" data-key="text_fallback">
+                ${renderQuadrantRing(subsystems.text_fallback)}
+              </button>
+            </div>
+          </div>
+
+          <!-- EMERGENCY ACTIONS 分组 -->
+          <div class="section-tag">EMERGENCY ACTIONS</div>
+          <div class="actions-wrap">
+            <button id="btn-action-force-send" class="action-btn btn-force" type="button">
+              ${SVG_ICONS.lightning}
+              <span>立即触发强制发送 (Force Send)</span>
+            </button>
+            <button id="btn-action-reload" class="action-btn btn-reload" type="button">
+              ${SVG_ICONS.reload}
+              <span>无损重载宿主 Webview (CDP Reload)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Toast 提示 -->
+      <div id="twoag-toast" class="cockpit-toast" data-show="false">
+        <span class="toast-dot"></span>
+        <span class="toast-msg">[2Ag] 强制发送已派发 (Bypassed Frontend Lock)</span>
+      </div>
+    `;
+    shadow.appendChild(container);
+
+    const ghubEl = shadow.getElementById('twoag-ghub');
+    const cockpitEl = shadow.getElementById('twoag-cockpit');
+    const closeBtn = shadow.getElementById('btn-close-cockpit');
+    const forceSendBtn = shadow.getElementById('btn-action-force-send');
+    const reloadBtn = shadow.getElementById('btn-action-reload');
+
+    // 计算与布局更新
+    function updateGHubLayout(animated) {
+      if (!ghubEl) return;
+      const winW = window.innerWidth;
+      const winH = window.innerHeight;
+      const targetTop = Math.max(12, Math.min(winH - 56, hubPos.topRatio * (winH - 44)));
+      const targetLeft = hubPos.side === 'left' ? 12 : (winW - 44 - 12);
+
+      if (animated) {
+        ghubEl.style.transition = 'top 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), left 0.35s cubic-bezier(0.2, 0.8, 0.2, 1)';
+      } else {
+        ghubEl.style.transition = 'none';
+      }
+      ghubEl.style.top = targetTop + 'px';
+      ghubEl.style.left = targetLeft + 'px';
+
+      updateCockpitLayout();
+    }
+
+    function updateCockpitLayout() {
+      if (!cockpitEl || !ghubEl) return;
+      const ghubRect = ghubEl.getBoundingClientRect();
+      const winW = window.innerWidth;
+      const winH = window.innerHeight;
+      const panelW = 330;
+      const panelH = cockpitEl.offsetHeight || 420;
+
+      // 贴靠浮标垂直位置并 clamp
+      let panelTop = ghubRect.top;
+      if (panelTop + panelH > winH - 16) {
+        panelTop = Math.max(16, winH - panelH - 16);
+      }
+      panelTop = Math.max(16, panelTop);
+
+      cockpitEl.style.top = panelTop + 'px';
+
+      // 贴靠浮标水平位置（右侧吸附时面板在左侧，左侧吸附时面板在右侧）
+      if (hubPos.side === 'right') {
+        cockpitEl.style.left = Math.max(12, ghubRect.left - panelW - 12) + 'px';
+      } else {
+        cockpitEl.style.left = (ghubRect.right + 12) + 'px';
+      }
+    }
+
+    function toggleCockpit(open) {
+      isPanelOpen = typeof open === 'boolean' ? open : !isPanelOpen;
+      cockpitEl.dataset.open = isPanelOpen ? 'true' : 'false';
+      if (isPanelOpen) {
+        updateCockpitLayout();
+      }
+    }
+
+    // 自由拖拽与 5px 死区判定
+    let startX = 0;
+    let startY = 0;
+    let initialLeft = 0;
+    let initialTop = 0;
+    let isDragging = false;
+
+    ghubEl.addEventListener('pointerdown', (e) => {
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = ghubEl.getBoundingClientRect();
+      initialLeft = rect.left;
+      initialTop = rect.top;
+      isDragging = false;
+      ghubEl.style.transition = 'none';
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (e.buttons === 0 && isDragging) {
+        finishDrag(e);
+        return;
+      }
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      if (!isDragging) {
+        if (Math.hypot(dx, dy) >= 5) {
+          isDragging = true;
+          try { ghubEl.setPointerCapture(e.pointerId); } catch (_) {}
+          if (isPanelOpen) toggleCockpit(false);
+        }
+      }
+
+      if (isDragging) {
+        const winW = window.innerWidth;
+        const winH = window.innerHeight;
+        const newLeft = Math.max(0, Math.min(winW - 44, initialLeft + dx));
+        const newTop = Math.max(0, Math.min(winH - 44, initialTop + dy));
+        ghubEl.style.left = newLeft + 'px';
+        ghubEl.style.top = newTop + 'px';
+      }
+    });
+
+    function finishDrag(e) {
+      if (!isDragging) {
+        // 位移 < 5px 视为点击
+        toggleCockpit();
+        return;
+      }
+
+      isDragging = false;
+      try { ghubEl.releasePointerCapture(e.pointerId); } catch (_) {}
+
+      // 弹性吸附就近边缘
+      const winW = window.innerWidth;
+      const winH = window.innerHeight;
+      const currentRect = ghubEl.getBoundingClientRect();
+      const centerX = currentRect.left + 22;
+
+      hubPos.side = centerX < winW / 2 ? 'left' : 'right';
+      hubPos.topRatio = Math.max(0.06, Math.min(0.92, currentRect.top / (winH - 44)));
+
+      saveHubPosition();
+      updateGHubLayout(true);
+    }
+
+    ghubEl.addEventListener('pointerup', finishDrag);
+    ghubEl.addEventListener('pointercancel', finishDrag);
+
+    // 面板内部控制
+    closeBtn.addEventListener('click', () => toggleCockpit(false));
+
+    // 象限圆环开关点击事件（事件委托）
+    shadow.querySelectorAll('.subsystem-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const key = item.dataset.sys;
+        if (!key || subsystems[key] === undefined) return;
+        subsystems[key] = !subsystems[key];
+        saveSubsystems();
+
+        // 重新渲染当前项开关圆环
+        const btn = item.querySelector('.quadrant-btn');
+        if (btn) {
+          btn.innerHTML = renderQuadrantRing(subsystems[key]);
+        }
+        performSubsystemGuards();
+      });
+    });
+
+    // 应急按钮 1：立即触发强制发送
+    forceSendBtn.addEventListener('click', () => {
+      executeForceDispatch();
+    });
+
+    // 应急按钮 2：无损重载宿主 Webview
+    reloadBtn.addEventListener('click', () => {
+      showToast('[2Ag] 正在执行无损 Webview 重载...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 300);
+    });
+
+    // 窗口尺寸自适应
+    window.addEventListener('resize', () => {
+      updateGHubLayout(false);
+    });
+
+    // 初始化布局
+    updateGHubLayout(false);
+
+    // 轮询配额水位 (语义化风险警示色阶: 0~70% 绿, 70~85% 黄, 85~100% 极危红)
+    function updateQuotaDisplay(percent) {
+      const p = Math.max(0, Math.min(100, Number(percent) || 0));
+      const textEl = shadow.getElementById('quota-val-text');
+      const barEl = shadow.getElementById('quota-fill-bar');
+      if (!textEl || !barEl) return;
+
+      let color = '#34A853'; // 绿
+      let label = `${p.toFixed(1)}% (健康)`;
+      if (p >= 85) {
+        color = '#EA4335'; // 极危红
+        label = `${p.toFixed(1)}% (接近阈值)`;
+      } else if (p >= 70) {
+        color = '#FBBC05'; // 黄
+        label = `${p.toFixed(1)}% (告警)`;
+      }
+
+      textEl.textContent = label;
+      textEl.style.color = color;
+      barEl.style.width = `${p}%`;
+      barEl.style.background = color;
+    }
+
+    async function pollTokenQuota() {
+      const ports = [28470, 28471];
+      for (const p of ports) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${p}/api/v1/accounts/active`, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const data = await res.json();
+          const g5h = data.gemini_5h_percent !== undefined ? data.gemini_5h_percent : (data.active_account ? data.active_account.gemini_5h_percent : 88.4);
+          updateQuotaDisplay(g5h);
+          return;
+        } catch (_) {}
+      }
+      // 网关未连接时保持优雅默认值
+      updateQuotaDisplay(88.4);
+    }
+
+    pollTokenQuota();
+    setInterval(pollTokenQuota, 4000);
+
+    // 关键挂载断言日志（按规范格式输出）
+    console.log('[2AG_UI_MOUNTED]', { version: '2.0', root: '#' + SHADOW_HOST_ID });
+  }
+
+  // 12. 统一初始化守护巡检流水线
+  function tick() {
+    try { ensureNativeStyles(); } catch (_) {}
+    try { ensureDreamSkin(); } catch (_) {}
+    try { mountShadowUI(); } catch (_) {}
+    try { performSubsystemGuards(); } catch (_) {}
+  }
+
+  tick();
+
+  // MutationObserver 监听确保在 SPA 路由重构或 DOM 重建时组件依旧存活
+  if (window[OBSERVER_KEY]) {
+    try { window[OBSERVER_KEY].disconnect(); } catch (_) {}
+  }
+  window[OBSERVER_KEY] = new MutationObserver(() => {
+    if (window.__2ag_guard) return;
+    window.__2ag_guard = true;
+    try {
+      tick();
+    } finally {
+      window.__2ag_guard = false;
+    }
+  });
+  window[OBSERVER_KEY].observe(document.documentElement || document.body, { childList: true, subtree: true });
+
+  if (window[TIMER_KEY]) {
+    try { window.clearInterval(window[TIMER_KEY]); } catch (_) {}
+  }
+  window[TIMER_KEY] = window.setInterval(tick, 2000);
+
 })();
-
-

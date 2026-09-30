@@ -14,6 +14,7 @@ import (
 
 type SessionItem struct {
 	ID        string `json:"id"`
+	Project   string `json:"project"`
 	Title     string `json:"title"`
 	UpdatedAt string `json:"updated_at"`
 	Turns     int    `json:"turns"`
@@ -23,6 +24,7 @@ type SessionItem struct {
 
 type SessionsResult struct {
 	Total    int           `json:"total"`
+	Projects []string      `json:"projects"`
 	Sessions []SessionItem `json:"sessions"`
 }
 
@@ -36,7 +38,11 @@ type transcriptLine struct {
 	Thinking  string `json:"thinking,omitempty"`
 }
 
-var userReqRegex = regexp.MustCompile(`(?s)<USER_REQUEST>([\s\S]*?)</USER_REQUEST>`)
+var (
+	userReqRegex = regexp.MustCompile(`(?s)<USER_REQUEST>([\s\S]*?)</USER_REQUEST>`)
+	cwdRegex     = regexp.MustCompile(`(?i)"Cwd"\s*:\s*"?\\?"?([a-zA-Z]:(?:\\\\|\\|/)[^",]+)`)
+	fileRegex    = regexp.MustCompile(`(?i)"(?:TargetFile|AbsolutePath|path)"\s*:\s*"?\\?"?([a-zA-Z]:(?:\\\\|\\|/)[^",]+)`)
+)
 
 // CleanSessionTitle 提取并清洗用户输入的第一句作为真实标题
 func CleanSessionTitle(raw string) string {
@@ -59,6 +65,38 @@ func CleanSessionTitle(raw string) string {
 	return "无标题会话"
 }
 
+// resolveProjectName 从文件系统路径解析项目名
+func resolveProjectName(rawPath string) string {
+	rawPath = strings.ReplaceAll(rawPath, `\\`, `/`)
+	rawPath = strings.ReplaceAll(rawPath, `\`, `/`)
+	rawPath = strings.Trim(rawPath, `"' `)
+	rawPath = strings.TrimRight(rawPath, `/`)
+
+	if strings.Contains(strings.ToLower(rawPath), "/desktop") {
+		return "Desktop"
+	}
+	parts := strings.Split(rawPath, "/")
+	for i := len(parts) - 1; i >= 1; i-- {
+		p := parts[i]
+		lower := strings.ToLower(p)
+		if p == "" || strings.HasPrefix(lower, "@") || lower == "node_modules" || lower == ".git" ||
+			lower == ".gemini" || lower == "antigravity" || lower == "scratch" || lower == "brain" ||
+			lower == "users" || lower == "user" || lower == "appdata" || lower == "roaming" || lower == "local" || lower == "locallow" || lower == "programs" {
+			continue
+		}
+		// 跳过 UUID 格式目录
+		if len(p) == 36 && strings.Count(p, "-") == 4 {
+			continue
+		}
+		// 若带文件后缀则跳过当前项取上级
+		if strings.Contains(p, ".") {
+			continue
+		}
+		return p
+	}
+	return ""
+}
+
 // ScanLocalSessions 扫描 Antigravity 宿主真实本地持久化数据
 func ScanLocalSessions() SessionsResult {
 	sessionMap := make(map[string]SessionItem)
@@ -78,6 +116,7 @@ func ScanLocalSessions() SessionsResult {
 
 				title := "新会话"
 				turns := 0
+				project := ""
 				modTime := time.Now()
 				if fi, err := entry.Info(); err == nil {
 					modTime = fi.ModTime()
@@ -98,6 +137,17 @@ func ScanLocalSessions() SessionsResult {
 							continue
 						}
 						turns++
+						lineStr := string(line)
+
+						// 尝试提取项目路径
+						if project == "" {
+							if m := cwdRegex.FindStringSubmatch(lineStr); len(m) > 1 {
+								project = resolveProjectName(m[1])
+							} else if m := fileRegex.FindStringSubmatch(lineStr); len(m) > 1 {
+								project = resolveProjectName(m[1])
+							}
+						}
+
 						if !foundTitle {
 							var item transcriptLine
 							if err := json.Unmarshal(line, &item); err == nil {
@@ -116,8 +166,13 @@ func ScanLocalSessions() SessionsResult {
 					_ = f.Close()
 				}
 
+				if project == "" {
+					project = "未分类项目"
+				}
+
 				sessionMap[id] = SessionItem{
 					ID:        id,
+					Project:   project,
 					Title:     title,
 					UpdatedAt: modTime.Format("2006-01-02 15:04:05"),
 					Turns:     turns,
@@ -142,6 +197,7 @@ func ScanLocalSessions() SessionsResult {
 						}
 						sessionMap[id] = SessionItem{
 							ID:        id,
+							Project:   "未分类项目",
 							Title:     fmt.Sprintf("会话 #%s", id[:min(8, len(id))]),
 							UpdatedAt: modTime.Format("2006-01-02 15:04:05"),
 							Turns:     1,
@@ -173,8 +229,23 @@ func ScanLocalSessions() SessionsResult {
 							} else {
 								modTime = time.Now()
 							}
+
+							proj := "未分类项目"
+							wsJSONPath := filepath.Join(wsDir, id, "workspace.json")
+							if wsData, err := os.ReadFile(wsJSONPath); err == nil {
+								var wsMeta struct {
+									Folder string `json:"folder"`
+								}
+								if err := json.Unmarshal(wsData, &wsMeta); err == nil && wsMeta.Folder != "" {
+									if resolved := resolveProjectName(wsMeta.Folder); resolved != "" {
+										proj = resolved
+									}
+								}
+							}
+
 							sessionMap[id] = SessionItem{
 								ID:        id,
+								Project:   proj,
 								Title:     fmt.Sprintf("工作区会话 #%s", id[:min(8, len(id))]),
 								UpdatedAt: modTime.Format("2006-01-02 15:04:05"),
 								Turns:     1,
@@ -190,18 +261,65 @@ func ScanLocalSessions() SessionsResult {
 
 	// 转换为数组并按修改时间降序排序
 	sessions := make([]SessionItem, 0, len(sessionMap))
+	projectSet := make(map[string]struct{})
 	for _, item := range sessionMap {
 		sessions = append(sessions, item)
+		if item.Project != "" {
+			projectSet[item.Project] = struct{}{}
+		}
 	}
 
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].UpdatedAt > sessions[j].UpdatedAt
 	})
 
+	projects := make([]string, 0, len(projectSet))
+	for p := range projectSet {
+		if p != "未分类项目" {
+			projects = append(projects, p)
+		}
+	}
+	sort.Strings(projects)
+	if _, ok := projectSet["未分类项目"]; ok || len(projects) == 0 {
+		projects = append(projects, "未分类项目")
+	}
+
 	return SessionsResult{
 		Total:    len(sessions),
+		Projects: projects,
 		Sessions: sessions,
 	}
+}
+
+// DeleteSession 物理删除指定会话目录与数据
+func DeleteSession(id string) error {
+	if id == "" {
+		return fmt.Errorf("会话 ID 不能为空")
+	}
+	homeDir, _ := os.UserHomeDir()
+	if homeDir == "" {
+		return fmt.Errorf("无法获取用户主目录")
+	}
+
+	// 1. 删除 brain/<id>
+	brainPath := filepath.Join(homeDir, ".gemini", "antigravity", "brain", id)
+	if _, err := os.Stat(brainPath); err == nil {
+		_ = os.RemoveAll(brainPath)
+	}
+
+	// 2. 删除 conversations/<id>.db
+	convoPath := filepath.Join(homeDir, ".gemini", "antigravity", "conversations", id+".db")
+	_ = os.Remove(convoPath)
+	_ = os.Remove(convoPath + "-wal")
+	_ = os.Remove(convoPath + "-shm")
+
+	// 3. 删除 workspaceStorage/<id>
+	appData := os.Getenv("APPDATA")
+	if appData != "" {
+		_ = os.RemoveAll(filepath.Join(appData, "Antigravity", "User", "workspaceStorage", id))
+		_ = os.RemoveAll(filepath.Join(appData, "Antigravity", "workspaceStorage", id))
+	}
+	return nil
 }
 
 // ExportSessionMarkdown 将指定会话日志导出为 Markdown 内容

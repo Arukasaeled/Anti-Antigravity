@@ -2,6 +2,7 @@
 *.exe
 *.exe~
 /dist/
+/app
 
 # Local runtime configuration and logs
 2ag.json

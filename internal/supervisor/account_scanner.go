@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -222,6 +223,24 @@ func ScanLocalAccounts() []AccountInstance {
 					})
 				}
 				if len(result) >= 2 {
+					active := GetActiveAccountEmail()
+					if active != "" {
+						for i := range result {
+							if strings.EqualFold(result[i].Email, active) {
+								result[i].IsPrimary = true
+								result[i].IsActive = true
+								result[i].Role = "PRIMARY"
+								result[i].Status = "ACTIVE"
+								result[i].CooldownMsg = ""
+							} else {
+								result[i].IsPrimary = false
+								result[i].IsActive = false
+								result[i].Role = "BACKUP"
+								result[i].Status = "COOLDOWN"
+								result[i].CooldownMsg = "429 冷却中 · 轮询待命"
+							}
+						}
+					}
 					return result
 				}
 			}
@@ -232,7 +251,7 @@ func ScanLocalAccounts() []AccountInstance {
 	g1, c1 := QueryDualPools("user@example.com")
 	g2, c2 := QueryDualPools("user@example.com")
 
-	return []AccountInstance{
+	var accounts = []AccountInstance{
 		{
 			ID:          "2067e6bd-b057-4f18-84cf-57367cc7cd14",
 			Email:       "user@example.com",
@@ -262,4 +281,73 @@ func ScanLocalAccounts() []AccountInstance {
 			CooldownMsg: "429 冷却中 · 轮询待命",
 		},
 	}
+
+	active := GetActiveAccountEmail()
+	if active != "" {
+		for i := range accounts {
+			if strings.EqualFold(accounts[i].Email, active) {
+				accounts[i].IsPrimary = true
+				accounts[i].IsActive = true
+				accounts[i].Role = "PRIMARY"
+				accounts[i].Status = "ACTIVE"
+				accounts[i].CooldownMsg = ""
+			} else {
+				accounts[i].IsPrimary = false
+				accounts[i].IsActive = false
+				accounts[i].Role = "BACKUP"
+				accounts[i].Status = "COOLDOWN"
+				accounts[i].CooldownMsg = "429 冷却中 · 轮询待命"
+			}
+		}
+	}
+	return accounts
 }
+
+var (
+	activeAccountMu    sync.RWMutex
+	currentActiveEmail = "user@example.com"
+)
+
+// SetActiveAccount 设置当前激活主控账号
+func SetActiveAccount(email string) {
+	if email == "" {
+		return
+	}
+	activeAccountMu.Lock()
+	defer activeAccountMu.Unlock()
+	currentActiveEmail = email
+}
+
+// GetActiveAccountEmail 获取当前主控账号
+func GetActiveAccountEmail() string {
+	activeAccountMu.RLock()
+	defer activeAccountMu.RUnlock()
+	return currentActiveEmail
+}
+
+// GetActiveAccountInstance 返回当前被设为主控的账号实例及其真实双配额池
+func GetActiveAccountInstance() AccountInstance {
+	activeEmail := GetActiveAccountEmail()
+	accounts := ScanLocalAccounts()
+	for _, acc := range accounts {
+		if strings.EqualFold(acc.Email, activeEmail) {
+			return acc
+		}
+	}
+	if len(accounts) > 0 {
+		return accounts[0]
+	}
+	g, c := QueryDualPools(activeEmail)
+	return AccountInstance{
+		Email:      activeEmail,
+		Role:       "PRIMARY",
+		IsPrimary:  true,
+		IsActive:   true,
+		Status:     "ACTIVE",
+		GeminiPool: g,
+		ClaudePool: c,
+		Models:     SupportedOfficialModels,
+	}
+}
+
+

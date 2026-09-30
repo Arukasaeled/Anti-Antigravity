@@ -24,11 +24,16 @@ func FindAntigravity() (InstallPaths, error) {
 	localAppData := os.Getenv("LOCALAPPDATA")
 	appData := os.Getenv("APPDATA")
 	roots := make([]string, 0, 8)
-	if cwd, err := os.Getwd(); err == nil {
-		roots = append(roots, filepath.Join(cwd, "app"))
-	}
 	if executable, err := os.Executable(); err == nil {
 		roots = append(roots, filepath.Join(filepath.Dir(executable), "app"))
+	}
+	if len(os.Args) > 0 {
+		if abs, err := filepath.Abs(filepath.Dir(os.Args[0])); err == nil {
+			roots = append(roots, filepath.Join(abs, "app"))
+		}
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		roots = append(roots, filepath.Join(cwd, "app"))
 	}
 	if localAppData != "" {
 		roots = append(roots,
@@ -42,7 +47,7 @@ func FindAntigravity() (InstallPaths, error) {
 	if programFilesX86 := os.Getenv("ProgramFiles(x86)"); programFilesX86 != "" {
 		roots = append(roots, filepath.Join(programFilesX86, "Antigravity"))
 	}
-	exeCandidates := []string{"antigravity.exe", "Antigravity.exe"}
+	exeCandidates := []string{"Antigravity.exe", "antigravity.exe"}
 	var executable string
 	var root string
 	for _, candidateRoot := range roots {
