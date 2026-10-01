@@ -44,7 +44,9 @@ func init() {
 	setDpiAwareness := user32.NewProc("SetProcessDpiAwarenessContext")
 	if setDpiAwareness.Find() == nil {
 		// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
-		setDpiAwareness.Call(uintptr(0xfffffffc))
+		// 必须是符号扩展后的 64 位 HANDLE：^uintptr(3) == 0xFFFFFFFFFFFFFFFC。
+		// 写成 uintptr(0xfffffffc) 在 amd64 上是 4294967292 而非 -4，调用会失败返回 FALSE。
+		setDpiAwareness.Call(^uintptr(3))
 	}
 }
 
@@ -95,6 +97,19 @@ func runCLI(args []string) error {
 func run(configPath string, cfg config.Config) error { return runCommand(configPath, cfg, nil) }
 
 func runCommand(configPath string, cfg config.Config, args []string) error {
+	// 进程级形态登记：注入链路的三个闸门（HotReloadCDP / WatchAndInjectCDP /
+	// PushHubState）都问 IsOfficialRuntime()，这里必须先把它与配置对齐。
+	supervisor.SetRuntimeMode(cfg.RuntimeMode)
+
+	// 官方形态闸：`2ag run` 是另一条完整的启动链路（自己 reserveCDPPort、
+	// 自己拼 --remote-debugging-port、自己 NewCDPInjector + WaitAndInject），
+	// 它完全不经过 LaunchEnhancedHost。只在那边拦会留下一个洞：
+	// 官方形态下敲一次 `2ag run` 照样把补丁注入进官方宿主。
+	if supervisor.IsOfficialRuntime() {
+		log.Printf("[2ag] 官方形态：run 命令改为启动官方 Antigravity（不注入、不代代理、不改凭据）")
+		return supervisor.LaunchOfficialHost("")
+	}
+
 	debug := false
 	for _, arg := range args {
 		switch arg {
@@ -166,9 +181,17 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 	sm := core.NewStateMachine(cfg, configPath, bus)
 	apiServer := api.NewServer(sm, bus)
 	apiServer.HandleStatic("/", http.FS(web.Assets))
+	// API 监听端口不再硬绑 28472：28472 是 CDP 的历史默认值
+	// （supervisor.DefaultCDPPort），一旦 CDP 解析回落该值就是端口冲突，
+	// 而 CLI 模式下宿主与 API 跑在同一进程里，冲突会直接让其中一方静默失败。
+	// 改为与图形模式一致的 28470 → 28471 → 动态端口序列。
+	apiListener, _, apiErr := listenManagerAPI()
+	if apiErr != nil {
+		return apiErr
+	}
 	go func() {
-		log.Printf("[2ag] starting local API on :28472")
-		if err := apiServer.Start(":28472"); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("[2ag] starting local API on %s", apiListener.Addr().String())
+		if err := apiServer.Serve(apiListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("[2ag] API server error: %v", err)
 		}
 	}()
@@ -208,7 +231,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 				}
 			}
 		}
-		injector.Initial = patcher.HubConfig{Language: cfg.Language, WallpaperPath: cfg.WallpaperPath, GlobalRules: cfg.GlobalRules, Network: cfg.Network, Privacy: cfg.Privacy, Plugins: pluginState, PluginURL: "http://" + sidecars.Address(), CDPPort: cdpPort, HostPID: managed.PID(), Env: cfg.EnvOverrides}
+		injector.Initial = patcher.HubConfig{Language: cfg.Language, WallpaperPath: cfg.WallpaperPath, GlobalRules: cfg.GlobalRules, Network: cfg.Network, Privacy: cfg.Privacy, Plugins: pluginState, PluginURL: "http://" + sidecars.Address(), CDPPort: cdpPort, HostPID: managed.PID(), Env: cfg.EnvOverrides, GravityBoost: cfg.GravityBoost}
 		injector.BridgeHandlers = coreBridgeHandlers(runtimeConfig, sidecars, injector.SetWallpaperPath, func(ctx context.Context) (any, error) { return openDevTools(ctx, cdpPort) }, func(ctx context.Context) (any, error) { return probeGateway(ctx, injector.ProxyURL) }, sm)
 		
 		currentState := sm.GetState()

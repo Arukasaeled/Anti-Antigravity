@@ -26,7 +26,6 @@ import (
 )
 
 const (
-	DefaultWallpaperPath   = `C:/Users/user/Pictures/E78978FCDE46412C17F90AAF7813EC8D.jpg`
 	WallpaperServerAddress = "127.0.0.1:18082"
 	WallpaperServerURL     = "http://127.0.0.1:18082/bg.jpg"
 	CDPInjectionAttempts   = 5
@@ -66,9 +65,13 @@ func NewCDPInjector(port int) *CDPInjector {
 	}
 }
 
+// normalizeWallpaperPath 把用户输入收敛成绝对路径。
+//
+// 空输入返回空串与 nil —— 那是 Native 形态（使用宿主原生背景），不是错误。
+// 历史实现在这里回落到一张写死的图片，于是「清除壁纸」在 CLI 链路上同样回不到原生背景。
 func normalizeWallpaperPath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
-		path = DefaultWallpaperPath
+		return "", nil
 	}
 	path, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
@@ -88,6 +91,17 @@ func (i *CDPInjector) ensureWallpaperServer(ctx context.Context, wallpaperPath s
 	path, err := normalizeWallpaperPath(wallpaperPath)
 	if err != nil {
 		return err
+	}
+
+	// Native 形态：没有壁纸要服务，就不该起这个监听。
+	// 起了的后果是 /bg.jpg 会对空路径调用 http.ServeFile（必然 404），
+	// 而更糟的是 wallpaperURL 变成非空串，让注入侧误判成「有壁纸」。
+	if path == "" {
+		i.wallpaperMu.Lock()
+		i.wallpaperPath = ""
+		i.wallpaperURL = ""
+		i.wallpaperMu.Unlock()
+		return nil
 	}
 
 	i.wallpaperMu.Lock()
@@ -164,6 +178,10 @@ func (i *CDPInjector) ensureWallpaperServer(ctx context.Context, wallpaperPath s
 // SetWallpaperPath changes the file served by the loopback image endpoint.
 // It is intentionally limited to an existing regular file so the renderer
 // never receives an arbitrary filesystem read through the HTTP route.
+//
+// 空路径是合法的 Native 指令：把服务的当前文件清掉，让 /bg.jpg 不再指向任何东西。
+// 不再报「服务没在跑」——在 Native 形态下本来就不该有服务（见 ensureWallpaperServer），
+// 而那正是这个函数会被调到的时候。
 func (i *CDPInjector) SetWallpaperPath(path string) error {
 	resolved, err := normalizeWallpaperPath(path)
 	if err != nil {
@@ -171,9 +189,6 @@ func (i *CDPInjector) SetWallpaperPath(path string) error {
 	}
 	i.wallpaperMu.Lock()
 	defer i.wallpaperMu.Unlock()
-	if i.wallpaperServer == nil {
-		return errors.New("wallpaper server is not running")
-	}
 	i.wallpaperPath = resolved
 	return nil
 }
@@ -335,6 +350,8 @@ func (i *CDPInjector) findTarget(ctx context.Context) (cdpTarget, error) {
 }
 
 func buildInjectionExpression(wallpaperURL string, blur int, opacity float64, modalOpacity float64, proxyURL string, initial HubConfig) string {
+	// 显式赋值，不依赖 HubConfig.Normalize 的兜底 —— 那里已经刻意不再给空值填默认，
+	// 空串在这里必须原样送达补丁（它表示 Native：拆除背景层）。
 	initial.Wallpaper = wallpaperURL
 	if strings.HasSuffix(wallpaperURL, "/bg.jpg") {
 		initial.LogoURL = strings.TrimSuffix(wallpaperURL, "/bg.jpg") + "/logo.png"

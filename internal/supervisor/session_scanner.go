@@ -75,13 +75,29 @@ func resolveProjectName(rawPath string) string {
 	if strings.Contains(strings.ToLower(rawPath), "/desktop") {
 		return "Desktop"
 	}
+	// 当前 Windows 用户的用户名必须**动态取**，不能写死。
+	// 历史实现把某个具体用户的用户名当成通用噪音段跳过 ——
+	// 后果是任何用户名不是它的安装上，项目归属过滤里都会多出一项
+	// 以用户名命名的假项目（路径 C:/Users/<me>/... 的最后一段被当成项目名）。
+	// 这里改成把当前用户目录名加入噪音表；取不到就说明这张表少一项，
+	// 但不会伪造出一个项目名。
+	home, _ := os.UserHomeDir()
+	homeLeaf := ""
+	if home != "" {
+		homeLeaf = strings.ToLower(filepath.Base(filepath.Clean(home)))
+	}
 	parts := strings.Split(rawPath, "/")
 	for i := len(parts) - 1; i >= 1; i-- {
 		p := parts[i]
 		lower := strings.ToLower(p)
 		if p == "" || strings.HasPrefix(lower, "@") || lower == "node_modules" || lower == ".git" ||
 			lower == ".gemini" || lower == "antigravity" || lower == "scratch" || lower == "brain" ||
-			lower == "users" || lower == "user" || lower == "appdata" || lower == "roaming" || lower == "local" || lower == "locallow" || lower == "programs" {
+			lower == "users" || lower == "appdata" || lower == "roaming" || lower == "local" ||
+			lower == "locallow" || lower == "programs" {
+			continue
+		}
+		// 当前用户的主目录名同样跳过（它是路径噪音，不是项目名）。
+		if homeLeaf != "" && lower == homeLeaf {
 			continue
 		}
 		// 跳过 UUID 格式目录

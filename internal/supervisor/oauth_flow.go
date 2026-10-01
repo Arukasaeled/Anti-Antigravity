@@ -213,7 +213,10 @@ func SaveScannedAccount(email, name string) (*AccountInstance, error) {
 		name = strings.Split(email, "@")[0]
 	}
 
-	accountFilePath := `d:\AI-Vault\antigravity_cockpit\accounts.json`
+	// 账号库位置走 cockpitDataDir()（认 $COCKPIT_TOOLS_DATA_DIR，否则当前用户的
+	// ~/.antigravity_cockpit）。历史实现这里写死了开发机的绝对路径，
+	// 别的用户走到这条分支时会去读一个不存在的文件、静默失败。
+	accountFilePath := filepath.Join(cockpitDataDir(), "accounts.json")
 	var caf cockpitAccountsFile
 	data, err := os.ReadFile(accountFilePath)
 	if err == nil {
@@ -253,7 +256,10 @@ func SaveScannedAccount(email, name string) (*AccountInstance, error) {
 		_ = os.WriteFile(accountFilePath, newData, 0644)
 	}
 
-	gPool, cPool := QueryDualPools(email)
+	// 模型清单必须来自该账号自己的授权缓存（见 queryCacheFor 的注释）：
+	// 全新登录的账号此刻多半还没有缓存，读不到就如实留空，由前端显示「未探测」，
+	// 绝不回填写死的 5 个模型名冒充能力清单。
+	gPool, cPool, models, _ := queryCacheFor(email)
 	acc := &AccountInstance{
 		ID:          newID,
 		Email:       email,
@@ -265,7 +271,7 @@ func SaveScannedAccount(email, name string) (*AccountInstance, error) {
 		Status:      "ACTIVE",
 		GeminiPool:  gPool,
 		ClaudePool:  cPool,
-		Models:      SupportedOfficialModels,
+		Models:      models,
 		CooldownMsg: "",
 	}
 	return acc, nil

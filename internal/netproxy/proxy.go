@@ -39,6 +39,31 @@ type Server struct {
 	stats     Snapshot
 }
 
+// 活动实例登记表。
+//
+// 存在的理由：界面上的「协议网关探针」历史上是一块写死的假数据
+// （地址 127.0.0.1:8045 / 延迟 28ms / 状态 READY），而 8045 从未被任何进程监听。
+// API 层需要一个真实来源才能把这块卡片改成实况，而 proxy 实例只在本进程内
+// 存在（Manager 图形模式根本不启动它），所以用进程内登记表把它暴露出去。
+var (
+	activeMu     sync.RWMutex
+	activeServer *Server
+)
+
+// SetActive 登记当前进程内真实运行的转发代理；传 nil 表示已停止。
+func SetActive(s *Server) {
+	activeMu.Lock()
+	activeServer = s
+	activeMu.Unlock()
+}
+
+// Active 返回当前进程内真实运行的转发代理，未运行为 nil。
+func Active() *Server {
+	activeMu.RLock()
+	defer activeMu.RUnlock()
+	return activeServer
+}
+
 func Start(ctx context.Context, runtime *config.Runtime) (*Server, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -48,8 +73,10 @@ func Start(ctx context.Context, runtime *config.Runtime) (*Server, error) {
 		transport: &http.Transport{Proxy: nil, MaxIdleConns: 32, IdleConnTimeout: 45 * time.Second, TLSHandshakeTimeout: 10 * time.Second}}
 	p.server = &http.Server{Handler: p, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = p.server.Serve(listener) }()
+	SetActive(p)
 	go func() {
 		<-ctx.Done()
+		SetActive(nil)
 		deadline, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = p.server.Shutdown(deadline)

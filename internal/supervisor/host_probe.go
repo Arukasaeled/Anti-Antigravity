@@ -146,8 +146,9 @@ func IsProtectedIDEProcess(pid int) bool {
 		exePath := getProcessExePath(checkPID)
 		if exePath != "" {
 			lowerExe := strings.ToLower(filepath.Clean(exePath))
-			rootDir := strings.ToLower(filepath.Clean(Get2agRootDir()))
-			if rootDir != "" && strings.HasPrefix(lowerExe, rootDir) {
+			// IsFrozenHostPath 而不是朴素前缀：进程路径是 junction 解析后的落点，
+			// 与 2Ag 根目录的字符串前缀对不上（本机 app/ 就是 junction）。
+			if IsFrozenHostPath(lowerExe) {
 				return false
 			}
 			localApp := strings.ToLower(os.Getenv("LOCALAPPDATA"))
@@ -222,39 +223,70 @@ func findProcessInsensitive(targetExe string) (int, float64) {
 
 	managedPID := GetManagedHostPID()
 	localApp := strings.ToLower(os.Getenv("LOCALAPPDATA"))
-	rootDir := strings.ToLower(filepath.Clean(Get2agRootDir()))
 
+	// 2. 2Ag 托管宿主的专属子树。这些进程是「我们自己的」：既要被 ProbeHostStatus
+	// 如实统计出来，也要在用户点「停止」时能被精准查杀，因此它们绝不能在下面的
+	// 保护传递阶段被反向吞掉。
+	//
+	// 历史缺陷：2ag.exe 自身必然落在 protected 里（myPID 在上方被无条件标记），
+	// 于是保护传递会把「2ag.exe 的所有子孙」一并标记为受保护 —— 而 2ag.exe 亲手
+	// 拉起的托管宿主恰恰就是它的子孙。结果 findProcessInsensitive 扫描
+	// 「非受保护的 Antigravity.exe」时一个都匹配不到，走到 mainPID == 0 直接返回
+	// (0, 0)：host/status 于是显示 pid=0 / process_found=false / memory_mb=0，
+	// StopHostClient 的 ProbeRealHost 兜底分支也随之失效，只能打印
+	// 「当前未发现运行中的 2Ag 宿主进程，无需停止」。
+	exempt := make(map[int]bool)
 	for i := range procs {
 		p := &procs[i]
 		if !strings.EqualFold(p.name, targetExe) {
 			continue
 		}
 		if managedPID > 0 && p.pid == managedPID {
+			exempt[p.pid] = true
 			continue
 		}
 		exePath := getProcessExePath(p.pid)
-		lowerExe := strings.ToLower(filepath.Clean(exePath))
-		if rootDir != "" && strings.HasPrefix(lowerExe, rootDir) {
+		// 走 IsFrozenHostPath 而不是朴素前缀比较：本机 D:\Anti-antigravity\app 是一个
+		// junction，进程路径是解析后的真实落点，朴素的 HasPrefix(rootDir) 永远匹配不上。
+		// 今天这处失配被 managedPID 分支掩盖着，但只要用户手动启动一次冻结宿主就会暴露。
+		if IsFrozenHostPath(exePath) {
+			exempt[p.pid] = true
 			continue
 		}
+		lowerExe := strings.ToLower(filepath.Clean(exePath))
 		if localApp != "" && strings.HasPrefix(lowerExe, localApp) {
 			protected[p.pid] = true
 		}
 	}
 
-	// 2. 保护传递：受保护进程的所有子孙进程同样必须受到强保护（如 IDE 的 GPU、渲染器、网络等子进程）
+	// 豁免同样向子孙传播：托管宿主拉起的 GPU / 渲染器 / 网络等子进程都属于它的
+	// 进程树，taskkill /T 需要它们保持可查杀。
+	for iter := 0; iter < 10; iter++ {
+		grew := false
+		for _, p := range procs {
+			if !exempt[p.pid] && exempt[p.ppid] {
+				exempt[p.pid] = true
+				grew = true
+			}
+		}
+		if !grew {
+			break
+		}
+	}
+
+	// 3. 保护传递：受保护进程的所有子孙进程同样必须受到强保护（如 IDE 的 GPU、渲染器、网络等子进程）
 	changed := true
 	for iter := 0; iter < 10 && changed; iter++ {
 		changed = false
 		for _, p := range procs {
-			if !protected[p.pid] && protected[p.ppid] {
+			if !protected[p.pid] && protected[p.ppid] && !exempt[p.pid] {
 				protected[p.pid] = true
 				changed = true
 			}
 		}
 	}
 
-	// 3. 统计 2Ag 托管的宿主（便携版或显式托管 PID）
+	// 4. 统计 2Ag 托管的宿主（便携版或显式托管 PID）
 	mainPID := 0
 	var totalWorkingSet uintptr = 0
 
@@ -287,11 +319,10 @@ func findProcessInsensitive(targetExe string) (int, float64) {
 		return 0, 0
 	}
 
-	memMB := float64(totalWorkingSet) / (1024 * 1024)
-	if memMB < 1.0 {
-		memMB = 104.2
-	}
-	return mainPID, memMB
+	// 真实内存读数。历史实现在 memMB < 1.0 时硬编码回填 104.2，
+	// 这让「宿主未运行」和「宿主运行中但读不到工作集」在界面上毫无区别，
+	// 属于纯伪造数据 —— 现在如实返回 0，由前端显示为「未运行」。
+	return mainPID, float64(totalWorkingSet) / (1024 * 1024)
 }
 
 // ProbeHostStatus 彻底解耦系统级进程探活与 CDP 握手
