@@ -1,0 +1,596 @@
+//go:build windows
+
+package supervisor
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+)
+
+// brokerWaitTimeout 是一次「添加账号」的等待上限。
+//
+// 取 10 分钟：用户要在官方窗口里完成一次真正的 Google 登录（可能还要选账号、
+// 过二次验证、甚至先处理网络问题）。超时太短会把「慢」误判成「失败」，
+// 而误判的代价是把他刚输完的登录流程掐掉。
+const brokerWaitTimeout = 10 * time.Minute
+
+var (
+	loginBrokerMu      sync.Mutex
+	loginBrokerStatus  = LoginBrokerStatus{Stage: brokerStageIdle, Message: "尚未开始"}
+	loginBrokerCancel  bool
+	loginBrokerRunning bool
+)
+
+// LoginBrokerStatusNow 返回当前状态的快照（并发安全）。
+func LoginBrokerStatusNow() LoginBrokerStatus {
+	loginBrokerMu.Lock()
+	defer loginBrokerMu.Unlock()
+	out := loginBrokerStatus
+	out.Steps = append([]string(nil), loginBrokerStatus.Steps...)
+	return out
+}
+
+// StartLoginBroker 启动一次「通过官方 Antigravity 原生登录添加账号」。
+//
+// 单飞：已经在跑就直接拒绝，而不是排队 —— 两个并发流程会各自删/写同一条凭据，
+// 那是能直接把用户的登录态弄丢的组合。
+func StartLoginBroker(configuredMode string) error {
+	loginBrokerMu.Lock()
+	if loginBrokerRunning {
+		loginBrokerMu.Unlock()
+		return fmt.Errorf("已有一个「添加账号」流程在进行中（阶段：%s）", loginBrokerStatus.Stage)
+	}
+	loginBrokerRunning = true
+	loginBrokerCancel = false
+	loginBrokerStatus = LoginBrokerStatus{
+		Running:   true,
+		Stage:     brokerStageBackingUp,
+		Message:   "正在备份当前登录凭据…",
+		Steps:     nil,
+		StartedAt: time.Now().Format(time.RFC3339),
+		UpdatedAt: time.Now().Format(time.RFC3339),
+	}
+	loginBrokerMu.Unlock()
+
+	go runLoginBroker(configuredMode)
+	return nil
+}
+
+// CancelLoginBroker 请求取消当前流程（协作式：由流程自己在安全检查点上退出并回滚）。
+func CancelLoginBroker() error {
+	loginBrokerMu.Lock()
+	defer loginBrokerMu.Unlock()
+	if !loginBrokerRunning {
+		return fmt.Errorf("当前没有正在进行的「添加账号」流程")
+	}
+	loginBrokerCancel = true
+	loginBrokerStatus.Stage = brokerStageCancelled
+	loginBrokerStatus.Message = "正在取消并恢复原账号…"
+	loginBrokerStatus.UpdatedAt = time.Now().Format(time.RFC3339)
+	return nil
+}
+
+func brokerCancelled() bool {
+	loginBrokerMu.Lock()
+	defer loginBrokerMu.Unlock()
+	return loginBrokerCancel
+}
+
+// brokerStage 推进阶段并记录一条人类可读的步骤。
+func brokerStage(stage, message string) {
+	loginBrokerMu.Lock()
+	defer loginBrokerMu.Unlock()
+	loginBrokerStatus.Stage = stage
+	loginBrokerStatus.Message = message
+	loginBrokerStatus.UpdatedAt = time.Now().Format(time.RFC3339)
+	loginBrokerStatus.Steps = append(loginBrokerStatus.Steps, "["+time.Now().Format("15:04:05")+"] "+message)
+	log.Printf("[2ag] Login Broker [%s] %s", stage, message)
+}
+
+// brokerMutate 在锁内改状态（用于写 email/结果类字段）。
+func brokerMutate(fn func(*LoginBrokerStatus)) {
+	loginBrokerMu.Lock()
+	defer loginBrokerMu.Unlock()
+	fn(&loginBrokerStatus)
+	loginBrokerStatus.UpdatedAt = time.Now().Format(time.RFC3339)
+}
+
+func brokerFinish(stage, message string, failure string) {
+	loginBrokerMu.Lock()
+	defer loginBrokerMu.Unlock()
+	loginBrokerStatus.Stage = stage
+	loginBrokerStatus.Message = message
+	loginBrokerStatus.FailureReason = failure
+	loginBrokerStatus.Running = false
+	loginBrokerStatus.UpdatedAt = time.Now().Format(time.RFC3339)
+	loginBrokerStatus.FinishedAt = loginBrokerStatus.UpdatedAt
+	loginBrokerStatus.Steps = append(loginBrokerStatus.Steps, "["+time.Now().Format("15:04:05")+"] "+message)
+	loginBrokerRunning = false
+	log.Printf("[2ag] Login Broker [%s] %s", stage, message)
+}
+
+// stopAllAntigravityProcesses 停掉当前机器上所有 antigravity.exe（含子进程）。
+//
+// 为什么必须这么彻底，而不是只杀 2Ag 托管的那一个：
+//   - gemini:antigravity 是 machine 级凭据，所有实例共享；只要还有一个实例活着，
+//     它随时可能把手里的旧 token 再写回去，把刚建立的登录态覆盖掉。
+//   - Electron 的单实例锁：旧实例不退，新实例只会把旧窗口唤到前台然后退出，
+//     「重新启动后校验身份」就永远等不到真正的重启。
+//
+// 刻意用 /T 连子进程一起结束：GPU/渲染/网络子进程不退出会继续持有文件锁。
+//
+// 返回值是「调用后仍然活着的进程数」（0 = 真的清干净了）。刻意不报「杀掉了几个」：
+// taskkill 对「父进程已死、自己随后消失」的子进程会返回非零，于是「杀成功数」会
+// 莫名其妙地小于进程总数（真机见过 1/6），读日志的人会以为有 5 个没杀掉 ——
+// 而真正要回答的问题只有一个：**现在还剩几个**。
+func stopAllAntigravityProcesses(reason string) int {
+	procs := scanAntigravityProcesses()
+	for _, p := range procs {
+		cmd := exec.Command("taskkill", "/F", "/PID", strconv.Itoa(p.PID), "/T")
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+		_ = cmd.Run()
+	}
+	// 等它们真的从进程表里消失：写的凭据要在「没有实例能覆盖它」的时刻落地。
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(scanAntigravityProcesses()) == 0 {
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	SetManagedHostPID(0)
+	left := len(scanAntigravityProcesses())
+	if len(procs) > 0 {
+		log.Printf("[2ag] Login Broker：已请求停止 %d 个 Antigravity 进程（%s），现在剩余 %d 个",
+			len(procs), reason, left)
+	}
+	return left
+}
+
+// officialLoginPageState 只读探测官方窗口当前停在哪一页。
+//
+// 返回 "onboarding"（停在登录页）/ "app"（已离开登录页）/ ""（读不到：官方没跑、
+// 端口没了、或 /json 拿不到东西）。**只读**：不注入、不留常驻会话 ——
+// 官方形态的契约就是不碰宿主。
+func officialLoginPageState() string {
+	port, _, err := officialDevToolsActivePort()
+	if err != nil || port <= 0 || !portListening(port) {
+		return ""
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/json/list", port))
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	var targets []struct {
+		Type string `json:"type"`
+		URL  string `json:"url"`
+	}
+	if json.Unmarshal(body, &targets) != nil {
+		return ""
+	}
+	sawPage := false
+	for _, t := range targets {
+		if t.Type != "page" {
+			continue
+		}
+		sawPage = true
+		if strings.Contains(t.URL, "/onboarding") {
+			return "onboarding"
+		}
+	}
+	if sawPage {
+		return "app"
+	}
+	return ""
+}
+
+// runLoginBroker 是流程本体。
+func runLoginBroker(configuredMode string) {
+	// 流程期间把进程内形态钉成「官方」：2Ag 的注入链路（HotReload / WatchAndInjectCDP /
+	// PushHubState）统一以 IsOfficialRuntime() 为闸门，钉住它才能保证
+	// 「添加账号期间 2Ag 绝不往官方宿主里打补丁」。
+	//
+	// 收尾必须**显式**解除，绝不能只靠 defer：
+	// defer 会一直挂到函数返回，而「恢复原账号 → 按原形态重启宿主」正好发生在
+	// 函数末尾。ShapePin 没解开时 restartHostInMode("enhanced", …) → LaunchEnhancedHost
+	// 会读到 IsOfficialRuntime()==true，于是把「增强形态」重定向成再拉起一个官方实例 ——
+	// 界面说增强、跑着官方，正是本功能最不能出的错。（真机复现过。）
+	wasOfficial := IsOfficialRuntime()
+	SetRuntimeMode(RuntimeModeOfficialValue)
+	defer func() {
+		// 兜底：panic 或任何提前 return 的路径都要把形态放回去。
+		SetRuntimeMode(restoreRuntimeModeValue(wasOfficial))
+	}()
+
+	defer func() {
+		if r := recover(); r != nil {
+			brokerFinish(brokerStageFailed, "流程内部错误，已中止", fmt.Sprintf("内部错误: %v", r))
+		}
+	}()
+
+	origRaw, err := readAntigravityCredentialRaw()
+	if err != nil {
+		brokerFinish(brokerStageFailed, "读取当前凭据失败，未做任何改动", "读取当前凭据失败: "+err.Error())
+		return
+	}
+	origEmail := ""
+	if v, e := ReadHostLoginEmail(); e == nil {
+		origEmail = strings.TrimSpace(v)
+	}
+	prior := RuntimeModeFactsNow(configuredMode)
+	hadHost := prior.Effective != "none"
+	brokerMutate(func(s *LoginBrokerStatus) {
+		s.OriginalEmail = origEmail
+		s.OriginalMode = prior.Effective
+	})
+
+	// ① 备份当前凭据。内存里的 origRaw 是回滚来源，同时归档进 DPAPI 保险库 ——
+	// 这样即使 2Ag 自己在流程中途被杀掉，用户的原始凭据也还在保险库里，不会只剩
+	// 「已被删除」这一种可能。
+	brokerStage(brokerStageBackingUp, "正在备份当前登录凭据…")
+	if origEmail != "" && len(origRaw) > 0 {
+		if _, err := StoreVaultCredential(origEmail, displayNameFromCredentialPayload(origRaw), origRaw); err != nil {
+			// 备份失败就绝不往下走：后面要删掉这条凭据，没有备份的删除等于把
+			// 用户唯一一份 refresh_token 置于险境。
+			brokerFinish(brokerStageFailed, "备份当前凭据失败，出于安全考虑已中止（未做任何改动）",
+				"备份当前凭据到保险库失败: "+err.Error())
+			return
+		}
+		brokerStage(brokerStageBackingUp, "已备份当前凭据 "+origEmail+" 到 DPAPI 保险库")
+	} else {
+		brokerStage(brokerStageBackingUp, "当前没有登录凭据，无需备份")
+	}
+
+	// ② 停掉所有 Antigravity 与 ③ 临时删除当前凭据
+	brokerStage(brokerStageStopping, "正在停止运行中的 Antigravity…")
+	stopAllAntigravityProcesses("准备官方登录")
+	if err := deleteAntigravityCredentialRaw(); err != nil {
+		brokerFinish(brokerStageFailed, "删除当前凭据失败，已中止", err.Error())
+		return
+	}
+	if raw, _ := readAntigravityCredentialRaw(); len(raw) > 0 {
+		brokerFinish(brokerStageFailed, "当前凭据未被清空，已中止",
+			"删除后仍然读到了 gemini:antigravity 凭据：无法保证官方进入登录页")
+		return
+	}
+	brokerStage(brokerStageStopping, "已清空当前登录凭据（原凭据已备份，流程结束会恢复）")
+
+	// ④ 以零参数启动官方 Antigravity
+	brokerStage(brokerStageLaunching, "正在启动官方 Antigravity（零启动参数、零注入）…")
+	if err := LaunchOfficialHost(""); err != nil {
+		brokerRollbackAndFinish("启动官方 Antigravity 失败: "+err.Error(), origRaw, origEmail, prior, hadHost, wasOfficial)
+		return
+	}
+	brokerStage(brokerStageLaunching, "官方 Antigravity 已启动：请在它的窗口里点击「Continue with Google」")
+
+	// ⑤ 轮询：直到凭据**成为一个完整登录结果**
+	deadline := time.Now().Add(brokerWaitTimeout)
+	var goneSince time.Time
+	lastHint := ""
+	addedEmail := ""
+	for {
+		if brokerCancelled() {
+			brokerRollbackAndFinish("已取消（原账号会恢复）", origRaw, origEmail, prior, hadHost, wasOfficial)
+			return
+		}
+		if time.Now().After(deadline) {
+			brokerRollbackAndFinish("等待登录超时（10 分钟）", origRaw, origEmail, prior, hadHost, wasOfficial)
+			return
+		}
+
+		raw, err := readAntigravityCredentialRaw()
+		if err == nil && len(raw) > 0 {
+			if email, ok := credentialUsableEmail(raw); ok {
+				addedEmail = email
+				break
+			}
+			// 中间态（官方先写 {"token":null}）。这里**绝不入库**，
+			// 只是如实告诉用户「看到了但还不算完成」。
+			if lastHint != "placeholder" {
+				lastHint = "placeholder"
+				brokerStage(brokerStageWaiting, "已检测到中间态凭据（尚未完成登录），继续等待…")
+			}
+		} else {
+			switch officialLoginPageState() {
+			case "onboarding":
+				if lastHint != "onboarding" {
+					lastHint = "onboarding"
+					brokerStage(brokerStageWaiting, "等待 Google 登录：请在官方 Antigravity 窗口点击「Continue with Google」")
+				}
+			case "app":
+				if lastHint != "app" {
+					lastHint = "app"
+					brokerStage(brokerStageWaiting, "官方窗口已离开登录页，正在确认凭据…")
+				}
+			default:
+				if lastHint != "nolink" {
+					lastHint = "nolink"
+					brokerStage(brokerStageWaiting, "正在等待官方 Antigravity 打开登录页…")
+				}
+			}
+		}
+
+		// 官方窗口被用户关掉了：不再有无穷等待，如实失败。
+		if len(scanAntigravityProcesses()) == 0 {
+			if goneSince.IsZero() {
+				goneSince = time.Now()
+			} else if time.Since(goneSince) > 8*time.Second {
+				brokerRollbackAndFinish("官方 Antigravity 已退出，登录未完成", origRaw, origEmail, prior, hadHost, wasOfficial)
+				return
+			}
+		} else {
+			goneSince = time.Time{}
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	// ⑥ 保存到 DPAPI 保险库
+	brokerStage(brokerStageDetected, "检测到账号 "+addedEmail)
+	brokerMutate(func(s *LoginBrokerStatus) { s.AccountEmail = addedEmail })
+	brokerStage(brokerStageSaving, "正在把账号 "+addedEmail+" 加密写入保险库…")
+	rawNow, err := readAntigravityCredentialRaw()
+	if err != nil || len(rawNow) == 0 {
+		brokerRollbackAndFinish("重新读取凭据失败，未归档", origRaw, origEmail, prior, hadHost, wasOfficial)
+		return
+	}
+	if _, err := StoreVaultCredential(addedEmail, displayNameFromCredentialPayload(rawNow), rawNow); err != nil {
+		brokerRollbackAndFinish("写入保险库失败: "+err.Error(), origRaw, origEmail, prior, hadHost, wasOfficial)
+		return
+	}
+	brokerMutate(func(s *LoginBrokerStatus) { s.VaultSaved = true })
+	brokerStage(brokerStageSaving, "账号 "+addedEmail+" 已加密保存到保险库（index.json 只写元数据）")
+
+	// ⑦ 恢复原账号（原本没有账号则保留新账号）
+	restored, currentEmail := brokerRestore(origRaw, origEmail, prior, hadHost, wasOfficial)
+	if !restored && origEmail != "" && len(origRaw) > 0 {
+		brokerFinish(brokerStageFailed,
+			"账号 "+addedEmail+" 已保存到保险库，但恢复原账号 "+origEmail+" 失败",
+			"恢复原账号失败：当前登录身份为 "+currentEmail)
+		return
+	}
+
+	msg := "账号 " + addedEmail + " 已添加"
+	if restored {
+		msg += "；已恢复原账号 " + origEmail
+	} else {
+		msg += "，并已成为当前账号"
+	}
+	if !hadHost {
+		msg += "；流程开始时没有宿主在运行，未自动启动宿主"
+	}
+	brokerFinish(brokerStageDone, msg, "")
+}
+
+// restoreRuntimeModeValue 把「是否官方」翻译回 SetRuntimeMode 需要的形态值。
+func restoreRuntimeModeValue(wasOfficial bool) string {
+	if wasOfficial {
+		return RuntimeModeOfficialValue
+	}
+	return "enhanced"
+}
+//
+// 返回 (restored, currentEmail)：restored 表示「原本那个账号确实回来了」；
+// 原本没有账号时 restored 为 false，currentEmail 即新账号（这是期望结果，不是失败）。
+func brokerRestore(origRaw []byte, origEmail string, prior RuntimeModeFacts, hadHost bool, wasOfficial bool) (bool, string) {
+	// ★ 进入恢复阶段前先解除形态钉住。
+	//
+	// 这一步必须在**重启宿主之前**做：恢复阶段要按「流程开始前的形态」重启宿主，
+	// 而 LaunchEnhancedHost 会先问 IsOfficialRuntime()；钉住没解开的话，
+	// 「增强形态」会被静默重定向成再拉起一个官方实例（真机复现过）。
+	// 这里恢复的是「流程开始前那个进程内形态」，不是 prior.Effective ——
+	// 后者是「当时机器上跑着什么」，可能是 none，不能当形态值用。
+	SetRuntimeMode(restoreRuntimeModeValue(wasOfficial))
+
+	brokerStage(brokerStageRestoring, "正在恢复原账号…")
+	stopAllAntigravityProcesses("登录结束，准备恢复原账号")
+
+	restored := false
+	if origEmail != "" && len(origRaw) > 0 {
+		if err := writeAntigravityCredentialRaw(origRaw); err != nil {
+			log.Printf("[2ag] Login Broker：写回原凭据失败: %v", err)
+		} else if got, _ := ReadHostLoginEmail(); strings.EqualFold(strings.TrimSpace(got), origEmail) {
+			restored = true
+			brokerStage(brokerStageRestoring, "已恢复原账号 "+origEmail)
+		} else {
+			log.Printf("[2ag] Login Broker：原凭据写回后校验不一致（期望 %s，实际 %s）", origEmail, strings.TrimSpace(got))
+		}
+	}
+
+	currentEmail := ""
+	if got, err := ReadHostLoginEmail(); err == nil {
+		currentEmail = strings.TrimSpace(got)
+	}
+	brokerMutate(func(s *LoginBrokerStatus) {
+		s.Restored = restored
+		s.CurrentEmail = currentEmail
+	})
+
+	if hadHost {
+		target := currentEmail
+		if target == "" {
+			target = origEmail
+		}
+		if err := restartHostInMode(prior.Effective, target); err != nil {
+			log.Printf("[2ag] Login Broker：重启宿主失败（形态 %s）: %v", prior.Effective, err)
+			brokerStage(brokerStageRestoring, "宿主重启失败："+err.Error()+"（登录身份已恢复）")
+		} else {
+			brokerMutate(func(s *LoginBrokerStatus) { s.HostRestarted = true })
+			brokerStage(brokerStageRestoring, "已按「"+modeLabel(prior.Effective)+"」重启宿主")
+		}
+	}
+	return restored, currentEmail
+}
+
+// brokerRollbackAndFinish 是失败/取消路径的统一出口：先把机器恢复原状，再如实收尾。
+func brokerRollbackAndFinish(reason string, origRaw []byte, origEmail string, prior RuntimeModeFacts, hadHost bool, wasOfficial bool) {
+	restored, currentEmail := brokerRestore(origRaw, origEmail, prior, hadHost, wasOfficial)
+	detail := reason
+	switch {
+	case origEmail == "":
+		detail += "；流程开始时没有登录账号，当前身份：" + orNoAccount(currentEmail)
+	case restored:
+		detail += "；原账号 " + origEmail + " 已恢复"
+	default:
+		detail += "；原账号 " + origEmail + " **未能确认恢复**（当前身份：" + orNoAccount(currentEmail) + "）"
+	}
+	brokerFinish(brokerStageFailed, reason, detail)
+}
+
+func orNoAccount(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "无（凭据管理器里没有 gemini:antigravity）"
+	}
+	return v
+}
+
+// restartHostInMode 按指定形态重启宿主（停 → 起），供切换与恢复共用。
+func restartHostInMode(mode, accountEmail string) error {
+	if mode == RuntimeModeOfficialValue {
+		return LaunchOfficialHost("")
+	}
+	if strings.TrimSpace(accountEmail) != "" {
+		SetActiveAccount(accountEmail)
+	}
+	return LaunchEnhancedHost("", accountEmail)
+}
+
+// SwitchAccountTransactional 事务化切换登录账号：停宿主 → 写凭据 → 启动 → 校验 → 提交/回滚。
+//
+// 为什么不「运行中直接改凭据」：宿主只在进程启动时读取凭据，运行期间还会自己刷新并
+// 回写。在它活着的时候改，等于让两个写入者抢同一条记录 —— 结果既不确定，也无法校验。
+// 事务化的价值全在最后那步校验上：**验证失败就回滚，并且把回滚结果也验证一遍**，
+// 于是「切换失败」不再等于「用户不知道自己在哪个账号上」。
+func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResult, error) {
+	var out AccountSwitchResult
+	out.Email = strings.TrimSpace(email)
+	if out.Email == "" {
+		return out, fmt.Errorf("切换账号需要明确的目标邮箱")
+	}
+
+	target, err := ReadVaultCredential(out.Email)
+	if err != nil {
+		return out, err
+	}
+	if len(target) == 0 {
+		return out, fmt.Errorf("保险库里 %s 的凭据为空，拒绝写入", out.Email)
+	}
+	if verified, ok := credentialUsableEmail(target); !ok {
+		return out, fmt.Errorf("保险库里 %s 的凭据不是一份完整登录（缺少 access_token / id_token），拒绝写入", out.Email)
+	} else if !strings.EqualFold(verified, out.Email) {
+		return out, fmt.Errorf("保险库里 %s 的凭据实际属于 %s，拒绝写入", out.Email, verified)
+	}
+
+	prevRaw, _ := readAntigravityCredentialRaw()
+	if prev, _ := ReadHostLoginEmail(); strings.TrimSpace(prev) != "" {
+		out.PreviousOwner = strings.TrimSpace(prev)
+	}
+	prior := RuntimeModeFactsNow(configuredMode)
+	out.Mode = prior.Effective
+	hadHost := prior.Effective != "none"
+
+	// 切换是破坏性的：当前凭据里可能有宿主刚刷新过的 refresh_token，
+	// 那是全世界唯一的一份。先归档再动手。
+	if out.PreviousOwner != "" && len(prevRaw) > 0 {
+		if _, err := StoreVaultCredential(out.PreviousOwner, displayNameFromCredentialPayload(prevRaw), prevRaw); err != nil {
+			log.Printf("[2ag] 账号切换：切换前归档当前凭据失败（继续，内存中仍保有原凭据用于回滚）: %v", err)
+		}
+	}
+
+	stopAllAntigravityProcesses("账号切换：先停宿主")
+	if err := writeAntigravityCredentialRaw(target); err != nil {
+		return out, fmt.Errorf("写入目标凭据失败: %w", err)
+	}
+	log.Printf("[2ag] 账号切换：已写入目标凭据 %s（%d B）", out.Email, len(target))
+
+	mode := prior.Effective
+	if mode == "" || mode == "none" {
+		mode = configuredMode
+	}
+	if strings.TrimSpace(mode) == "" {
+		mode = "enhanced"
+	}
+	if err := restartHostInMode(mode, out.Email); err != nil {
+		// 启动失败也算切换失败：宿主没起来就无从校验，必须回滚。
+		out.RolledBack = true
+		rollbackOK, rollbackOwner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
+		out.RollbackVerified = rollbackOK
+		out.Message = "启动宿主失败，已回滚：" + err.Error()
+		return out, fmt.Errorf("切换账号 %s 失败：%w（已回滚，当前身份：%s）", out.Email, err, orNoAccount(rollbackOwner))
+	}
+	out.HostRestarted = true
+
+	got := waitForHostLoginEmail(out.Email, 8)
+	out.VerifiedOwner = got
+	out.Verified = strings.EqualFold(got, out.Email)
+	if out.Verified {
+		SetActiveAccount(out.Email)
+		if mode != RuntimeModeOfficialValue {
+			SetPersistedActiveAccount(out.Email)
+		}
+		out.Message = "已切换到 " + out.Email + "（宿主已按「" + modeLabel(mode) + "」重启，实际登录身份已核对一致）"
+		return out, nil
+	}
+
+	// 回滚：写回旧凭据 → 重启 → 再校验一次
+	out.RolledBack = true
+	rollbackOK, rollbackOwner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
+	out.RollbackVerified = rollbackOK
+	out.Message = "切换失败：宿主实际登录身份是 " + orNoAccount(got) + "（目标 " + out.Email + "），已回滚到 " + orNoAccount(rollbackOwner)
+	errOut := fmt.Errorf("切换账号 %s 失败：校验实际身份为 %s。%s", out.Email, orNoAccount(got), out.Message)
+	return out, errOut
+}
+
+// switchRollback 写回旧凭据并按原形态重启，然后**再校验一次**回滚结果。
+func switchRollback(prevRaw []byte, prevEmail string, prior RuntimeModeFacts, hadHost bool) (bool, string) {
+	if prevEmail == "" || len(prevRaw) == 0 {
+		if err := deleteAntigravityCredentialRaw(); err != nil {
+			log.Printf("[2ag] 账号切换回滚：清空凭据失败: %v", err)
+		}
+	} else if err := writeAntigravityCredentialRaw(prevRaw); err != nil {
+		log.Printf("[2ag] 账号切换回滚：写回旧凭据失败: %v", err)
+	}
+	stopAllAntigravityProcesses("账号切换回滚：重启宿主")
+	if hadHost {
+		mode := prior.Effective
+		if mode == "" || mode == "none" {
+			mode = "enhanced"
+		}
+		if err := restartHostInMode(mode, prevEmail); err != nil {
+			log.Printf("[2ag] 账号切换回滚：重启宿主失败: %v", err)
+		}
+	}
+	owner := waitForHostLoginEmail(prevEmail, 8)
+	ok := prevEmail != "" && strings.EqualFold(owner, prevEmail)
+	return ok, owner
+}
+
+// waitForHostLoginEmail 轮询等待宿主登录身份变成期望值（读的是凭据管理器的真实事实）。
+func waitForHostLoginEmail(want string, tries int) string {
+	got := ""
+	for i := 0; i < tries; i++ {
+		invalidateHostLoginCache()
+		if v, err := ReadHostLoginEmail(); err == nil {
+			got = strings.TrimSpace(v)
+			if want == "" || strings.EqualFold(got, want) {
+				return got
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return got
+}

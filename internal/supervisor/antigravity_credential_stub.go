@@ -34,3 +34,8 @@ type CredentialSnapshot struct {
 func SnapshotAntigravityCredential() (CredentialSnapshot, error) {
 	return CredentialSnapshot{}, errCredentialUnsupported
 }
+
+// 登录 Broker 与账号切换在非 Windows 上无法工作（没有凭据管理器）。
+func invalidateHostLoginCache() {}
+
+func deleteAntigravityCredentialRaw() error { return errCredentialUnsupported }

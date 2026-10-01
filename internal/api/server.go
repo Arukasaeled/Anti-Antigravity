@@ -107,8 +107,19 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/accounts/active", s.handleGetActiveAccount)
 	s.mux.HandleFunc("/api/v1/accounts/primary", s.handleSetPrimaryAccount)
 	s.mux.HandleFunc("/api/v1/accounts/refresh", s.handleRefreshAccounts)
-	s.mux.HandleFunc("/api/v1/oauth/login-browser", s.handleOAuthLoginBrowser)
-	s.mux.HandleFunc("/api/v1/oauth/status", s.handleOAuthStatus)
+	// 添加账号 = Official Antigravity Login Broker。
+	//
+	// 为什么不是一个 /oauth/login 端点：2Ag 不再是任何人的 OAuth 客户端。
+	// Google 授权由本机官方 Antigravity 原生完成，2Ag 只负责「起官方 → 等结果 →
+	// 捕获 → 加密入库 → 恢复原账号」。因此这里的语义是「开始一个流程 + 轮询它的阶段」，
+	// 而不是「拿到一个授权 URL」。0.1.1 之前的 login-browser / oauth/status 已删除。
+	s.mux.HandleFunc("/api/v1/accounts/broker/start", s.handleBrokerStart)
+	s.mux.HandleFunc("/api/v1/accounts/broker/status", s.handleBrokerStatus)
+	s.mux.HandleFunc("/api/v1/accounts/broker/cancel", s.handleBrokerCancel)
+	// Account Vault：DPAPI 加密的账号保险库。列表只回元数据（邮箱/显示名/时间/字节数），
+	// 永远不回 token —— 前端不需要它，能拿到它就是泄漏面。
+	s.mux.HandleFunc("/api/v1/accounts/vault", s.handleVaultList)
+	s.mux.HandleFunc("/api/v1/accounts/vault/delete", s.handleVaultDelete)
 	s.mux.HandleFunc("/api/v1/accounts/import-json", s.handleImportAccountsJSON)
 	// 凭据快照归档：把 Windows 凭据管理器里当前真实登录 blob 存到 ~/.2ag/vault/，
 	// 防止后续换号覆盖掉宿主自己刷新过的 token（那份 token 别处没有副本）。
@@ -548,33 +559,109 @@ func (s *Server) handleRefreshAccounts(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleOAuthLoginBrowser(w http.ResponseWriter, r *http.Request) {
+// handleBrokerStart 开始一次「通过官方 Antigravity 原生登录添加账号」。
+//
+// 这个动作会短暂地改动机器上唯一那份登录凭据（删掉 → 官方登录 → 写回原账号），
+// 因此它必须由用户显式点击触发，而且进度必须可轮询、可取消：
+// 用户要能看到「我的原账号回来了没有」。
+func (s *Server) handleBrokerStart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var req struct {
-		Proxy string `json:"proxy"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-
-	authURL, err := supervisor.StartBrowserOAuth(r.Context(), req.Proxy)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := supervisor.StartLoginBroker(s.currentRuntimeMode()); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"message": err.Error(),
+			"status":  supervisor.LoginBrokerStatusNow(),
+		})
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"auth_url": authURL,
-		"status":   "WAITING",
+		"success": true,
+		"message": "已开始「添加账号」：将启动官方 Antigravity，请在弹出的官方窗口里用 Google 登录",
+		"status":  supervisor.LoginBrokerStatusNow(),
 	})
 }
 
-func (s *Server) handleOAuthStatus(w http.ResponseWriter, r *http.Request) {
-	status := supervisor.GetOAuthStatus()
+// handleBrokerStatus 轮询添加账号流程的阶段。
+func (s *Server) handleBrokerStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"status":  supervisor.LoginBrokerStatusNow(),
+	})
+}
+
+// handleBrokerCancel 请求取消（流程会在安全检查点上回滚并恢复原账号）。
+func (s *Server) handleBrokerCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := supervisor.CancelLoginBroker(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "message": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"message": "已请求取消，正在恢复原账号",
+		"status":  supervisor.LoginBrokerStatusNow(),
+	})
+}
+
+// handleVaultList 列出保险库里的账号（只有元数据，没有任何 token）。
+func (s *Server) handleVaultList(w http.ResponseWriter, r *http.Request) {
+	accounts := supervisor.ListVaultAccountEntries()
+	// 当前系统登录身份：面板要能区分「保险库里有这个账号」与「现在就是它」。
+	current := ""
+	if v, err := supervisor.ReadHostLoginEmailCached(); err == nil {
+		current = strings.TrimSpace(v)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"success":  true,
+		"current":  current,
+		"accounts": accounts,
+		"count":    len(accounts),
+	})
+}
+
+// handleVaultDelete 删除保险库里的一个账号（只删 2Ag 自己的副本，不动系统当前凭据）。
+func (s *Server) handleVaultDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	email := strings.TrimSpace(body.Email)
+	if email == "" {
+		http.Error(w, "缺少 email", http.StatusBadRequest)
+		return
+	}
+	if err := supervisor.DeleteVaultAccount(email); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "message": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"message": "已从保险库删除 " + email,
+	})
 }
 
 func (s *Server) handleImportAccountsJSON(w http.ResponseWriter, r *http.Request) {
@@ -878,52 +965,34 @@ func (s *Server) handleHostSwitchAndRestart(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// 存在性校验（与 /accounts/primary 同口径）：只接受本地账号文件里真实存在的邮箱。
-	// 否则会写进主控标记、落盘，并回 success:true —— 界面随即顶着一个不存在的账号
-	// 渲染「主控活跃」，而它的配额当然是空的。
-	known := false
-	for _, acc := range supervisor.ScanLocalAccounts() {
-		if strings.EqualFold(acc.Email, email) {
-			known = true
-			break
-		}
-	}
-	if !known {
-		http.Error(w, "该账号不在本地账号文件中: "+email, http.StatusNotFound)
-		return
-	}
-
-	// 先落主控标记，再重启。顺序不能反：LaunchEnhancedHost 在 email 为空时会回退去读
-	// GetActiveAccountEmail()，若先重启后设标记，新宿主会拿着旧账号的沙箱目录起来。
-	supervisor.SetActiveAccount(email)
-
-	// RestartEnhancedHost = StopHostClient()（taskkill /F /PID <pid> /T，清整棵进程树）
-	//                     + 600ms 等待文件锁释放
-	//                     + LaunchEnhancedHost()（写系统凭据 → 按新邮箱建/复用 profile 沙箱 → 拉起）
-	if err := supervisor.RestartEnhancedHost("", email); err != nil {
-		// 与 handleHostLaunch 一致：失败必须如实回 500，不能吞掉错误后返回 success。
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// 回读系统凭据确认身份真的变了。LaunchEnhancedHost 内部已调 ApplyAntigravityCredential，
-	// 但它失败时只记日志不阻断启动（宿主仍能以旧身份跑起来），所以这里必须独立复核：
-	// 拿不到目标账号就必须报错，而不是回一个用户一打开 Settings 就发现是假的 success。
-	actual := ""
-	if v, err := supervisor.ReadHostLoginEmail(); err == nil {
-		actual = v
-	}
-	if !strings.EqualFold(actual, email) {
-		http.Error(w, fmt.Sprintf("宿主已按 %s 的沙箱重启，但未能确认系统登录凭据已切换（当前凭据身份=%q）。请在 cockpit 账号库中确认该账号凭据可用。", email, actual), http.StatusInternalServerError)
+	// 切换是事务：停宿主 → 写凭据 → 按原形态启动 → 校验实际身份 → 失败自动回滚。
+	//
+	// 与 0.1.1 之前那版的区别有两点，都是被真机证伪过的：
+	//  1. 凭据来源不再是 cockpit 账号库，而是 2Ag 自己的 DPAPI 保险库 ——
+	//     账号是用户通过官方原生登录加进来的，不再依赖第三方工具的数据目录。
+	//  2. 不再「先设主控标记、依赖 LaunchEnhancedHost 顺手写凭据」：那条路径里
+	//     ApplyAntigravityCredential 失败只记日志，于是「沙箱换了、身份没换」会
+	//     以 success:true 收场。现在写凭据与校验都是显式的，且必须回读一致。
+	result, err := supervisor.SwitchAccountTransactional(email, s.currentRuntimeMode())
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"email":   email,
+			"message": err.Error(),
+			"result":  result,
+		})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"success":             true,
-		"email":               actual,
+		"email":               result.VerifiedOwner,
 		"credential_switched": true,
-		"message":             "已切换系统登录凭据、主控账号与宿主沙箱",
+		"message":             result.Message,
+		"result":              result,
 	})
 }
 

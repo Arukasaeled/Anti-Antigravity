@@ -3,7 +3,6 @@
 package supervisor
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -300,7 +299,7 @@ func orUnknown(s string) string {
 // 凭据归档的读取与恢复
 // ============================================================================
 
-// vaultEntry 是归档索引里的一项。
+// vaultEntry 是归档索引里的一项（v2 索引的历史视图，仅有历史调用方在用）。
 type vaultEntry struct {
 	Email string `json:"email"`
 	File  string `json:"file"`
@@ -318,32 +317,17 @@ func vaultDirPath() string {
 
 // ListVaultAccounts 列出归档里可恢复的账号（按邮箱排序，结果稳定）。
 //
-// 只读 index.json 与目录内容，不修改任何东西。返回值永远是真实存在的文件对应的
-// 账号：索引里登记了但文件已被删掉的条目会被剔除，否则面板会提供一个点了必然
-// 失败的动作。
+// 只读，不修改任何东西（索引升级到 v2 由 MigrateLegacyVault 在启动时做一次）。
+// 返回值永远是真实存在的文件对应的账号：索引里登记了但文件已被删掉的条目会被剔除，
+// 否则面板会提供一个点了必然失败的动作。
 func ListVaultAccounts() []string {
-	dir := vaultDirPath()
-	if dir == "" {
-		return nil
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "index.json"))
-	if err != nil {
-		return nil
-	}
-	var idx vaultIndexFile
-	if err := json.Unmarshal(raw, &idx); err != nil || idx.Entries == nil {
-		return nil
-	}
-	accounts := make([]string, 0, len(idx.Entries))
-	for email, name := range idx.Entries {
-		if email == "" || name == "" {
+	entries := ListVaultAccountEntries()
+	accounts := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.Email == "" {
 			continue
 		}
-		fi, err := os.Stat(filepath.Join(dir, name))
-		if err != nil || fi.IsDir() || fi.Size() == 0 {
-			continue
-		}
-		accounts = append(accounts, email)
+		accounts = append(accounts, e.Email)
 	}
 	sort.Strings(accounts)
 	return accounts
@@ -382,32 +366,17 @@ func RestoreAntigravityCredential(email string) (CredentialRestoreResult, error)
 	if dir == "" {
 		return out, fmt.Errorf("无法定位归档目录")
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "index.json"))
-	if err != nil {
-		return out, fmt.Errorf("归档索引不可读（还没有归档过任何凭据）: %w", err)
-	}
-	var idx vaultIndexFile
-	if err := json.Unmarshal(raw, &idx); err != nil {
-		return out, fmt.Errorf("归档索引损坏: %w", err)
-	}
 
-	name := ""
-	for candidate, file := range idx.Entries {
-		if strings.EqualFold(candidate, email) {
-			name = file
-			break
+	// 读取走保险库读路径：它会自动辨认并就地迁移旧明文文件。
+	blob, err := ReadVaultCredential(email)
+	if err != nil {
+		if len(ListVaultAccounts()) == 0 {
+			return out, fmt.Errorf("归档中没有 %s 的凭据快照（归档为空；先在账号面板归档一次当前登录态）", email)
 		}
-	}
-	if name == "" {
 		return out, fmt.Errorf("归档中没有 %s 的凭据快照（可恢复：%s）", email, strings.Join(ListVaultAccounts(), "、"))
 	}
-
-	blob, err := os.ReadFile(filepath.Join(dir, name))
-	if err != nil {
-		return out, fmt.Errorf("读取归档文件失败: %w", err)
-	}
 	if len(blob) == 0 {
-		return out, fmt.Errorf("归档文件为空，拒绝写入: %s", name)
+		return out, fmt.Errorf("归档文件为空，拒绝写入: %s", email)
 	}
 
 	// 规则 1：先保住现状。

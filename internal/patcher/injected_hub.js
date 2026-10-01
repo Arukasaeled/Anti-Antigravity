@@ -622,6 +622,134 @@
     { id: 'electric',  short: 'Gemini Dusk',  title: 'Gemini Dusk v1.0.4 · 极星暮色',         swatch: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #fdd663 100%)', blur: 24, opacity: 0.65, modalOpacity: 0.88 }
   ];
 
+  // ── 账号邮箱脱敏 ────────────────────────────────────────────────
+  // 邮箱默认以「首字符 + 星号 + 尾字符」露出，点击旁边的眼睛才显示全文。默认隐藏是刻意的：
+  // 截图、录屏、直播、共享屏幕时不必先手动打码。脱敏发生在**渲染层**，不是丢数据 ——
+  // 完整邮箱仍然在后端与按钮的 data-email 里，切换等操作不受影响。
+  //
+  // 掩码策略：只脱敏 local-part（首字符 + 星号 + 尾字符），domain 完整保留。
+  // local-part 是身份标识，domain 是公开信息（gmail.com / outlook.com 谁都知道），
+  // 保留 domain 既能让用户一眼认出这是邮箱、又能快速区分多个账号。
+  // 星号固定 3 个而非按真实长度铺开 —— 长度本身也不外泄。
+  function maskEmail(raw) {
+    const s = String(raw === undefined || raw === null ? '' : raw);
+    if (!s) return '';
+    const at = s.lastIndexOf('@');
+    if (at <= 0) return s;                       // 无 @ 或 @ 开头 ⇒ 不是邮箱，原样返回
+    const local = s.slice(0, at);
+    const domain = s.slice(at + 1);
+    if (!domain) return local;                   // "a@" 这种残缺输入只返回 local
+    // 1~2 字符的 local-part 信息量本来就极低，保留原样即可。
+    let masked;
+    if (local.length === 1) masked = local;
+    else if (local.length === 2) masked = local.charAt(0) + '*';
+    else masked = local.charAt(0) + '***' + local.charAt(local.length - 1);
+    return masked + '@' + domain;
+  }
+
+  // 哪些账号的邮箱被用户显式展开过。
+  //
+  // 状态必须是模块级的、以邮箱为 key 的集合，不能只挂在 DOM 上：
+  // refreshAccountList 每次都会整体重写列表 innerHTML，宿主重建时也会重跑
+  // paintAccountHead —— 状态若只活在 dataset 里，用户的展开动作撑不过一次刷新。
+  // 以邮箱（而非元素）为 key，则同一账号在头部与列表中共享同一个展开态。
+  const revealedEmails = new Set();
+
+  function isEmailRevealed(rawEmail) {
+    return revealedEmails.has(String(rawEmail || ''));
+  }
+
+  // 眼睛按钮：与文本并列渲染，点击只切换同一行内的可见性。
+  // 用 button 而不是 span —— 键盘可聚焦，且能挂 aria-pressed 表达真实状态。
+  function eyeBtnHtml(shown, label) {
+    const title = shown ? '隐藏邮箱' : '显示完整邮箱';
+    return (
+      '<button class="acct-eye" type="button" data-revealed="' + (shown ? 'true' : 'false') + '"' +
+      ' aria-pressed="' + (shown ? 'true' : 'false') + '"' +
+      ' aria-label="' + title + '" title="' + title + '">' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+      '<path class="eye-open" d="M12 5c-5 0-9 4.5-9 7s4 7 9 7 9-4.5 9-7-4-7-9-7zm0 11a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z"/>' +
+      '<path class="eye-off" d="M3 3l18 18M10.6 10.7a3 3 0 004.2 4.2M6.5 7.1C4.2 8.6 3 11 3 12c0 2.5 4 7 9 7 1.6 0 3.1-.5 4.4-1.3M17.7 16.6C19.8 15.1 21 12.9 21 12c0-2.5-4-7-9-7-.9 0-1.8.2-2.6.5"/>' +
+      '</svg></button>'
+    );
+  }
+
+  // 一行邮箱 = 文本 + 眼睛。revealed 状态由 revealedEmails 决定，同一账号处处一致。
+  //
+  // 状态为什么不放在 DOM 上：refreshAccountList 会整体重写 acct-list 的 innerHTML，
+  // 隐藏/展开如果只活在 dataset 里，任何一次列表刷新都会把用户的展开动作抹掉。
+  // 以邮箱为 key 而不是以元素为 key —— 手风琴头部与列表行显示的是同一个账号，
+  // 展开一次应当两处都展开（toggleHeadEmailReveal 也读写同一个集合）。
+  function emailCellHtml(rawEmail, revealed) {
+    const shown = revealed === undefined ? isEmailRevealed(rawEmail) : revealed === true;
+    const full = escapeHtml(rawEmail || '(未知账号)');
+    const masked = shown ? full : escapeHtml(maskEmail(rawEmail) || '(未知账号)');
+    return (
+      '<span class="acct-mail" data-full="' + full + '" data-raw="' + escapeHtml(String(rawEmail || '')) + '" data-shown="' + (shown ? 'true' : 'false') + '">' + masked + '</span>' +
+      eyeBtnHtml(shown, full)
+    );
+  }
+
+  // 眼睛点击的统一处理：切换 data-shown 并重写文本，不触碰 DOM 结构。
+  function toggleEmailReveal(btn) {
+    if (!btn) return;
+    const row = btn.parentNode;
+    const span = row ? row.querySelector('.acct-mail') : null;
+    if (!span) return;
+    const show = span.dataset.shown !== 'true';
+    // 先落状态再改 DOM：下次 renderAccountList 会经 emailCellHtml → isEmailRevealed
+    // 读回同一个状态，用户展开的账号不会在列表刷新后自己收起来。
+    const raw = span.dataset.raw || unescapeHtml(span.dataset.full);
+    if (show) revealedEmails.add(String(raw));
+    else revealedEmails.delete(String(raw));
+    applyEmailReveal(span, btn, show);
+  }
+
+  // 手风琴头部那颗眼睛：文本节点是 #acct-head-mail（不在 .acct-mail 之内），
+  // 且文本由 paintAccountHead 以 textContent 写入 —— 这里必须同样走 textContent，
+  // 因为 dataset.full 存的是**已转义**的 HTML 片段，textContent 会原样显示实体。
+  // 因此头部单独走一条「原始值」通路：dataset.raw 里再存一份原文。
+  function toggleHeadEmailReveal(btn) {
+    const span = shadow.getElementById('acct-head-mail');
+    if (!span) return;
+    const nowShown = span.dataset.shown !== 'true';
+    const raw = span.dataset.raw || '';
+    if (nowShown) revealedEmails.add(String(raw));
+    else revealedEmails.delete(String(raw));
+    span.dataset.shown = nowShown ? 'true' : 'false';
+    span.textContent = nowShown ? raw : maskEmail(raw);
+    syncEyeState(btn, nowShown);
+  }
+
+  // 统一的「状态落地」：文本、dataset、aria、title 一次写完，避免四处各写一半。
+  function applyEmailReveal(span, btn, show) {
+    span.dataset.shown = show ? 'true' : 'false';
+    // data-full 写入时已 escapeHtml 过一次，直接回填不会二次转义；
+    // 脱敏后的文本必须再转义一次。
+    span.innerHTML = show ? span.dataset.full : escapeHtml(maskEmail(unescapeHtml(span.dataset.full)));
+    syncEyeState(btn, show);
+  }
+
+  function syncEyeState(btn, show) {
+    if (!btn) return;
+    btn.dataset.revealed = show ? 'true' : 'false';
+    btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+    const title = show ? '隐藏邮箱' : '显示完整邮箱';
+    btn.setAttribute('title', title);
+    btn.setAttribute('aria-label', title);
+  }
+
+  // data-full 里存的是「已转义」的文本；脱敏前必须先还原成原文，
+  // 否则 &amp; 之类的实体会被当成三段字符参与掩码计算。
+  function unescapeHtml(value) {
+    return String(value === undefined || value === null ? '' : value)
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&');
+  }
+
   // 账号邮箱/名称来自磁盘上的账号 JSON（用户可自行编辑），拼进 innerHTML 前必须转义。
   // 全文件此前没有这个函数，账号列表又必须走 innerHTML 渲染 —— 不转义就是一个注入面。
   function escapeHtml(value) {
@@ -1778,6 +1906,64 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    /* 眼睛按钮：与邮箱同一行，尺寸对齐 11.5px 文本的行高。
+       默认低对比，悬停与「已展开」时才提亮 —— 展开态必须一眼可辨。 */
+    .acct-eye {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      margin-left: 2px;
+      border: none;
+      background: transparent;
+      border-radius: 4px;
+      cursor: pointer;
+      color: var(--2ag-text-tertiary);
+      vertical-align: middle;
+      transition: color .15s ease, background-color .15s ease;
+    }
+    .acct-eye:hover {
+      color: var(--2ag-text-primary);
+      background: var(--2ag-surface-2);
+    }
+    .acct-eye:focus-visible {
+      outline: 2px solid var(--2ag-blue);
+      outline-offset: 1px;
+    }
+    .acct-eye svg {
+      width: 13px;
+      height: 13px;
+      display: block;
+    }
+    .acct-eye svg path {
+      fill: currentColor;
+      stroke: currentColor;
+      stroke-width: 1.6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    /* 睁眼 = 已展开（显示完整邮箱）；闭眼 = 已隐藏。两者互斥。 */
+    .acct-eye .eye-off {
+      display: none;
+    }
+    .acct-eye[data-revealed="false"] .eye-open {
+      display: none;
+    }
+    .acct-eye[data-revealed="false"] .eye-off {
+      display: block;
+    }
+    .acct-eye[data-revealed="true"] {
+      color: var(--2ag-text-primary);
+    }
+    /* 邮箱文本与眼睛必须成组，否则 flex 布局会把它们拆到两端 */
+    .acct-mail-row2 {
+      display: flex;
+      align-items: center;
+      min-width: 0;
     }
     .acct-sub {
       font-size: 10px;
@@ -3166,6 +3352,7 @@
             <div class="acct-head" id="acct-head" title="点击展开 / 收起备选账号">
               <span class="acct-dot" id="acct-dot" data-off="true"></span>
               <span class="acct-head-mail" id="acct-head-mail">正在读取本机账号…</span>
+              <span class="acct-head-eye" id="acct-head-eye"></span>
               <span class="acct-pill" id="acct-head-pill">主账号</span>
               <span class="acct-caret">▾</span>
             </div>
@@ -3883,8 +4070,20 @@
 
       if (current) {
         const mail = current.email || '(未知账号)';
-        headMail.textContent = mail;
-        headMail.title = mail; // 邮箱过长时被省略号截断，悬停可见全文
+        // 默认只显示脱敏形态；完整值留在 dataset.raw 供眼睛按钮还原。
+        // 原先是 headMail.title = mail 让悬停可见全文，现在悬停会直接漏出邮箱，
+        // 与「默认打码」相冲突，所以 title 交给眼睛按钮承担。
+        //
+        // 展开态取自 revealedEmails（同一账号在列表行里展开过，头部也要展开），
+        // 不写死 false —— 否则宿主重建触发 paintAccountHead 时会把用户的选择抹掉。
+        const headShown = isEmailRevealed(mail);
+        headMail.dataset.raw = mail;
+        headMail.dataset.full = escapeHtml(mail);
+        headMail.dataset.shown = headShown ? 'true' : 'false';
+        headMail.textContent = headShown ? mail : maskEmail(mail);
+        headMail.removeAttribute('title');
+        const headEyeHost = shadow.getElementById('acct-head-eye');
+        if (headEyeHost) headEyeHost.innerHTML = eyeBtnHtml(headShown, escapeHtml(mail));
         // 身份未确证时不得声称「主账号/活跃」—— 那是一个未被验证的断言。
         // 诚实标注为「待确认」，用户一眼就知道这个邮箱不是从宿主凭据读出来的。
         if (!identityVerified) {
@@ -3897,6 +4096,11 @@
       } else {
         headMail.textContent = list.length ? '未指定活跃账号' : '未检测到本机账号';
         headMail.removeAttribute('title');
+        delete headMail.dataset.raw;
+        delete headMail.dataset.full;
+        headMail.dataset.shown = 'false';
+        const headEyeHost2 = shadow.getElementById('acct-head-eye');
+        if (headEyeHost2) headEyeHost2.innerHTML = '';
         headPill.textContent = '无主控';
         headDot.dataset.off = 'true';
       }
@@ -3974,7 +4178,8 @@
 
       acctListEl.innerHTML = candidates.map((acc) => {
         // 邮箱与名称都来自磁盘账号 JSON（用户可自行编辑）⇒ 必须转义后再拼进 innerHTML。
-        const email = escapeHtml(acc.email || '(未知账号)');
+        const emailRaw = acc.email || '(未知账号)';
+        const email = escapeHtml(emailRaw);
         const name = escapeHtml(acc.name || '');
         const tag = acc.is_primary
           ? '<span class="acct-tag" style="color:var(--2ag-blue);">主账号</span>'
@@ -3994,7 +4199,7 @@
         return `<div class="acct-row" data-active="false">
             <div class="acct-line">
               <div class="acct-meta">
-                <div class="acct-mail">${email}</div>
+                <div class="acct-mail-row2">${emailCellHtml(emailRaw)}</div>
                 <div class="acct-sub">${subParts.join(' · ')}</div>
               </div>
               ${tag}
@@ -4091,6 +4296,13 @@
     const acctAccEl = shadow.getElementById('acct-acc');
     if (acctAccEl) {
       acctAccEl.addEventListener('click', (e) => {
+        // 眼睛在手风琴头部之内，若不先拦下，点它就会连带把折叠区收起来。
+        const headEye = e.target && e.target.closest ? e.target.closest('.acct-eye') : null;
+        if (headEye) {
+          e.stopPropagation();
+          toggleHeadEmailReveal(headEye);
+          return;
+        }
         const head = e.target && e.target.closest ? e.target.closest('.acct-head') : null;
         if (!head) return;
         const open = acctAccEl.dataset.open === 'true';
@@ -4106,6 +4318,13 @@
 
     if (acctListEl) {
       acctListEl.addEventListener('click', (e) => {
+        // 眼睛按钮只切换邮箱可见性，绝不能冒泡到下面的「切换账号」分支。
+        const eye = e.target && e.target.closest ? e.target.closest('.acct-eye') : null;
+        if (eye) {
+          e.stopPropagation();
+          toggleEmailReveal(eye);
+          return;
+        }
         const vault = e.target && e.target.closest ? e.target.closest('.acct-vault') : null;
         if (vault) {
           if (vault.dataset.busy === 'true') return;

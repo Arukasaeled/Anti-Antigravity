@@ -333,6 +333,17 @@ func startManager(configPath string, cfg config.Config) error {
 	// 漏掉这一行的后果是「配置写了官方形态，机器上照样注入」—— 本轮最不能出的错。
 	supervisor.SetRuntimeMode(cfg.RuntimeMode)
 
+	// Account Vault 的一次性兼容迁移：0.1.1 之前的 ~/.2ag/vault/*.bin 是**明文**
+	// 写的（里面是含 refresh_token 的完整凭据）。升级到本版本后第一次启动就把它们
+	// 就地加密为 DPAPI(CurrentUser) 密文，并把 index.json 升级到 v2。
+	// 放在启动路径上而不是懒加载：一个只读的界面（用户从不点切换）也应该把
+	// 明文凭据收掉。失败不阻断启动，只如实记日志 —— 迁移失败不该让 Manager 打不开。
+	if migrated, err := supervisor.MigrateLegacyVault(); err != nil {
+		log.Printf("[2ag] 账号保险库迁移未完成: %v", err)
+	} else if migrated > 0 {
+		log.Printf("[2ag] 账号保险库已升级：%d 份明文凭据已加密为 DPAPI(CurrentUser) 密文", migrated)
+	}
+
 	// 形态切换的落地：切换运行形态是一次**结构性**变更，不能只改一个字段然后
 	// 继续拿旧形态的宿主干活 —— 那样界面显示 OFFICIAL CLEAN，跑着的却仍是带补丁的
 	// 增强宿主，正是本轮要根除的「界面与事实不符」。

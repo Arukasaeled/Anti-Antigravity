@@ -162,6 +162,9 @@ $currentUser = $env:USERNAME
 $userPathRe = '[Cc]:[\\/]+Users[\\/]+[A-Za-z0-9]'
 $fileUrlRe = 'file:[\\/]{3}[Cc]:[\\/]+Users[\\/]+[A-Za-z0-9]'
 $emailRe = '[A-Za-z0-9._%+-]+@(gmail|googlemail|outlook|hotmail|qq|163|126)\.[A-Za-z]{2,}'
+# Google OAuth 客户端密钥（GOC+SPX 前缀）与私钥块：只可能来自真实凭据，任何位置出现都算泄漏。
+# 本行刻意用字符串拼接写出前缀，免得闸门自己的源码被自己的正则命中。
+$secretRe = 'GOC' + 'SPX-|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 $textExt = @('.json', '.js', '.css', '.html', '.md', '.txt', '.iss', '.ps1', '.yml', '.yaml', '.xml', '.go', '.mod')
 
 function Get-OwnedLeaks {
@@ -181,6 +184,9 @@ function Get-OwnedLeaks {
         $m = Select-String -LiteralPath $file.FullName -Pattern $emailRe -ErrorAction SilentlyContinue |
              Where-Object { $_.Line -notmatch '@example\.(com|invalid|org)' }
         if ($m) { "$Label $rel`:$($m[0].LineNumber) [真实邮箱]" }
+        # 密钥判据不加 @example 豁免：假值写不出该前缀，命中即真凭据。
+        $m = Select-String -LiteralPath $file.FullName -Pattern $secretRe -ErrorAction SilentlyContinue
+        if ($m) { "$Label $rel`:$($m[0].LineNumber) [OAuth 客户端密钥/私钥]" }
     }
     return @($found)
 }
@@ -189,7 +195,7 @@ $stagedFiles = @(Get-ChildItem -LiteralPath $Staging -Recurse -File -ErrorAction
     Where-Object { $_.FullName.Substring($Staging.Length).TrimStart('\') -notlike 'app\*' })
 
 $ownedSourceFiles = @()
-foreach ($rel in @('README.md', 'RELEASE-NOTES-v0.1.1.md', 'installer.iss', '.gitignore', 'go.mod')) {
+foreach ($rel in @('README.md', 'RELEASE-NOTES-v0.1.1.md', 'installer.iss', '.gitignore', 'go.mod', 'LICENSE')) {
     $p = Join-Path $ProjectRoot $rel
     if (Test-Path -LiteralPath $p -PathType Leaf) { $ownedSourceFiles += (Get-Item -LiteralPath $p) }
 }

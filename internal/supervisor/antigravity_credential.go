@@ -5,9 +5,7 @@ package supervisor
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -180,28 +178,8 @@ type antigravityCredentialBlob struct {
 	Email string `json:"email"`
 }
 
-// decodeJWTPayload 解出 JWT 的 payload 段。仅用于读取身份，不校验签名
-// （我们不是校验方，签名校验是宿主的事）。
-func decodeJWTPayload(jwt string) map[string]any {
-	parts := strings.Split(jwt, ".")
-	if len(parts) < 2 {
-		return nil
-	}
-	seg := strings.TrimRight(parts[1], "=")
-	data, err := base64.RawURLEncoding.DecodeString(seg)
-	if err != nil {
-		if d2, err2 := base64.StdEncoding.DecodeString(parts[1]); err2 == nil {
-			data = d2
-		} else {
-			return nil
-		}
-	}
-	var m map[string]any
-	if json.Unmarshal(data, &m) != nil {
-		return nil
-	}
-	return m
-}
+// decodeJWTPayload 已移到 credential_parse.go（与平台无关），
+// 因为 Login Broker 的判定逻辑也要用它，而那一份必须跨平台可编译。
 
 // ---------------------------------------------------------------------------
 // cockpit 账号库（.antigravity_cockpit）
@@ -509,6 +487,35 @@ func ReadHostLoginEmailCached() (string, error) {
 	return email, err
 }
 
+// invalidateHostLoginCache 立刻作废身份缓存。
+//
+// 每一次对系统凭据的写/删都必须跟一次它：缓存 5 秒是给面板轮询用的，
+// 而「我刚刚删掉了凭据 / 刚写入了新账号」这种时刻，读到 5 秒前的旧账号
+// 就是事实错误 —— 登录 Broker 的轮询正建立在这个前提上。
+func invalidateHostLoginCache() {
+	hostLoginCacheMu <- struct{}{}
+	hostLoginCachedVal = ""
+	hostLoginCachedAt = time.Time{}
+	<-hostLoginCacheMu
+}
+
+// deleteAntigravityCredentialRaw 删除系统凭据（原本就不存在时视为成功）。
+//
+// 这是「添加账号」流程里唯一会**主动清空**登录态的动作，因此刻意做得保守：
+// 只删那一条 target=gemini:antigravity 的 machine 级凭据，不碰别的任何凭据。
+func deleteAntigravityCredentialRaw() error {
+	target, err := syscall.UTF16PtrFromString(antigravityCredTarget)
+	if err != nil {
+		return fmt.Errorf("凭据目标名编码失败: %w", err)
+	}
+	r1, _, callErr := procCredDeleteW.Call(uintptr(unsafe.Pointer(target)), uintptr(credTypeGeneric), 0)
+	invalidateHostLoginCache()
+	if r1 == 0 && callErr != syscall.Errno(win32ErrorNotFound) {
+		return fmt.Errorf("CredDeleteW(%s) 失败: %v", antigravityCredTarget, callErr)
+	}
+	return nil
+}
+
 // ApplyAntigravityCredential 把指定账号写进 Windows 凭据管理器，使其成为宿主真实登录身份。
 //
 // 幂等：若当前凭据已经属于该账号，直接返回 nil —— 这既是省一次写，更重要的是
@@ -540,10 +547,7 @@ func ApplyAntigravityCredential(email string) error {
 		antigravityCredTarget, acc.Email, len(payload), len(acc.Token.RefreshToken))
 
 	// 写入即失效身份缓存：下一次读取必须反映新事实，而不是 5 秒前的旧账号。
-	hostLoginCacheMu <- struct{}{}
-	hostLoginCachedVal = ""
-	hostLoginCachedAt = time.Time{}
-	<-hostLoginCacheMu
+	invalidateHostLoginCache()
 	return nil
 }
 
@@ -563,20 +567,22 @@ type CredentialSnapshot struct {
 }
 
 // SnapshotAntigravityCredential 把当前 Windows 凭据管理器里 gemini:antigravity 的
-// 真实 blob 原样归档到 ~/.2ag/vault/<email_hash>.bin。
+// 真实 blob 归档到 ~/.2ag/vault/<email_hash>.bin —— **DPAPI(CurrentUser) 加密后**。
 //
-// 为什么需要它：宿主换号（ApplyAntigravityCredential）会用 cockpit 账号库里的 token
+// 为什么需要它：宿主换号（ApplyAntigravityCredential）会用账号库里的 token
 // 覆盖系统凭据，而宿主自己刷新过的 token 只存在于凭据管理器里 —— 一旦被覆盖就再也拿不回来。
 // 归档是那条唯一能把「当前真实登录态」留存的路径。
 //
-// 三处刻意的诚实设计：
-//  1. 原样落盘。不解析、不重编码、不裁剪 —— 这个文件的用途就是「将来能原封不动写回去」，
-//     任何加工都会引入「归档的和当时的不一样」的风险。
+// 四处刻意的诚实/安全设计：
+//  1. 原样归档。不解析、不重编码、不裁剪 —— 这个文件的用途就是「将来能原封不动写回去」，
+//     任何加工都会引入「归档的和当时的不一样」的风险。（加密不算加工：加解密是恒等映射。）
 //  2. 归属必须真读出来。邮箱来自 id_token 的 JWT payload（宿主登录后补写的字段），
 //     读不到就返回错误并拒绝落盘，绝不用 active_account.txt 之类的旁证顶替。
 //  3. 文件名是 email 的 SHA-256 全值（64 位十六进制）。用哈希而非清洗后的邮箱，
 //     是为了让「同一邮箱永远同一个文件」且不受大小写/字符集差异影响；
-//     代价是不可逆，因此同时在索引文件里留下明文映射。
+//     代价是不可逆，因此同时在索引文件里留下明文映射（索引只存元数据）。
+//  4. 落盘内容一定是 DPAPI 密文。0.1.1 之前这里是明文 WriteFile ——
+//     任何能读用户主目录的进程就等于拿到了别人的 refresh_token。
 func SnapshotAntigravityCredential() (CredentialSnapshot, error) {
 	var out CredentialSnapshot
 
@@ -597,59 +603,19 @@ func SnapshotAntigravityCredential() (CredentialSnapshot, error) {
 		return out, fmt.Errorf("无法从凭据中确定所属邮箱（id_token 缺少 email 字段），拒绝写入无名归档")
 	}
 
+	account, err := StoreVaultCredential(email, displayNameFromCredentialPayload(raw), raw)
+	if err != nil {
+		return out, err
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return out, fmt.Errorf("定位用户目录失败: %w", err)
 	}
-	vaultDir := filepath.Join(home, ".2ag", "vault")
-	if err := os.MkdirAll(vaultDir, 0o700); err != nil {
-		return out, fmt.Errorf("创建归档目录失败: %w", err)
-	}
-
-	sum := sha256.Sum256([]byte(strings.ToLower(email)))
-	name := hex.EncodeToString(sum[:]) + ".bin"
-	target := filepath.Join(vaultDir, name)
-
-	// 0600：凭据 blob 里含 refresh_token，等价于长期登录凭证，权限必须收到本人。
-	if err := os.WriteFile(target, raw, 0o600); err != nil {
-		return out, fmt.Errorf("写入归档失败: %w", err)
-	}
-
-	// 索引：哈希文件名不可逆，没有它这个目录就是一堆无主的二进制。
-	// 写入失败不算归档失败 —— blob 已经安全落盘了，索引只是便利设施。
-	writeVaultIndex(vaultDir, email, name, len(raw))
-
 	out.Email = email
-	out.Path = target
+	out.Path = filepath.Join(home, ".2ag", "vault", account.File)
 	out.Bytes = len(raw)
-	log.Printf("[2ag] 已归档凭据快照: %s (%d B) ⇒ %s", email, len(raw), target)
+	log.Printf("[2ag] 已归档凭据快照（DPAPI 加密）: %s (%d B) ⇒ %s", email, len(raw), out.Path)
 	return out, nil
-}
-
-// vaultIndexFile 是归档目录下的映射表 ~/.2ag/vault/index.json。
-// 形态刻意保持最简：一个邮箱到文件名的对象，外加更新时间。
-// 不用数组是为了让重复归档同一账号天然幂等（同键覆盖，不会堆积历史副本）。
-type vaultIndexFile struct {
-	UpdatedAt string            `json:"updated_at"`
-	Entries   map[string]string `json:"entries"` // email → 文件名
-}
-
-func writeVaultIndex(vaultDir, email, name string, size int) {
-	idxPath := filepath.Join(vaultDir, "index.json")
-	idx := vaultIndexFile{Entries: map[string]string{}}
-	if prev, err := os.ReadFile(idxPath); err == nil {
-		var loaded vaultIndexFile
-		// 解析失败就从空表重建：索引是便利设施，不能因为它坏了而挡住归档。
-		if json.Unmarshal(prev, &loaded) == nil && loaded.Entries != nil {
-			idx.Entries = loaded.Entries
-		}
-	}
-	idx.Entries[email] = name
-	idx.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-	blob, err := json.MarshalIndent(idx, "", "  ")
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(idxPath, blob, 0o600)
 }
 

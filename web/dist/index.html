@@ -2567,6 +2567,69 @@
     color: var(--text-primary);
     overflow-wrap: anywhere;
   }
+  /* 眼睛按钮：与邮箱同一行，尺寸对齐 14.5px 文本的行高。
+     默认低对比，悬停与「已展开」时才提亮 —— 展开态必须一眼可辨。 */
+  .acct-eye {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    margin-left: 4px;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text-tertiary);
+    vertical-align: middle;
+    transition: color .15s ease, background-color .15s ease;
+  }
+  .acct-eye:hover {
+    color: var(--text-primary);
+    background: var(--2ag-surface-2);
+  }
+  .acct-eye:focus-visible {
+    outline: 2px solid var(--md-sys-color-primary, #4285f4);
+    outline-offset: 1px;
+  }
+  .acct-eye svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+  }
+  .acct-eye svg path {
+    fill: currentColor;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* 睁眼 = 已展开（显示完整邮箱）；闭眼 = 已隐藏。两者互斥。 */
+  .acct-eye .eye-off { display: none; }
+  .acct-eye[data-revealed="false"] .eye-open { display: none; }
+  .acct-eye[data-revealed="false"] .eye-off { display: block; }
+  .acct-eye[data-revealed="true"] { color: var(--text-primary); }
+  /* vault 行的邮箱 + 眼睛：眼睛不能把行挤变形，所以用 flex + min-width:0。
+     字号沿用原先的内联样式（12px / 600），避免 vault 行视觉重量变大。 */
+  .vault-mail-row {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .vault-mail-row .acct-eye {
+    width: 17px;
+    height: 17px;
+    margin-left: 3px;
+  }
+  .vault-mail-row .acct-eye svg {
+    width: 12px;
+    height: 12px;
+  }
   .acct-weight {
     font-family: 'Cascadia Mono', Consolas, monospace;
     font-size: 10.5px;
@@ -3289,6 +3352,28 @@
       <div class="col" id="accounts-container" style="gap:16px;">
         <!-- Rendered dynamically -->
       </div>
+
+      <!-- ACCOUNT VAULT：2Ag 自己的账号保险库（DPAPI 加密）。
+           与上面的账号矩阵分工不同：矩阵说的是「宿主现在是谁在干活、配额多少」，
+           这里说的是「2Ag 手里存着哪些账号、用哪个能切过去」。 -->
+      <div class="metric-box" style="margin-top:16px;">
+        <div class="row" style="margin-bottom:10px;">
+          <div class="flex-gap">
+            <span style="font-size:13px; font-weight:700; color:var(--text-primary);">账号保险库</span>
+            <span class="status-pill pill-blue">DPAPI 加密</span>
+          </div>
+          <div class="flex-gap">
+            <span id="vault-current" class="vault-mail-row" style="font-size:11px; color:var(--text-secondary);">当前登录身份：--</span>
+            <button class="btn btn-tonal" style="padding:4px 10px;" onclick="loadVault()">刷新</button>
+          </div>
+        </div>
+        <div class="col" id="vault-container" style="gap:8px;">
+          <!-- Rendered dynamically -->
+        </div>
+        <div id="vault-note" style="font-size:11px; color:var(--text-tertiary); margin-top:8px; line-height:1.5;">
+          保险库只保存 DPAPI(CurrentUser) 加密后的完整登录凭据；index.json 只登记邮箱、显示名与时间，不含任何 token。
+        </div>
+      </div>
     </div>
 
     <!-- 03 SESSIONS AUDIT (真实会话审计 - 项目树与 Codex++ 级管控中枢) -->
@@ -3806,42 +3891,46 @@
     <div class="row" style="margin-bottom: 16px; border-bottom: 1px solid var(--md-sys-color-outline); padding-bottom: 12px;">
       <div class="flex-gap">
         <span style="font-weight:700; font-size:16px; color:var(--text-primary);">接入新账号与凭证管理</span>
-        <span class="status-pill pill-blue">GOOGLE PROTOCOL</span>
+        <span class="status-pill pill-blue">OFFICIAL LOGIN BROKER</span>
       </div>
       <button class="btn btn-quiet-danger" style="padding:4px 10px;" onclick="closeAddAccountModal()">✕</button>
     </div>
 
     <!-- 3-Tab Selector -->
     <div class="modal-tab-bar">
-      <button class="modal-tab-btn active" id="tab-btn-oauth" onclick="switchModalTab('oauth')">⚡ 网页一键授权</button>
-      <button class="modal-tab-btn" id="tab-btn-json" onclick="switchModalTab('json')">📁 导入凭证文件 (JSON)</button>
-      <button class="modal-tab-btn" id="tab-btn-manual" onclick="switchModalTab('manual')">🛠️ 高级手动配置</button>
+      <button class="modal-tab-btn active" id="tab-btn-oauth" onclick="switchModalTab('oauth')">⚡ 官方原生登录</button>
+      <button class="modal-tab-btn" id="tab-btn-json" onclick="switchModalTab('json')">📁 导入账号清单 (JSON)</button>
+      <button class="modal-tab-btn" id="tab-btn-manual" onclick="switchModalTab('manual')">🛠️ 高级手动登记</button>
     </div>
 
-    <!-- TAB 1: OAuth Loopback Flow (Default) -->
+    <!-- TAB 1: Official Native Login (Default) -->
     <div class="modal-tab-pane active" id="modal-tab-oauth">
       <div style="font-size:12px; color:var(--text-secondary); line-height:1.5; background:var(--md-sys-color-surface-container); border:1px solid var(--md-sys-color-outline); padding:12px 14px; border-radius:14px;">
-        <span style="color:var(--google-green); font-weight:700;">[零门槛接入]</span> 官方本地回环授权。点击下方按钮后，将自动唤起系统默认浏览器进入 Google 授权页。完成授权后，2Ag 本地回环网关将自动截获授权凭证并同步配额，无需手动提取 Token。
-      </div>
-
-      <div>
-        <label style="font-size:11px; font-weight:600; color:var(--text-secondary);">前置代理 (PROXY - 可选，若国内网络无法直连 Google 授权请填写)</label>
-        <input class="modal-input" id="oauth-proxy" placeholder="例如: http://127.0.0.1:7890 (直连则留空)">
+        <span style="color:var(--google-green); font-weight:700;">[官方原生登录]</span>
+        点击下方按钮后，2Ag 会以零参数启动你本机的官方 Antigravity（不注入、不改它的任何文件），并临时清空当前登录凭据让它进入登录页。
+        <b>Google 授权完全由官方 Antigravity 与系统浏览器完成</b>——2Ag 不持有、也不分发任何 Google OAuth Client 凭据。
+        登录成功后 2Ag 会把账号加密存入保险库，并自动恢复你原来的账号。
       </div>
 
       <div style="margin-top:6px;">
-        <button class="btn btn-primary" id="btn-start-oauth" style="width:100%; padding:12px;" onclick="startBrowserOAuth()">
-          🌐 启动系统浏览器前往 Google 登录
+        <button class="btn btn-primary" id="btn-start-broker" style="width:100%; padding:12px;" onclick="startBrokerLogin()">
+          🚀 启动官方 Antigravity 并登录
         </button>
       </div>
 
       <div class="metric-box" style="margin-top:4px;">
         <div class="row" style="margin-bottom:6px;">
-          <span style="font-size:12px; font-weight:600; color:var(--md-sys-color-primary);">授权网关监听状态</span>
-          <span class="status-pill pill-dark" id="oauth-status-badge">● 准备就绪</span>
+          <span style="font-size:12px; font-weight:600; color:var(--md-sys-color-primary);">添加账号流程</span>
+          <span class="status-pill pill-dark" id="broker-status-badge">● 准备就绪</span>
         </div>
-        <div id="oauth-status-text" style="font-size:12px; color:var(--text-secondary); font-family:monospace; line-height:1.4;">
-          等待指令：点击上方按钮将开启临时本地回环监听并启动浏览器。
+        <div id="broker-status-text" style="font-size:12px; color:var(--text-secondary); line-height:1.5;">
+          等待指令：点击上方按钮将备份当前凭据、启动官方 Antigravity，并等待你在官方窗口完成 Google 登录。
+        </div>
+        <div id="broker-steps" style="font-size:11px; color:var(--text-tertiary); font-family:monospace; line-height:1.6; margin-top:8px; max-height:120px; overflow:auto;"></div>
+        <div style="margin-top:10px;">
+          <button class="btn btn-tonal" id="btn-cancel-broker" style="width:100%;" onclick="cancelBrokerLogin()" disabled>
+            ✕ 取消并恢复原账号
+          </button>
         </div>
       </div>
     </div>
@@ -3849,30 +3938,36 @@
     <!-- TAB 2: JSON Import -->
     <div class="modal-tab-pane" id="modal-tab-json">
       <div style="font-size:12px; color:var(--text-secondary); line-height:1.5; background:var(--md-sys-color-surface-container); border:1px solid var(--md-sys-color-outline); padding:12px 14px; border-radius:14px;">
-        <span style="color:var(--md-sys-color-primary); font-weight:700;">[批量凭据导入]</span> 支持导入 accounts.json / credentials.json，或 Google Cloud Platform (GCP) 客户端凭据。系统将自动解析账号、Token 与权重。
+        <span style="color:var(--md-sys-color-primary); font-weight:700;">[仅登记账号清单]</span>
+        支持导入 accounts.json 或账号数组/单对象。<b>只登记邮箱与显示名，不摄入任何 token</b>——凭据只能通过官方原生登录获取。
+        GCP/OAuth 客户端凭据文件不被接受：2Ag 不是任何人的 OAuth 客户端。
       </div>
 
       <div class="drop-zone" id="json-drop-zone" onclick="document.getElementById('json-file-input').click()">
         <div style="font-size:24px; margin-bottom:4px;">📥</div>
-        <div style="font-size:13px; font-weight:600; color:var(--text-primary);">点击浏览文件 或 将 .json 凭据拖拽至此</div>
-        <div style="font-size:11px; color:var(--text-tertiary); margin-top:3px;">支持 accounts.json / credentials.json / GCP JSON</div>
+        <div style="font-size:13px; font-weight:600; color:var(--text-primary);">点击浏览文件 或 将 .json 账号清单拖拽至此</div>
+        <div style="font-size:11px; color:var(--text-tertiary); margin-top:3px;">支持 accounts.json / 账号数组 / 单个账号对象</div>
         <input type="file" id="json-file-input" accept=".json,application/json" style="display:none;" onchange="handleJsonFileSelect(event)">
       </div>
 
       <div>
-        <label style="font-size:11px; font-weight:600; color:var(--text-secondary);">或直接粘贴 JSON 凭据内容:</label>
-        <textarea class="modal-input" id="json-paste-area" style="height:90px; resize:vertical;" placeholder='[\n  {\n    "email": "user@example.com",\n    "refresh_token": "1//0g...",\n    "name": "Dev Account"\n  }\n]'></textarea>
+        <label style="font-size:11px; font-weight:600; color:var(--text-secondary);">或直接粘贴 JSON 账号清单:</label>
+        <textarea class="modal-input" id="json-paste-area" style="height:90px; resize:vertical;" placeholder='[\n  {\n    "email": "user@example.com",\n    "name": "Dev Account"\n  }\n]'></textarea>
       </div>
 
       <div class="flex-gap" style="justify-content:flex-end; margin-top:6px;">
         <button class="btn btn-tonal" onclick="closeAddAccountModal()">取消</button>
-        <button class="btn btn-primary" onclick="submitJsonImport()">📁 解析并录入凭证</button>
+        <button class="btn btn-primary" onclick="submitJsonImport()">📁 解析并登记账号</button>
       </div>
     </div>
 
     <!-- TAB 3: Advanced Manual Config -->
     <div class="modal-tab-pane" id="modal-tab-manual">
       <div style="display:flex; flex-direction:column; gap:10px;">
+        <div style="font-size:12px; color:var(--text-secondary); line-height:1.5; background:var(--md-sys-color-surface-container); border:1px solid var(--md-sys-color-outline); padding:12px 14px; border-radius:14px;">
+          手动登记只写「账号清单」（邮箱与别名），用于让某个邮箱出现在账号矩阵里。
+          这里<b>不接受 refresh_token</b>：2Ag 只保存由官方 Antigravity 登录产生的凭据（DPAPI 加密）。
+        </div>
         <div>
           <label style="font-size:11px; font-weight:600; color:var(--text-secondary);">账号别名 (ALIAS)</label>
           <input class="modal-input" id="m-alias" placeholder="例如: primary-coder">
@@ -3881,18 +3976,10 @@
           <label style="font-size:11px; font-weight:600; color:var(--text-secondary);">Google 邮箱地址 (EMAIL)</label>
           <input class="modal-input" id="m-email" placeholder="user@example.com">
         </div>
-        <div>
-          <label style="font-size:11px; font-weight:600; color:var(--text-secondary);">OAuth Refresh Token (1//...)</label>
-          <input class="modal-input" id="m-token" placeholder="1//0gxxxxxx">
-        </div>
-        <div>
-          <label style="font-size:11px; font-weight:600; color:var(--text-secondary);">前置代理 (PROXY - 可选)</label>
-          <input class="modal-input" id="m-manual-proxy" placeholder="http://127.0.0.1:7890">
-        </div>
       </div>
       <div class="flex-gap" style="margin-top: 14px; justify-content: flex-end;">
         <button class="btn btn-tonal" onclick="closeAddAccountModal()">取消</button>
-        <button class="btn btn-primary" onclick="saveManualAccount()">💾 保存并测活</button>
+        <button class="btn btn-primary" onclick="saveManualAccount()">💾 登记账号</button>
       </div>
     </div>
 
@@ -3939,6 +4026,23 @@ if (document.readyState === 'loading') {
 } else {
   initTabs();
 }
+
+// ── 邮箱眼睛：全局事件委托 ──────────────────────────────────────────
+// 必须用委托而不是逐个绑定，原因有两个：
+//   1. 账号卡片、vault 列表、dashboard 邮箱都会在每次刷新时被 innerHTML 整体重写，
+//      逐个绑定只能活到下一次刷新。
+//   2. 同一个页面上有四处独立的邮箱渲染点（dashboard / vault 当前身份 / 账号卡片 /
+//      vault 列表），逐个绑定容易漏。
+// 绑在 document 上，用 closest('.acct-eye') 命中，一次覆盖全部，且天然支持后续动态插入。
+document.addEventListener('click', function (e) {
+  const eye = e.target && e.target.closest ? e.target.closest('.acct-eye') : null;
+  if (!eye) return;
+  // 眼睛可能嵌在本身带点击语义的容器里（例如账号卡片的操作区），
+  // 不拦下来的话一次点击会同时触发脱敏切换和别的动作。
+  e.preventDefault();
+  e.stopPropagation();
+  toggleEmailReveal(eye);
+}, true);
 
 let globalState = {};
 // 上一次为回显壁纸状态而请求过的路径。null 表示「还没读过」，
@@ -4384,7 +4488,21 @@ function renderQuotaBar(barElement, percent) {
 function bindActiveAccountToDashboard(currentAcc, isLive) {
   if (!currentAcc) return;
   const emailEl = document.getElementById('dash-account-email') || document.getElementById('dash-primary-email');
-  if (emailEl) emailEl.textContent = currentAcc.email;
+  // 默认脱敏：完整值放 data-full，眼睛按钮负责展开。textContent 会让 HTML 实体原样显示，
+  // 所以这里用 innerHTML + 已转义的值。
+  //
+  // 只在「邮箱变了」或「展开态变了」时才重写 DOM。probeRealHost 每 1.5s 会调到这里一次，
+  // 无条件 innerHTML 会顺带抹掉用户刚点开的展开状态，而且每拍重建一次节点本身也是浪费。
+  if (emailEl) {
+    const want = String(currentAcc.email || '');
+    const wantShown = isEmailRevealed(want);
+    const have = emailEl.querySelector('.acct-mail');
+    const haveRaw = have ? (have.dataset.raw || '') : null;
+    const haveShown = have ? have.dataset.shown === 'true' : null;
+    if (haveRaw !== want || haveShown !== wantShown) {
+      emailEl.innerHTML = emailCellHtml(currentAcc.email);
+    }
+  }
 
   const liveBadge = document.getElementById('dash-account-live-badge');
   if (liveBadge) {
@@ -4862,6 +4980,96 @@ function escapeHtml(text) {
   return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+// ── 账号邮箱脱敏 ────────────────────────────────────────────────────
+// 邮箱默认以「local-part 首字符 + 星号 + 尾字符@完整域名」露出，点击旁边的眼睛才显示全文。
+// 默认隐藏是刻意的：截图、录屏、直播、共享屏幕时不必先手动打码。
+// 脱敏发生在**渲染层**，不是丢数据 —— 完整邮箱仍留在 data-email / onclick 里，
+// 设为主控、探活、移除、切换这些动作全部不受影响。
+//
+// 只脱敏 local-part：它是身份标识；domain 是公开信息（gmail.com / outlook.com 谁都知道），
+// 完整保留让用户一眼认出这是邮箱、也能快速区分多个账号。
+// 星号固定 3 个而非按真实长度铺开 —— 长度本身也不外泄。
+function maskEmail(raw) {
+  const s = String(raw === undefined || raw === null ? "" : raw);
+  if (!s) return "";
+  const at = s.lastIndexOf("@");
+  if (at <= 0) return s;                 // 无 @ 或 @ 开头 ⇒ 不是邮箱，原样返回
+  const local = s.slice(0, at);
+  const domain = s.slice(at + 1);
+  if (!domain) return local;             // "a@" 这种残缺输入只返回 local
+  let masked;
+  if (local.length === 1) masked = local;
+  else if (local.length === 2) masked = local.charAt(0) + "*";
+  else masked = local.charAt(0) + "***" + local.charAt(local.length - 1);
+  return masked + "@" + domain;
+}
+
+// 眼睛按钮：与邮箱文本并列。用 button 而非 span —— 键盘可聚焦，aria-pressed 表达真实状态。
+function eyeBtnHtml(shown, label) {
+  const title = shown ? "隐藏邮箱" : "显示完整邮箱";
+  return (
+    '<button class="acct-eye" type="button" data-revealed="' + (shown ? "true" : "false") + '"' +
+    ' aria-pressed="' + (shown ? "true" : "false") + '"' +
+    ' aria-label="' + title + '" title="' + title + '">' +
+    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+    '<path class="eye-open" d="M12 5c-5 0-9 4.5-9 7s4 7 9 7 9-4.5 9-7-4-7-9-7zm0 11a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z"/>' +
+    '<path class="eye-off" d="M3 3l18 18M10.6 10.7a3 3 0 004.2 4.2M6.5 7.1C4.2 8.6 3 11 3 12c0 2.5 4 7 9 7 1.6 0 3.1-.5 4.4-1.3M17.7 16.6C19.8 15.1 21 12.9 21 12c0-2.5-4-7-9-7-.9 0-1.8.2-2.6.5"/>' +
+    '</svg></button>'
+  );
+}
+
+// 一行邮箱 = 文本 + 眼睛。完整值放 data-full（已转义，供 innerHTML 回填）。
+//
+// 展开状态存在 revealedEmails 里，而不是只存在 DOM 的 data-shown 上。
+// 原因：dashboard 的邮箱会被 probeRealHost 每 1.5s 整体重写一次（走
+// bindActiveAccountToDashboard），账号卡片与 vault 列表也在每次刷新时重建。
+// 状态如果只活在 DOM 上，用户点开之后最多 1.5 秒就被下一拍渲染抹回脱敏态。
+// 以邮箱为 key 而不是以元素为 key：同一账号出现在 dashboard、账号卡片、
+// vault 列表时，展开一次应当处处一致。
+const revealedEmails = new Set();
+
+function isEmailRevealed(rawEmail) {
+  return revealedEmails.has(String(rawEmail || ""));
+}
+
+function emailCellHtml(rawEmail) {
+  const full = escapeHtml(rawEmail || "(无邮箱)");
+  const shown = isEmailRevealed(rawEmail);
+  return (
+    '<span class="acct-mail" data-full="' + full + '" data-raw="' + escapeHtml(String(rawEmail || "")) + '" data-shown="' + (shown ? "true" : "false") + '">' + (shown ? full : escapeHtml(maskEmail(rawEmail) || "(无邮箱)")) + "</span>" +
+    eyeBtnHtml(shown, full)
+  );
+}
+
+// 眼睛点击的统一处理：按行内的 data-full 在脱敏/完整之间切换。动作按钮不受影响。
+function toggleEmailReveal(btn) {
+  if (!btn) return;
+  const row = btn.parentNode;
+  const span = row ? row.querySelector(".acct-mail") : null;
+  if (!span) return;
+  const show = span.dataset.shown !== "true";
+  const raw = span.dataset.raw || unescapeHtml(span.dataset.full);
+  // 先落状态，再改 DOM：后续任何一次重渲染都会用 emailCellHtml 读回同一个状态。
+  if (show) revealedEmails.add(String(raw));
+  else revealedEmails.delete(String(raw));
+  span.dataset.shown = show ? "true" : "false";
+  span.innerHTML = show ? span.dataset.full : escapeHtml(maskEmail(raw) || "(无邮箱)");
+  btn.dataset.revealed = show ? "true" : "false";
+  btn.setAttribute("aria-pressed", show ? "true" : "false");
+  const title = show ? "隐藏邮箱" : "显示完整邮箱";
+  btn.setAttribute("title", title);
+  btn.setAttribute("aria-label", title);
+}
+
+// data-full 存的是已转义文本；脱敏前必须还原成原文，否则 &amp; 之类的实体会参与掩码计算。
+function unescapeHtml(value) {
+  return String(value === undefined || value === null ? "" : value)
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&");
+}
+
 function renderSessions(sessions) {
   const list = document.getElementById('sessions-list');
   if (!list) return;
@@ -5052,6 +5260,120 @@ function loadAccounts() {
     .catch(function(err) {
       console.error(err);
     });
+  loadVault();
+}
+
+// ── 账号保险库（2Ag 自己的 DPAPI 保险库）─────────────────────────────────
+// 与上面账号矩阵的区别必须在界面上说清楚：矩阵回答「宿主现在是谁、配额多少」，
+// 保险库回答「2Ag 手里存着哪些账号、能不能切过去」。
+// 列表数据只有元数据（邮箱/显示名/时间/是否加密）——接口从不返回 token。
+let vaultAccounts = [];
+
+function loadVault() {
+  fetch('/api/v1/accounts/vault')
+    .then(function(r) { return r.json(); })
+    .then(function(data) { renderVault(data); })
+    .catch(function(err) { console.error(err); });
+}
+
+function renderVault(data) {
+  const box = document.getElementById('vault-container');
+  const cur = document.getElementById('vault-current');
+  const current = (data && data.current) || '';
+  if (cur) cur.innerHTML = '当前登录身份：' + (current ? emailCellHtml(current) : '--');
+
+  vaultAccounts = (data && data.accounts) || [];
+  if (!box) return;
+
+  if (vaultAccounts.length === 0) {
+    box.innerHTML = '<div style="font-size:12px; color:var(--text-secondary);">保险库为空：点击右上角「接入新账号」，用官方 Antigravity 原生登录添加一个账号。</div>';
+    return;
+  }
+
+  box.innerHTML = vaultAccounts.map(function(a, idx) {
+    const isCurrent = current && a.email && a.email.toLowerCase() === current.toLowerCase();
+    const meta = [];
+    if (a.display_name) meta.push(escapeHtml(a.display_name));
+    if (a.updated_at) meta.push('更新 ' + escapeHtml(String(a.updated_at).replace('T', ' ').replace('Z', '')));
+    meta.push(a.encrypted ? 'DPAPI 密文' : '未加密（旧格式，下次启动会迁移）');
+
+    return [
+      '<div class="row" style="border:1px solid var(--md-sys-color-outline); border-radius:12px; padding:8px 12px;">',
+        '<div class="flex-gap">',
+          '<span class="vault-mail-row">' + emailCellHtml(a.email) + '</span>',
+          isCurrent ? '<span class="status-pill pill-green">当前身份</span>' : '',
+        '</div>',
+        '<div class="flex-gap">',
+          '<span style="font-size:11px; color:var(--text-tertiary);">' + meta.join(' · ') + '</span>',
+          '<button class="btn btn-tonal" style="padding:4px 10px;" onclick="switchVaultAccount(' + idx + ')">切换</button>',
+          '<button class="btn btn-quiet-danger" style="padding:4px 10px;" onclick="deleteVaultAccount(' + idx + ')">删除</button>',
+        '</div>',
+      '</div>'
+    ].join('');
+  }).join('');
+}
+
+// 切换账号：事务化（后端负责停宿主 → 写凭据 → 重启 → 校验 → 失败回滚）。
+// 前端只负责如实展示结果，特别是**回滚是否成功** —— 用户必须知道自己现在在哪个账号上。
+function switchVaultAccount(idx) {
+  const a = vaultAccounts[idx];
+  if (!a || !a.email) return;
+  if (!confirm('切换到 ' + a.email + ' ？\n宿主会被重启，系统登录身份会切换到这个账号（失败会自动回滚）。')) return;
+
+  logMsg('正在切换账号到 ' + a.email + '（停宿主 → 写凭据 → 重启 → 校验）...', 'term-cyan');
+  fetch('/api/v1/host/switch-and-restart', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: a.email })
+  })
+  .then(function(r) {
+    return r.json().then(function(j) { return { ok: r.ok, body: j }; });
+  })
+  .then(function(res) {
+    const body = res.body || {};
+    const result = body.result || {};
+    if (res.ok && body.success) {
+      logMsg('已切换到 ' + (body.email || a.email) + '：' + (body.message || ''), 'term-ok');
+    } else {
+      let msg = body.message || '未知原因';
+      if (result.rolled_back) {
+        msg += '（已回滚，当前身份：' + (result.verified_owner || result.previous_owner || '未知') + '）';
+      }
+      logMsg('切换失败：' + msg, 'term-err');
+      alert('切换失败：' + msg);
+    }
+    loadAccounts();
+    loadVault();
+  })
+  .catch(function(err) {
+    logMsg('切换请求异常: ' + err.message, 'term-err');
+    alert('切换请求异常: ' + err.message);
+  });
+}
+
+// 删除保险库里的账号：只删 2Ag 自己的加密副本，不动系统当前登录凭据。
+function deleteVaultAccount(idx) {
+  const a = vaultAccounts[idx];
+  if (!a || !a.email) return;
+  if (!confirm('从保险库删除 ' + a.email + ' ？\n（只删除 2Ag 保存的加密副本，不会改变当前登录状态）')) return;
+
+  fetch('/api/v1/accounts/vault/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: a.email })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data && data.success) {
+      logMsg('已从保险库删除 ' + a.email, 'term-ok');
+    } else {
+      logMsg('删除失败: ' + ((data && data.message) || '未知原因'), 'term-err');
+    }
+    loadVault();
+  })
+  .catch(function(err) {
+    logMsg('删除请求异常: ' + err.message, 'term-err');
+  });
 }
 
 function updateDashboardPools(accounts) {
@@ -5161,7 +5483,7 @@ function renderAccounts(accounts) {
         '<div class="acct-avatar ' + dotCls + '">' + escapeHtml(initial) + '</div>',
         '<div class="acct-ident">',
           '<div class="acct-mail-row">',
-            '<span class="acct-mail">' + escapeHtml(acc.email) + '</span>',
+            emailCellHtml(acc.email),
             weightPill,
           '</div>',
           '<div class="acct-state">',
@@ -5203,8 +5525,13 @@ function renderAccounts(accounts) {
   });
 }
 
-// 模态框与授权流程
-let oauthPollInterval = null;
+// 模态框与「添加账号」（Official Antigravity Login Broker）
+//
+// 0.1.1 起这里不再有任何自有 OAuth 客户端逻辑：没有授权 URL、没有本地回环网关、
+// 没有 code → token 交换。前端只做两件事 —— 让用户点一次「开始」，然后轮询后端
+// 流程的真实阶段（阶段名由后端给出，前端不做任何推断）。
+let brokerPollInterval = null;
+let brokerLastStage = '';
 
 function switchModalTab(tabId) {
   document.querySelectorAll('.modal-tab-btn').forEach(function(btn) { btn.classList.remove('active'); });
@@ -5219,111 +5546,165 @@ function switchModalTab(tabId) {
 function openAddAccountModal() {
   document.getElementById('add-account-modal').classList.add('active');
   switchModalTab('oauth');
+  // 打开时立刻同步一次：上一次流程可能还在跑，或者刚跑完还没被看到。
+  pollBrokerStatus();
 }
 
 function closeAddAccountModal() {
   document.getElementById('add-account-modal').classList.remove('active');
-  if (oauthPollInterval) {
-    clearInterval(oauthPollInterval);
-    oauthPollInterval = null;
+  if (brokerPollInterval) {
+    clearInterval(brokerPollInterval);
+    brokerPollInterval = null;
   }
-  resetOAuthUI();
 }
 
-function resetOAuthUI() {
-  const btn = document.getElementById('btn-start-oauth');
+function resetBrokerUI() {
+  const btn = document.getElementById('btn-start-broker');
   if (btn) {
     btn.disabled = false;
-    btn.innerText = '🌐 启动系统浏览器前往 Google 登录';
+    btn.innerText = '🚀 启动官方 Antigravity 并登录';
   }
-  const badge = document.getElementById('oauth-status-badge');
+  const cancel = document.getElementById('btn-cancel-broker');
+  if (cancel) cancel.disabled = true;
+  const badge = document.getElementById('broker-status-badge');
   if (badge) {
     badge.className = 'status-pill pill-dark';
     badge.innerText = '● 准备就绪';
   }
-  const text = document.getElementById('oauth-status-text');
+  const text = document.getElementById('broker-status-text');
   if (text) {
-    text.innerText = '等待指令：点击上方按钮将开启临时本地回环监听并启动浏览器。';
+    text.innerText = '等待指令：点击上方按钮将备份当前凭据、启动官方 Antigravity，并等待你在官方窗口完成 Google 登录。';
   }
+  const steps = document.getElementById('broker-steps');
+  if (steps) steps.innerHTML = '';
 }
 
-function startBrowserOAuth() {
-  const btn = document.getElementById('btn-start-oauth');
-  const badge = document.getElementById('oauth-status-badge');
-  const text = document.getElementById('oauth-status-text');
-  const proxy = document.getElementById('oauth-proxy').value.trim();
+const BROKER_STAGE_LABEL = {
+  idle: '● 准备就绪',
+  backing_up: '⏳ 正在备份凭据',
+  stopping: '⏳ 正在停止宿主',
+  launching_official: '⏳ 正在启动官方 Antigravity',
+  waiting_login: '⏳ 等待 Google 登录',
+  detected: '✓ 已检测到账号',
+  saving: '⏳ 正在写入保险库',
+  restoring: '⏳ 正在恢复原账号',
+  done: '✓ 完成',
+  failed: '✕ 失败',
+  cancelled: '✕ 已取消'
+};
+
+function startBrokerLogin() {
+  const btn = document.getElementById('btn-start-broker');
+  const badge = document.getElementById('broker-status-badge');
+  const text = document.getElementById('broker-status-text');
 
   btn.disabled = true;
-  btn.innerText = '⏳ 正在建立回环监听...';
+  btn.innerText = '⏳ 正在启动官方 Antigravity...';
   badge.className = 'status-pill pill-yellow';
-  badge.innerText = '⏳ 握手建立中';
-  text.innerText = '正在启动本地 OAuth 回调监听并唤起系统默认浏览器...';
-  logMsg("发起 Google OAuth 2.0 浏览器回环流程...", "term-cyan");
+  badge.innerText = '⏳ 流程启动中';
+  text.innerText = '正在备份当前凭据并启动官方 Antigravity（零参数、零注入）...';
+  logMsg('开始「添加账号」：Google 授权将由本机官方 Antigravity 原生完成', 'term-cyan');
 
-  fetch('/api/v1/oauth/login-browser', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ proxy: proxy })
-  })
-  .then(function(r) {
-    if (!r.ok) return r.text().then(function(t) { throw new Error(t); });
-    return r.json();
-  })
-  .then(function() {
-    btn.innerText = '⏳ 正在等待浏览器中授权确认...';
-    badge.innerText = '⏳ 等待授权回调';
-    text.innerText = '已唤起系统默认浏览器。请在打开的页面登录 Google 并授权。\n本地网关将自动截获授权凭证换取 Token 并初始化双配额池。';
-    logMsg("本地回环网关监听就绪，已唤起浏览器", "term-ok");
-
-    if (oauthPollInterval) clearInterval(oauthPollInterval);
-    oauthPollInterval = setInterval(pollOAuthStatus, 1200);
-  })
-  .catch(function(err) {
-    btn.disabled = false;
-    btn.innerText = '🌐 启动系统浏览器前往 Google 登录';
-    badge.className = 'status-pill pill-red';
-    badge.innerText = '✕ 启动失败';
-    text.innerText = '无法启动 OAuth 回环: ' + err.message;
-    logMsg("OAuth 流程异常: " + err.message, "term-err");
-  });
+  fetch('/api/v1/accounts/broker/start', { method: 'POST' })
+    .then(function(r) {
+      return r.json().then(function(j) { return { ok: r.ok, body: j }; });
+    })
+    .then(function(res) {
+      if (!res.ok || !res.body.success) {
+        throw new Error(res.body.message || '启动失败');
+      }
+      if (res.body.status) renderBrokerStatus(res.body.status);
+      if (brokerPollInterval) clearInterval(brokerPollInterval);
+      brokerPollInterval = setInterval(pollBrokerStatus, 1200);
+    })
+    .catch(function(err) {
+      badge.className = 'status-pill pill-red';
+      badge.innerText = '✕ 启动失败';
+      text.innerText = err.message || '无法启动添加账号流程';
+      logMsg('添加账号流程启动失败: ' + (err.message || ''), 'term-err');
+      resetBrokerUI();
+    });
 }
 
-function pollOAuthStatus() {
-  fetch('/api/v1/oauth/status')
+function cancelBrokerLogin() {
+  const cancel = document.getElementById('btn-cancel-broker');
+  if (cancel) cancel.disabled = true;
+  logMsg('已请求取消添加账号流程，2Ag 将恢复原账号...', 'term-cyan');
+  fetch('/api/v1/accounts/broker/cancel', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      const btn = document.getElementById('btn-start-oauth');
-      const badge = document.getElementById('oauth-status-badge');
-      const text = document.getElementById('oauth-status-text');
-
-      if (data.status === 'SUCCESS' && data.account) {
-        if (oauthPollInterval) {
-          clearInterval(oauthPollInterval);
-          oauthPollInterval = null;
-        }
-        badge.className = 'status-pill pill-green';
-        badge.innerText = '✓ 授权成功';
-        text.innerText = '✓ 账号 [' + data.account.email + '] 授权成功！双限制配额池已接入。';
-        if (btn) btn.innerText = '✓ 授权已完成';
-        logMsg("OAuth 握手成功！账号 " + data.account.email + " 已加入多账号矩阵", "term-ok");
-        loadAccounts();
-        setTimeout(closeAddAccountModal, 1500);
-      } else if (data.status === 'ERROR') {
-        if (oauthPollInterval) {
-          clearInterval(oauthPollInterval);
-          oauthPollInterval = null;
-        }
-        badge.className = 'status-pill pill-red';
-        badge.innerText = '✕ 授权失败';
-        text.innerText = '✕ 错误: ' + (data.error || '授权过程中断');
-        if (btn) {
-          btn.disabled = false;
-          btn.innerText = '🌐 重新尝试浏览器登录';
-        }
-        logMsg("OAuth 授权失败: " + data.error, "term-err");
-      }
+      if (data && data.status) renderBrokerStatus(data.status);
     })
     .catch(function() {});
+}
+
+function pollBrokerStatus() {
+  fetch('/api/v1/accounts/broker/status')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data && data.status) renderBrokerStatus(data.status);
+    })
+    .catch(function() {});
+}
+
+function renderBrokerStatus(st) {
+  if (!st) return;
+  const btn = document.getElementById('btn-start-broker');
+  const badge = document.getElementById('broker-status-badge');
+  const text = document.getElementById('broker-status-text');
+  const steps = document.getElementById('broker-steps');
+  const cancel = document.getElementById('btn-cancel-broker');
+
+  if (badge) {
+    badge.innerText = BROKER_STAGE_LABEL[st.stage] || ('● ' + st.stage);
+    // 颜色跟随阶段语义：绿=完成，红=失败，黄=进行中，灰=取消/待机。
+    let cls = 'pill-yellow';
+    if (st.stage === 'done') cls = 'pill-green';
+    else if (st.stage === 'failed') cls = 'pill-red';
+    else if (st.stage === 'cancelled' || st.stage === 'idle') cls = 'pill-dark';
+    badge.className = 'status-pill ' + cls;
+  }
+  if (text) text.innerText = st.message || '';
+
+  // 身份事实单独列出来：用户最关心的两件事是「我的原账号回来了吗」「新账号存住了吗」。
+  const facts = [];
+  if (st.original_email) facts.push('原账号: ' + st.original_email);
+  if (st.account_email) facts.push('本次新增: ' + st.account_email);
+  if (st.vault_saved) facts.push('保险库: 已加密写入');
+  if (st.restored) facts.push('原账号: 已恢复');
+  if (st.host_restarted) facts.push('宿主: 已按原形态重启');
+  if (st.failure_reason) facts.push('原因: ' + st.failure_reason);
+  const lines = facts.concat(st.steps || []);
+  if (steps) {
+    steps.innerHTML = lines.map(function(s) { return '<div>' + escapeHtml(s) + '</div>'; }).join('');
+    steps.scrollTop = steps.scrollHeight;
+  }
+
+  if (st.running) {
+    if (btn) { btn.disabled = true; btn.innerText = '⏳ 流程进行中...'; }
+    if (cancel) cancel.disabled = false;
+  } else {
+    if (brokerPollInterval) { clearInterval(brokerPollInterval); brokerPollInterval = null; }
+    if (cancel) cancel.disabled = true;
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = st.stage === 'done' ? '🚀 再加一个账号' : '🚀 启动官方 Antigravity 并登录';
+    }
+  }
+
+  // 阶段真正结束的那一刻才刷新列表 —— 轮询期间反复刷新会把用户正在看的列表顶掉。
+  if (st.stage !== brokerLastStage) {
+    brokerLastStage = st.stage;
+    if (st.stage === 'done') {
+      logMsg('账号已捕获并加密入库；原账号已恢复（如原本有账号）', 'term-ok');
+      loadAccounts();
+      loadVault();
+    } else if (st.stage === 'failed') {
+      logMsg('添加账号失败: ' + (st.failure_reason || st.message || ''), 'term-err');
+      loadAccounts();
+      loadVault();
+    }
+  }
 }
 
 function handleJsonFileSelect(event) {
@@ -5372,17 +5753,17 @@ function submitJsonImport() {
 function saveManualAccount() {
   const email = document.getElementById('m-email').value.trim();
   const alias = document.getElementById('m-alias').value.trim();
-  const token = document.getElementById('m-token').value.trim();
   if (!email) {
     alert("请输入 Google 邮箱地址");
     return;
   }
-  logMsg("正在持久化保存并测活账号: " + email, "term-cyan");
+  // 只登记账号清单：这里刻意不采集任何 token。
+  // 凭据的唯一来源是官方 Antigravity 的原生登录（见「官方原生登录」标签页）。
+  logMsg("正在登记账号清单: " + email, "term-cyan");
 
   const payload = [{
     email: email,
-    name: alias || email.split('@')[0],
-    refresh_token: token
+    name: alias || email.split('@')[0]
   }];
 
   fetch('/api/v1/accounts/import-json', {
@@ -5395,13 +5776,13 @@ function saveManualAccount() {
     return r.json();
   })
   .then(function() {
-    logMsg("账号保存成功: " + email + " (双配额池已初始化)", "term-ok");
+    logMsg("账号已登记: " + email + "（凭据需通过官方原生登录获取）", "term-ok");
     loadAccounts();
     closeAddAccountModal();
   })
   .catch(function(err) {
-    logMsg("保存账号失败: " + err.message, "term-err");
-    alert("保存失败: " + err.message);
+    logMsg("登记账号失败: " + err.message, "term-err");
+    alert("登记失败: " + err.message);
   });
 }
 

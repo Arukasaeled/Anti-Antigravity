@@ -26,7 +26,7 @@
 | 面板 | 内容 |
 |---|---|
 | 概览 | 宿主状态、模型配额、协议网关、上游兼容性 |
-| 账号 | 账号矩阵、OAuth 登录、JSON 凭据导入、主账号切换 |
+| 账号 | 账号矩阵、官方原生登录添加账号、账号保险库（DPAPI 加密）、主账号切换 |
 | 会话 | 会话列表、导出、删除 |
 | 视觉工坊 | 壁纸 / 模糊 / 不透明度 / 界面主题 |
 | 重力加倍 | 并发与端点相关的运行时开关 |
@@ -79,6 +79,29 @@ go build -o 2ag.exe .\cmd\2ag
 本机既没有官方安装、也还没有冻结副本时，Manager 照常打开，只显示
 「未检测到 Antigravity」，不会伪造版本、PID 或配额。
 
+### 添加账号：由官方 Antigravity 完成 Google 登录
+
+2Ag **不是** Google OAuth 客户端：仓库里没有、发布包里也没有任何 Google OAuth
+Client 凭据（client_id / client_secret）。添加账号走的是 **Official Antigravity
+Login Broker**：
+
+1. 备份当前 `gemini:antigravity` 凭据（加密归档进保险库），然后临时清空它；
+2. 以**零参数**启动你本机的官方 Antigravity（不注入、不改它的任何文件），
+   它会显示自己的登录页；
+3. 你在官方窗口里点「Continue with Google」——授权完全由官方 Antigravity 与系统
+   浏览器完成，2Ag 全程不接触你的 Google 密码、授权码或 OAuth 客户端配置；
+4. 2Ag 只做一件事：等官方把新凭据写进 Windows 凭据管理器后**捕获**它，
+   用 DPAPI(CurrentUser) 加密存入账号保险库（`~/.2ag/vault/`）；
+5. 自动恢复你原来的账号；**若流程开始时宿主正在运行**，再按原来的运行形态把它重启
+   （当时没有宿主在跑就不会自动拉起，界面会如实说明）。
+
+**账号保险库**（`~/.2ag/vault/`）：`<account-id>.bin` 是 DPAPI(CurrentUser) 加密后的
+完整登录凭据（换用户、换机器都解不开），`index.json` 只登记邮箱、显示名与时间戳 ——
+**不含任何 token**。旧版本留下的明文凭据会在首次启动时自动就地加密迁移。
+
+**切换账号**是事务化的：停宿主 → 写入目标凭据 → 按原形态重启 → 回读校验实际登录
+身份；校验不一致就自动回滚到原账号并如实报错，绝不用请求里的邮箱冒充结果。
+
 ## 数据与隐私
 
 **所有数据都留在你自己的机器上。**
@@ -87,6 +110,10 @@ go build -o 2ag.exe .\cmd\2ag
   Google 账号 / API 端点（`accounts.google.com`、`oauth2.googleapis.com`、`www.googleapis.com`）。
   **没有任何 2Ag 作者的服务器、统计、上报。**
 - 账号凭据、会话、壁纸路径等全部从**当前用户本机**读取，并写回本机的 `2ag.json`。
+- **2Ag 不持有、也不分发任何 Google OAuth Client 凭据**，不会替你向 Google 发起授权：
+  添加账号时由本机官方 Antigravity 完成原生登录，2Ag 只捕获登录结果。
+  账号凭据以 **DPAPI(CurrentUser)** 加密存放（`~/.2ag/vault/*.bin`），
+  索引文件只存邮箱等元数据，token 不进 `2ag.json`、不进日志、不进 API 响应、不进前端。
 - 仓库里**没有**任何写死的开发机数据。新装（配置里为空）时，需要用户数据的面板显示
   `--` / 不可用，而不是某个人的真实数值。
 - **不安装 CA 证书、不解密 TLS。** HTTPS `CONNECT` 是不透明隧道，因此本项目的代理
@@ -173,7 +200,7 @@ internal/config/    配置模型与持久化
 internal/core/      状态与事件总线
 internal/netproxy/  本机回环转发代理
 internal/patcher/   CDP 桥与注入载荷（injected_hub.js）
-internal/supervisor/宿主启动、账号扫描、兼容性与更新守护、壁纸、侧车
+internal/supervisor/宿主启动、账号扫描、官方登录 Broker、DPAPI 账号保险库、兼容性与更新守护、壁纸、侧车
 web/                内嵌前端（go:embed，手工维护的单文件 SPA）
 assets/             2Ag logo / 图标 / 内嵌资源
 themes/ plugins/    主题定义 / 插件契约（各自有 README）
