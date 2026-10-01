@@ -4,21 +4,27 @@
 
 ## 发布产物
 
-| 文件 | 大小 | SHA-256 |
-| --- | --- | --- |
-| `Anti-Antigravity-Setup-x64.exe`（安装包） | 8,819,850 B（8.4 MB） | 见下方说明 |
-| `2ag.exe`（主程序，安装包内） | 13,823,488 B（13.2 MB） | `A30D1B9E8757223F70168E584320CDF4BF5F29F407A84D1EBF6D2707870C1246` |
+发布页附带两个文件：
 
-> **关于安装包的 SHA-256**：安装包内部的载荷是经过压缩 + LZMA 编码的，Inno Setup 每次编译都会
-> 重新压缩（并把编译时刻写进头部），所以同一份源码两次编译出的字节并不相同 —— 正文内容一致，
-> 只是二进制不逐字节可复现。因此固定写死一个哈希必然与用户实际下载到的文件对不上。
-> 请在拿到安装包后自行校验：
->
-> ```powershell
-> Get-FileHash .\Anti-Antigravity-Setup-x64.exe -Algorithm SHA256
-> ```
->
-> 并把它与发布页上随包给出的哈希对照。`2ag.exe` 是纯 Go 构建、字节可复现，上表哈希可直接校验。
+| 文件 | 说明 |
+| --- | --- |
+| `Anti-Antigravity-Setup-x64.exe` | Windows x64 安装包 |
+| `Anti-Antigravity-Setup-x64.exe.sha256` | 安装包的 SHA-256 校验值 |
+
+校验安装包：
+
+```powershell
+Get-FileHash .\Anti-Antigravity-Setup-x64.exe -Algorithm SHA256
+```
+
+把结果与 `.sha256` 文件（也在发布页，并附在下方正文中）逐字符对照即可。
+
+`.sha256` 的内容格式为一行：`<哈希>` + 两个空格 + `Anti-Antigravity-Setup-x64.exe`。
+
+> **为什么安装包的哈希不在正文里写死**：安装包内部载荷经压缩 + LZMA 编码，Inno Setup 每次编译
+> 都会重新压缩（并把编译时刻写进头部），所以同一份源码两次编译出的字节并不相同 —— 正文内容一致，
+> 只是二进制不逐字节可复现。固定写死一个哈希必然与用户实际下载到的文件对不上，因此改为随发布页
+> 提供 `.sha256` asset。
 
 安装包里**没有任何 Google Antigravity 运行时字节**。增强形态第一次启动时，2Ag 会从
 你本机的官方 Antigravity 安装复制出一份自己的冻结宿主副本（`app\`，解包后约 570 MB），
