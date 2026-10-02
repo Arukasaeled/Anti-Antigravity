@@ -6,10 +6,10 @@ import (
 
 func TestIsRealWorkbenchTarget(t *testing.T) {
 	testCases := []struct {
-		name       string
-		target     cdpTarget
-		wantOk     bool
-		minScore   int
+		name     string
+		target   cdpTarget
+		wantOk   bool
+		minScore int
 	}{
 		{
 			name: "Transition splash screen data URI",

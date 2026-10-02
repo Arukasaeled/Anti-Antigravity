@@ -84,9 +84,13 @@ type RuleTarget struct {
 	Field      string `json:"field"`
 }
 
+// PrivacyConfig 只做 host/domain 级阻断。
+//
+// 历史字段 block_beacons 已废弃：netproxy 从不消费它，代理也不解密 TLS，
+// 因此无法按请求路径/参数识别“信标”。保留字段只会让公开文档承诺一个不存在的能力。
+// 旧配置里的 block_beacons 会被忽略，新增代码不得再读写它。
 type PrivacyConfig struct {
 	BlockedHosts []string `json:"blocked_hosts"`
-	BlockBeacons bool     `json:"block_beacons"`
 }
 
 type GravityBoost struct {
@@ -126,10 +130,12 @@ func Default() Config {
 		Language:      "zh-CN",
 		RuntimeMode:   RuntimeModeEnhanced,
 		Network:       NetworkConfig{Enabled: true},
-		Privacy: PrivacyConfig{BlockedHosts: []string{
-			"google-analytics.com", "www.google-analytics.com", "analytics.google.com",
-			"www.googletagmanager.com", "crashlyticsreports-pa.googleapis.com",
-		}, BlockBeacons: true},
+		Privacy: PrivacyConfig{
+			BlockedHosts: []string{
+				"google-analytics.com", "www.google-analytics.com", "analytics.google.com",
+				"www.googletagmanager.com", "crashlyticsreports-pa.googleapis.com",
+			},
+		},
 		Plugins: []Plugin{},
 	}
 }

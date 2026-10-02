@@ -18,8 +18,7 @@
     "rule_targets": []
   },
   "privacy": {
-    "blocked_hosts": ["google-analytics.com"],
-    "block_beacons": true
+    "blocked_hosts": ["google-analytics.com"]
   },
   "global_rules": "",
   "env_overrides": {},
@@ -63,8 +62,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `privacy.blocked_hosts` | array | 拦截的遥测域名 |
-| `privacy.block_beacons` | bool | 是否拦截信标请求 |
+| `privacy.blocked_hosts` | array | 拦截的遥测域名（host/domain 级）。旧配置里的 `block_beacons` 已废弃，会被忽略 |
 
 ### 高级
 
@@ -89,7 +87,12 @@
 | `<2ag.exe 目录>\2ag.log` | 运行日志 |
 | `<2ag.exe 目录>\app\` | 冻结宿主副本（增强形态，约 570 MB） |
 | `~/.2ag/vault/` | DPAPI 加密的账号保险库 |
+| `~/.2ag/broker-recovery.json` | 登录期间原凭据的 DPAPI 恢复记录；校验恢复成功后删除 |
+| `~/.2ag/credential-operation.lock` | 跨进程账号操作锁；进程退出自动释放锁，文件可保留 |
+| `~/.2ag/accounts.json` | 2Ag 自己的账号清单（只有邮箱/名称等元数据，**不含 token**） |
 | `~/.2ag/profiles/<email>/` | 每账号一个宿主 profile 沙箱 |
 | `~/.2ag/active_account.txt` | 上次让哪个账号上场的便签 |
 
 > `active_account.txt` 只是 2Ag 自己的记录。**权威的登录身份是 Windows 凭据管理器里那条记录**，不是这张便签。面板在宿主存活时会以系统凭据为准。
+
+添加账号窗口的登录网络模式只作用于这次官方宿主子进程：`AUTO` 沿用原环境；`DIRECT` 清除子进程代理变量并强制直连；`PROXY` 使用环境变量或 Windows 系统代理中解析到的 HTTP/HTTPS 代理。不修改系统设置，不持久化到配置。外部浏览器仍使用自己的网络设置。

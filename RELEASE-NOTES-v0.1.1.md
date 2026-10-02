@@ -2,6 +2,16 @@
 
 **首次公开发布。** Windows x64 · 单个 `2ag.exe` · 安装包 `Anti-Antigravity-Setup-x64.exe`
 
+> **Known Issue（v0.1.1）—— 配额数据来源与「真实探测」文案不符**
+>
+> v0.1.1 的账号矩阵配额实际上读取的是本机 **Cockpit Tools 缓存**
+> （`~/.antigravity_cockpit/cache/quota_api_v1_desktop/authorized`），
+> **不是** 2Ag 自己发起的实时探测。发布说明里「真实配额探测 / 用本机凭据直接向对应端点查询」
+> 这句话在 v0.1.1 **不成立**。
+>
+> v0.1.2（correctness / honesty patch）改为 2Ag 原生 live 探测，缓存仅作明确标注的 fallback。
+> 请勿替换 v0.1.1 已发布的二进制；行为以 v0.1.1 实际代码为准。
+
 ## 发布产物
 
 发布页附带两个文件：

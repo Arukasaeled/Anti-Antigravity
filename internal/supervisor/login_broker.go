@@ -3,11 +3,14 @@
 package supervisor
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -43,25 +46,43 @@ func LoginBrokerStatusNow() LoginBrokerStatus {
 //
 // 单飞：已经在跑就直接拒绝，而不是排队 —— 两个并发流程会各自删/写同一条凭据，
 // 那是能直接把用户的登录态弄丢的组合。
-func StartLoginBroker(configuredMode string) error {
+func StartLoginBroker(configuredMode string, networkModes ...string) error {
+	mode := "AUTO"
+	if len(networkModes) > 0 {
+		mode = networkModes[0]
+	}
+	network, err := buildLoginNetwork(mode, os.Environ())
+	if err != nil {
+		return err
+	}
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(brokerRecoveryPath()); !os.IsNotExist(err) {
+		release()
+		return fmt.Errorf("存在未完成的凭据恢复，请重启 2Ag 先恢复原账号")
+	}
 	loginBrokerMu.Lock()
 	if loginBrokerRunning {
 		loginBrokerMu.Unlock()
+		release()
 		return fmt.Errorf("已有一个「添加账号」流程在进行中（阶段：%s）", loginBrokerStatus.Stage)
 	}
 	loginBrokerRunning = true
 	loginBrokerCancel = false
 	loginBrokerStatus = LoginBrokerStatus{
-		Running:   true,
-		Stage:     brokerStageBackingUp,
-		Message:   "正在备份当前登录凭据…",
-		Steps:     nil,
-		StartedAt: time.Now().Format(time.RFC3339),
-		UpdatedAt: time.Now().Format(time.RFC3339),
+		Running:     true,
+		Stage:       brokerStageBackingUp,
+		Message:     "正在备份当前登录凭据…",
+		Steps:       nil,
+		NetworkMode: network.Mode,
+		StartedAt:   time.Now().Format(time.RFC3339),
+		UpdatedAt:   time.Now().Format(time.RFC3339),
 	}
 	loginBrokerMu.Unlock()
 
-	go runLoginBroker(configuredMode)
+	go func() { defer release(); runLoginBroker(configuredMode, network) }()
 	return nil
 }
 
@@ -91,6 +112,9 @@ func brokerStage(stage, message string) {
 	defer loginBrokerMu.Unlock()
 	loginBrokerStatus.Stage = stage
 	loginBrokerStatus.Message = message
+	if stage == brokerStageWaiting {
+		loginBrokerStatus.FailureCode = classifyAccountFailure(message)
+	}
 	loginBrokerStatus.UpdatedAt = time.Now().Format(time.RFC3339)
 	loginBrokerStatus.Steps = append(loginBrokerStatus.Steps, "["+time.Now().Format("15:04:05")+"] "+message)
 	log.Printf("[2ag] Login Broker [%s] %s", stage, message)
@@ -110,6 +134,11 @@ func brokerFinish(stage, message string, failure string) {
 	loginBrokerStatus.Stage = stage
 	loginBrokerStatus.Message = message
 	loginBrokerStatus.FailureReason = failure
+	if failure != "" {
+		loginBrokerStatus.FailureCode = classifyAccountFailure(message + " " + failure)
+	} else {
+		loginBrokerStatus.FailureCode = ""
+	}
 	loginBrokerStatus.Running = false
 	loginBrokerStatus.UpdatedAt = time.Now().Format(time.RFC3339)
 	loginBrokerStatus.FinishedAt = loginBrokerStatus.UpdatedAt
@@ -199,8 +228,113 @@ func officialLoginPageState() string {
 	return ""
 }
 
+// classifyLoginPageText 从官方登录页的可见文本里识别「网络不通」这一类故障，
+// 返回一句可诊断的中文提示；识别不出返回空串。
+//
+// 隔离成纯函数是为了可测：真实故障文本只出现在用户机器上，但判定规则必须
+// 在仓库里被钉住。
+//
+// 措辞纪律：只陈述官方页面自己报了什么，并把排查方向指向用户的网络/代理。
+// 排查方向结合本次选择的网络模式；不把上游故障掩盖成「请重试」。
+func classifyLoginPageText(text string) string {
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "proxyconnect") || strings.Contains(lower, "err_proxy_connection_failed"):
+		return "官方窗口报告代理连接失败（proxyconnect）。请检查代理是否运行，或选择直连重试。"
+	case strings.Contains(lower, "err_connection_refused"):
+		return "官方窗口报告连接被拒绝（ERR_CONNECTION_REFUSED）：目标地址没有服务在监听，通常是代理端口填错或代理已退出。"
+	case strings.Contains(lower, "err_name_not_resolved"):
+		return "官方窗口报告域名解析失败（ERR_NAME_NOT_RESOLVED）：当前网络无法解析 Google 的域名，请检查 DNS 或代理。"
+	case strings.Contains(lower, "err_internet_disconnected"):
+		return "官方窗口报告本机网络已断开（ERR_INTERNET_DISCONNECTED）。"
+	case strings.Contains(lower, "err_tunnel_connection_failed"):
+		return "官方窗口报告无法建立到代理的隧道（ERR_TUNNEL_CONNECTION_FAILED），请检查代理是否放行 Google 域名。"
+	case strings.Contains(lower, "err_connection_timed_out") || strings.Contains(lower, "err_timed_out"):
+		return "官方窗口报告连接超时：当前网络到 Google 的连接被阻断或极慢，请检查代理是否可用。"
+	case strings.Contains(lower, "eof") &&
+		(strings.Contains(lower, "oauth2.googleapis.com/token") ||
+			strings.Contains(lower, "loadcodeassist") ||
+			strings.Contains(lower, "cloudcode-pa.googleapis.com")):
+		// EOF（而不是 dial/tls 错误）= 连接**已经建立**、请求发出去了，然后在
+		// 半途被对端或中间设备单方面切断。这跟「连不上」是不同的故障：直连
+		// 同一个端点通常能正常应答，所以它指向代理/中间网络在丢连接，而不是
+		// Google 侧不可达。因此只如实转述，并建议直连或检查代理。
+		return "官方窗口报告与 Google 的连接被中途切断（EOF）。请尝试直连或更换代理后重试。"
+	case strings.Contains(lower, "connection reset") || strings.Contains(lower, "err_connection_reset"):
+		return "官方窗口报告连接被重置（connection reset）。请尝试直连或更换代理。"
+	case strings.Contains(lower, "oauth2.googleapis.com/token"):
+		return "官方窗口报告 token endpoint 错误（oauth2.googleapis.com/token）。请检查网络后重新登录。"
+	case strings.Contains(lower, "there was an unexpected issue setting up your account"):
+		return "官方窗口报告「设置账号时发生意外问题」，页面上的原始报错见官方窗口本身。"
+	}
+	return ""
+}
+
+// officialLoginPageDiagnostic 只读读取官方登录页的可见文本并给出诊断提示。
+//
+// 返回 "" 表示「拿不到 / 没有可识别的故障」——调用方据此保持原有提示，
+// 绝不会因为读不到页面就谎报故障。
+//
+// **只读**：只在登录流程进行中调用，只发一次 Runtime.evaluate 取 innerText，
+// 不注入任何东西，不建立常驻会话。这与官方形态探针
+// （official_probe.go 的「只发 Runtime.evaluate，且表达式里只有查询」）同一纪律。
+func officialLoginPageDiagnostic() string {
+	port, _, err := officialDevToolsActivePort()
+	if err != nil || port <= 0 || !portListening(port) {
+		return ""
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/json/list", port))
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	var targets []struct {
+		Type              string `json:"type"`
+		URL               string `json:"url"`
+		WebSocketDebugger string `json:"webSocketDebuggerUrl"`
+	}
+	if json.Unmarshal(body, &targets) != nil {
+		return ""
+	}
+	// 登录期间优先看 /onboarding 页；没有就退到第一个可用的 page。
+	wsURL := ""
+	for _, t := range targets {
+		if t.Type != "page" || t.WebSocketDebugger == "" {
+			continue
+		}
+		if strings.Contains(t.URL, "/onboarding") {
+			wsURL = t.WebSocketDebugger
+			break
+		}
+		if wsURL == "" {
+			wsURL = t.WebSocketDebugger
+		}
+	}
+	if wsURL == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	conn, reader, err := openCDPWebSocket(ctx, wsURL)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	text, err := evaluateCDPString(conn, reader, 1,
+		"document.body && document.body.innerText ? document.body.innerText.slice(0, 4000) : ''")
+	if err != nil {
+		return ""
+	}
+	return classifyLoginPageText(text)
+}
+
 // runLoginBroker 是流程本体。
-func runLoginBroker(configuredMode string) {
+func runLoginBroker(configuredMode string, network loginNetwork) {
 	// 流程期间把进程内形态钉成「官方」：2Ag 的注入链路（HotReload / WatchAndInjectCDP /
 	// PushHubState）统一以 IsOfficialRuntime() 为闸门，钉住它才能保证
 	// 「添加账号期间 2Ag 绝不往官方宿主里打补丁」。
@@ -219,7 +353,17 @@ func runLoginBroker(configuredMode string) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			brokerFinish(brokerStageFailed, "流程内部错误，已中止", fmt.Sprintf("内部错误: %v", r))
+			_, err := restoreBrokerRecovery(func() error {
+				if stopAllAntigravityProcesses("异常恢复") != 0 {
+					return fmt.Errorf("宿主未停止")
+				}
+				return nil
+			}, writeAntigravityCredentialRaw, readAntigravityCredentialRaw)
+			if err != nil {
+				brokerFinish(brokerStageFailed, "原账号恢复失败，请重启 2Ag 重试恢复", "恢复原账号失败")
+			} else {
+				brokerFinish(brokerStageFailed, "流程内部错误，原凭据已恢复", "内部错误")
+			}
 		}
 	}()
 
@@ -253,26 +397,36 @@ func runLoginBroker(configuredMode string) {
 		}
 		brokerStage(brokerStageBackingUp, "已备份当前凭据 "+origEmail+" 到 DPAPI 保险库")
 	} else {
+		if len(origRaw) > 0 {
+			brokerFinish(brokerStageFailed, "无法识别当前凭据账号，请先在官方客户端确认登录", "identity mismatch：无法识别当前凭据")
+			return
+		}
 		brokerStage(brokerStageBackingUp, "当前没有登录凭据，无需备份")
+	}
+	if err := saveBrokerRecovery(origRaw, origEmail); err != nil {
+		brokerFinish(brokerStageFailed, "保存恢复记录失败，当前登录态未改动", "保存恢复记录失败")
+		return
 	}
 
 	// ② 停掉所有 Antigravity 与 ③ 临时删除当前凭据
 	brokerStage(brokerStageStopping, "正在停止运行中的 Antigravity…")
-	stopAllAntigravityProcesses("准备官方登录")
+	if stopAllAntigravityProcesses("准备官方登录") != 0 {
+		brokerFinish(brokerStageFailed, "官方客户端仍在运行，已中止；重启 2Ag 恢复", "宿主停止失败")
+		return
+	}
 	if err := deleteAntigravityCredentialRaw(); err != nil {
-		brokerFinish(brokerStageFailed, "删除当前凭据失败，已中止", err.Error())
+		brokerRollbackAndFinish("删除当前凭据失败", origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
 	}
 	if raw, _ := readAntigravityCredentialRaw(); len(raw) > 0 {
-		brokerFinish(brokerStageFailed, "当前凭据未被清空，已中止",
-			"删除后仍然读到了 gemini:antigravity 凭据：无法保证官方进入登录页")
+		brokerRollbackAndFinish("当前凭据未被清空", origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
 	}
 	brokerStage(brokerStageStopping, "已清空当前登录凭据（原凭据已备份，流程结束会恢复）")
 
-	// ④ 以零参数启动官方 Antigravity
-	brokerStage(brokerStageLaunching, "正在启动官方 Antigravity（零启动参数、零注入）…")
-	if err := LaunchOfficialHost(""); err != nil {
+	// ④ 以本次网络模式启动官方 Antigravity，仅开放只读诊断端口
+	brokerStage(brokerStageLaunching, "正在启动官方 Antigravity（登录网络："+network.Mode+"）…")
+	if err := launchOfficialLoginHost(network); err != nil {
 		brokerRollbackAndFinish("启动官方 Antigravity 失败: "+err.Error(), origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
 	}
@@ -280,8 +434,11 @@ func runLoginBroker(configuredMode string) {
 
 	// ⑤ 轮询：直到凭据**成为一个完整登录结果**
 	deadline := time.Now().Add(brokerWaitTimeout)
+	launchedAt := time.Now()
 	var goneSince time.Time
+	var lastDiagnosticAt time.Time
 	lastHint := ""
+	lastDiagnostic := ""
 	addedEmail := ""
 	for {
 		if brokerCancelled() {
@@ -308,6 +465,27 @@ func runLoginBroker(configuredMode string) {
 		} else {
 			switch officialLoginPageState() {
 			case "onboarding":
+				// 先看官方页面上有没有它自己报出的网络故障。官方登录页会把
+				// 「proxyconnect tcp: dial tcp 127.0.0.1:1」这类原始错误直接显示
+				// 在页面上，而 2Ag 原先完全看不见 —— 用户只能等到 10 分钟超时，
+				// 拿不到「是网络/代理不通」这个结论。这里把官方自己的报错读出来
+				// 转述给用户；读不到就保持原提示，绝不凭空断言故障。
+				//
+				// 每 5 秒探一次，且启动后先给 15 秒宽限：诊断要开一个 CDP
+				// 连接，正常登录不该被打扰，只有「停着不动」才值得去看页面。
+				diagnostic := lastDiagnostic
+				if time.Since(launchedAt) >= 15*time.Second && time.Since(lastDiagnosticAt) >= 5*time.Second {
+					lastDiagnosticAt = time.Now()
+					diagnostic = officialLoginPageDiagnostic()
+					lastDiagnostic = diagnostic
+				}
+				if diagnostic != "" {
+					if lastHint != "network:"+diagnostic {
+						lastHint = "network:" + diagnostic
+						brokerStage(brokerStageWaiting, diagnostic)
+					}
+					break
+				}
 				if lastHint != "onboarding" {
 					lastHint = "onboarding"
 					brokerStage(brokerStageWaiting, "等待 Google 登录：请在官方 Antigravity 窗口点击「Continue with Google」")
@@ -348,8 +526,16 @@ func runLoginBroker(configuredMode string) {
 		brokerRollbackAndFinish("重新读取凭据失败，未归档", origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
 	}
+	if owner, ok := credentialUsableEmail(rawNow); !ok || !strings.EqualFold(owner, addedEmail) {
+		brokerRollbackAndFinish("identity mismatch：登录凭据归属发生变化，未归档", origRaw, origEmail, prior, hadHost, wasOfficial)
+		return
+	}
 	if _, err := StoreVaultCredential(addedEmail, displayNameFromCredentialPayload(rawNow), rawNow); err != nil {
 		brokerRollbackAndFinish("写入保险库失败: "+err.Error(), origRaw, origEmail, prior, hadHost, wasOfficial)
+		return
+	}
+	if err := SaveOwnedAccountEntry(addedEmail, displayNameFromCredentialPayload(rawNow)); err != nil {
+		brokerRollbackAndFinish("账号已存入保险库，但账号登记失败", origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
 	}
 	brokerMutate(func(s *LoginBrokerStatus) { s.VaultSaved = true })
@@ -383,7 +569,7 @@ func restoreRuntimeModeValue(wasOfficial bool) string {
 	}
 	return "enhanced"
 }
-//
+
 // 返回 (restored, currentEmail)：restored 表示「原本那个账号确实回来了」；
 // 原本没有账号时 restored 为 false，currentEmail 即新账号（这是期望结果，不是失败）。
 func brokerRestore(origRaw []byte, origEmail string, prior RuntimeModeFacts, hadHost bool, wasOfficial bool) (bool, string) {
@@ -397,14 +583,23 @@ func brokerRestore(origRaw []byte, origEmail string, prior RuntimeModeFacts, had
 	SetRuntimeMode(restoreRuntimeModeValue(wasOfficial))
 
 	brokerStage(brokerStageRestoring, "正在恢复原账号…")
-	stopAllAntigravityProcesses("登录结束，准备恢复原账号")
+	if stopAllAntigravityProcesses("登录结束，准备恢复原账号") != 0 {
+		return false, ""
+	}
 
 	restored := false
 	if origEmail != "" && len(origRaw) > 0 {
 		if err := writeAntigravityCredentialRaw(origRaw); err != nil {
 			log.Printf("[2ag] Login Broker：写回原凭据失败: %v", err)
 		} else if got, _ := ReadHostLoginEmail(); strings.EqualFold(strings.TrimSpace(got), origEmail) {
+			back, readErr := readAntigravityCredentialRaw()
+			if readErr != nil || !bytes.Equal(back, origRaw) {
+				return false, got
+			}
 			restored = true
+			if err := clearBrokerRecovery(); err != nil {
+				restored = false
+			}
 			brokerStage(brokerStageRestoring, "已恢复原账号 "+origEmail)
 		} else {
 			log.Printf("[2ag] Login Broker：原凭据写回后校验不一致（期望 %s，实际 %s）", origEmail, strings.TrimSpace(got))
@@ -420,7 +615,7 @@ func brokerRestore(origRaw []byte, origEmail string, prior RuntimeModeFacts, had
 		s.CurrentEmail = currentEmail
 	})
 
-	if hadHost {
+	if hadHost && (len(origRaw) == 0 || restored) {
 		target := currentEmail
 		if target == "" {
 			target = origEmail
@@ -448,7 +643,14 @@ func brokerRollbackAndFinish(reason string, origRaw []byte, origEmail string, pr
 	default:
 		detail += "；原账号 " + origEmail + " **未能确认恢复**（当前身份：" + orNoAccount(currentEmail) + "）"
 	}
-	brokerFinish(brokerStageFailed, reason, detail)
+	stage := brokerStageFailed
+	if brokerCancelled() && (origEmail == "" || restored) {
+		stage = brokerStageCancelled
+	}
+	if origEmail != "" && !restored {
+		reason = "恢复原账号失败，请重启 2Ag 重试恢复"
+	}
+	brokerFinish(stage, reason, detail)
 }
 
 func orNoAccount(v string) string {
@@ -476,6 +678,14 @@ func restartHostInMode(mode, accountEmail string) error {
 // 事务化的价值全在最后那步校验上：**验证失败就回滚，并且把回滚结果也验证一遍**，
 // 于是「切换失败」不再等于「用户不知道自己在哪个账号上」。
 func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResult, error) {
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return AccountSwitchResult{}, err
+	}
+	defer release()
+	if _, err := os.Stat(brokerRecoveryPath()); !os.IsNotExist(err) {
+		return AccountSwitchResult{}, fmt.Errorf("请重启 2Ag 先恢复原账号")
+	}
 	var out AccountSwitchResult
 	out.Email = strings.TrimSpace(email)
 	if out.Email == "" {
@@ -495,9 +705,15 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 		return out, fmt.Errorf("保险库里 %s 的凭据实际属于 %s，拒绝写入", out.Email, verified)
 	}
 
-	prevRaw, _ := readAntigravityCredentialRaw()
+	prevRaw, err := readAntigravityCredentialRaw()
+	if err != nil {
+		return out, fmt.Errorf("读取原凭据失败，未切换: %w", err)
+	}
 	if prev, _ := ReadHostLoginEmail(); strings.TrimSpace(prev) != "" {
 		out.PreviousOwner = strings.TrimSpace(prev)
+	}
+	if len(prevRaw) > 0 && out.PreviousOwner == "" {
+		return out, fmt.Errorf("identity mismatch：无法识别原凭据，未切换")
 	}
 	prior := RuntimeModeFactsNow(configuredMode)
 	out.Mode = prior.Effective
@@ -507,11 +723,13 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 	// 那是全世界唯一的一份。先归档再动手。
 	if out.PreviousOwner != "" && len(prevRaw) > 0 {
 		if _, err := StoreVaultCredential(out.PreviousOwner, displayNameFromCredentialPayload(prevRaw), prevRaw); err != nil {
-			log.Printf("[2ag] 账号切换：切换前归档当前凭据失败（继续，内存中仍保有原凭据用于回滚）: %v", err)
+			return out, fmt.Errorf("备份原凭据失败，未切换: %w", err)
 		}
 	}
 
-	stopAllAntigravityProcesses("账号切换：先停宿主")
+	if stopAllAntigravityProcesses("账号切换：先停宿主") != 0 {
+		return out, fmt.Errorf("宿主仍在运行，未写入目标凭据")
+	}
 	if err := writeAntigravityCredentialRaw(target); err != nil {
 		return out, fmt.Errorf("写入目标凭据失败: %w", err)
 	}
@@ -529,8 +747,13 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 		out.RolledBack = true
 		rollbackOK, rollbackOwner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
 		out.RollbackVerified = rollbackOK
-		out.Message = "启动宿主失败，已回滚：" + err.Error()
-		return out, fmt.Errorf("切换账号 %s 失败：%w（已回滚，当前身份：%s）", out.Email, err, orNoAccount(rollbackOwner))
+		out.Message = "启动宿主失败：" + err.Error()
+		if rollbackOK {
+			out.Message += "；已回滚到 " + rollbackOwner
+		} else {
+			out.Message += "；恢复原账号失败，请从保险库恢复"
+		}
+		return out, fmt.Errorf("切换账号 %s 失败：%s", out.Email, out.Message)
 	}
 	out.HostRestarted = true
 
@@ -550,21 +773,34 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 	out.RolledBack = true
 	rollbackOK, rollbackOwner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
 	out.RollbackVerified = rollbackOK
-	out.Message = "切换失败：宿主实际登录身份是 " + orNoAccount(got) + "（目标 " + out.Email + "），已回滚到 " + orNoAccount(rollbackOwner)
+	out.Message = "切换失败：宿主实际登录身份是 " + orNoAccount(got) + "（目标 " + out.Email + "）"
+	if rollbackOK {
+		out.Message += "；已回滚到 " + rollbackOwner
+	} else {
+		out.Message += "；恢复原账号失败，请从保险库恢复"
+	}
 	errOut := fmt.Errorf("切换账号 %s 失败：校验实际身份为 %s。%s", out.Email, orNoAccount(got), out.Message)
 	return out, errOut
 }
 
 // switchRollback 写回旧凭据并按原形态重启，然后**再校验一次**回滚结果。
 func switchRollback(prevRaw []byte, prevEmail string, prior RuntimeModeFacts, hadHost bool) (bool, string) {
+	if stopAllAntigravityProcesses("账号切换回滚：先停宿主") != 0 {
+		return false, ""
+	}
 	if prevEmail == "" || len(prevRaw) == 0 {
 		if err := deleteAntigravityCredentialRaw(); err != nil {
 			log.Printf("[2ag] 账号切换回滚：清空凭据失败: %v", err)
+			return false, ""
 		}
 	} else if err := writeAntigravityCredentialRaw(prevRaw); err != nil {
 		log.Printf("[2ag] 账号切换回滚：写回旧凭据失败: %v", err)
+		return false, ""
 	}
-	stopAllAntigravityProcesses("账号切换回滚：重启宿主")
+	got, err := readAntigravityCredentialRaw()
+	if err != nil || !bytes.Equal(got, prevRaw) {
+		return false, ""
+	}
 	if hadHost {
 		mode := prior.Effective
 		if mode == "" || mode == "none" {

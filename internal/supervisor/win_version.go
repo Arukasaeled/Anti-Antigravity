@@ -22,10 +22,10 @@ import (
 // ============================================================================
 
 var (
-	versionDLL                     = syscall.NewLazyDLL("version.dll")
-	procGetFileVersionInfoSizeW    = versionDLL.NewProc("GetFileVersionInfoSizeW")
-	procGetFileVersionInfoW        = versionDLL.NewProc("GetFileVersionInfoW")
-	procVerQueryValueW             = versionDLL.NewProc("VerQueryValueW")
+	versionDLL                  = syscall.NewLazyDLL("version.dll")
+	procGetFileVersionInfoSizeW = versionDLL.NewProc("GetFileVersionInfoSizeW")
+	procGetFileVersionInfoW     = versionDLL.NewProc("GetFileVersionInfoW")
+	procVerQueryValueW          = versionDLL.NewProc("VerQueryValueW")
 )
 
 // vsFixedFileInfo 是 VS_FIXEDFILEINFO 结构里本工程需要的字段。

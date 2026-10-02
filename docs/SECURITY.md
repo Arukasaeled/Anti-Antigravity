@@ -21,6 +21,12 @@
 
 添加账号走 **Official Antigravity Login Broker**：由本机官方 Antigravity 自己完成原生 Google 登录，2Ag 只捕获登录结果。
 
+清除现有登录凭据前，Broker 将原始凭据用 DPAPI 加密并同步写入 `~/.2ag/broker-recovery.json`。Manager 和 `2ag run` 在正常初始化前先恢复未完成的事务；逐字节回读验证成功后才删除记录。恢复失败会保留记录并停止初始化。账号导入、切换、恢复和 Broker 共用跨进程锁，避免同时改写共享凭据。
+
+「导入当前官方账号」读取同一份系统凭据，校验身份后写入保险库和自有账号表，不触发重新登录。
+
+这条路径**不需要**本机装过任何第三方工具。2Ag 用**自己的**账号库（`~/.2ag/`）：DPAPI 保险库存凭据，`~/.2ag/accounts.json` 存不含 token 的账号清单。第三方 Cockpit Tools 的数据目录（若存在）只作为**可选、只读**的历史来源被兼容 —— 2Ag 不创建、不修改它。
+
 ### 存储：DPAPI(CurrentUser)
 
 账号凭据以 **DPAPI(CurrentUser)** 加密存放在 `~/.2ag/vault/*.bin`：
@@ -45,11 +51,29 @@
 
 ## 代理
 
+添加账号可选 `AUTO`、`DIRECT`、`PROXY`。这些模式只调整本次官方宿主的子进程环境和启动参数，Windows 系统代理与父进程环境保持原样；不控制外部 Google 登录浏览器的网络。官方登录窗口只开放只读 CDP 诊断，不注入 G-Hub。增强宿主的注入入口及持续巡检会拒绝官方宿主的 CDP 目标。
+
 本机回环转发代理，由宿主通过 `--proxy-server=http://127.0.0.1:<port>` 使用：
 
-- 按 `privacy.blocked_hosts` 拦截遥测域名，`privacy.block_beacons` 拦截信标；
+- 按 `privacy.blocked_hosts` 做 host/domain 级阻断（明文 HTTP 与 CONNECT 目标域名）；
+  不实现信标/请求级拦截（不解密 TLS，无法可靠识别 beacon）；
 - 按 `network.endpoint_overrides` 把明文 HTTP 请求改道到指定上游；
 - `network.rule_targets` + `global_rules` 可往**显式指定**的 JSON 字段前插规则。
+
+### 借道用户自己的上游代理（0.1.2 起）
+
+宿主拿到 `--proxy-server=http://127.0.0.1:<port>` 之后，Chromium 就不再使用环境变量与系统代理设置 —— 代理决策被这个参数完全接管。所以 2Ag 的转发代理必须**替宿主把上游代理接回来**，否则在必须经代理才能出网的环境里，宿主的请求会被 2Ag 直连出去而全部失败（表现为 Google 登录连不上 `oauth2.googleapis.com`）。
+
+因此 2Ag 现在按以下顺序解析一次上游代理，并把它用作自己的出口：
+
+1. `HTTPS_PROXY` / `https_proxy`
+2. `HTTP_PROXY` / `http_proxy`
+3. `ALL_PROXY` / `all_proxy`
+4. Windows 系统代理（`HKCU\...\Internet Settings` 的 `ProxyEnable` / `ProxyServer` / `ProxyOverride`，**只读**）
+
+`NO_PROXY`（及系统 `ProxyOverride`）里的目标、环回地址、以及指回 2Ag 自身的地址一律直连。支持 `http` 和 `https` 上游代理；HTTPS 代理先验证证书并建立到代理的 TLS 连接，再发送 CONNECT。`socks5://` 等会被忽略并记日志。代理地址里带口令时，日志只输出 `scheme://user:***@host`。
+
+这是「插入一层」而不是「替换一层」：隐私拦截、端点改写仍在 2Ag 这一层完成，用户的出口没有被摘掉。
 
 ### 不解密 TLS（刻意边界）
 
@@ -80,4 +104,4 @@
 
 ## 报告问题
 
-发现安全或隐私问题请开 issue，或按仓库主页公布的联系方式私下告知。
+发现安全或隐私问题请开 GitHub issue。仓库主页目前**没有**公布私人邮箱，所以没有私下联系渠道。

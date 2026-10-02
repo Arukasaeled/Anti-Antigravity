@@ -56,4 +56,3 @@ func TestIDEProtectionGuard(t *testing.T) {
 		t.Errorf("ProbeRealHost returned protected PID %d, which should have been excluded", status.PID)
 	}
 }
-

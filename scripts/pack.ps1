@@ -1,7 +1,7 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot '..\dist'),
-    [string]$Version = '0.1.1',
+    [string]$Version = '0.2.0',
     [string]$Go = 'go',
     [string]$ISCC = 'ISCC.exe',
     [switch]$SkipInstaller
@@ -68,7 +68,7 @@ $config = @'
   "language": "zh-CN",
   "runtime_mode": "enhanced",
   "network": { "enabled": true, "endpoint_overrides": [], "rule_targets": [] },
-  "privacy": { "blocked_hosts": ["google-analytics.com", "www.google-analytics.com", "analytics.google.com", "www.googletagmanager.com", "crashlyticsreports-pa.googleapis.com"], "block_beacons": true },
+  "privacy": { "blocked_hosts": ["google-analytics.com", "www.google-analytics.com", "analytics.google.com", "www.googletagmanager.com", "crashlyticsreports-pa.googleapis.com"] },
   "global_rules": "",
   "env_overrides": {},
   "plugins": []
@@ -195,10 +195,16 @@ $stagedFiles = @(Get-ChildItem -LiteralPath $Staging -Recurse -File -ErrorAction
     Where-Object { $_.FullName.Substring($Staging.Length).TrimStart('\') -notlike 'app\*' })
 
 $ownedSourceFiles = @()
-foreach ($rel in @('README.md', 'RELEASE-NOTES-v0.1.1.md', 'installer.iss', '.gitignore', 'go.mod', 'LICENSE')) {
+foreach ($rel in @('README.md', 'installer.iss', '.gitignore', 'go.mod', 'LICENSE')) {
     $p = Join-Path $ProjectRoot $rel
     if (Test-Path -LiteralPath $p -PathType Leaf) { $ownedSourceFiles += (Get-Item -LiteralPath $p) }
 }
+# 发布说明用通配而不是逐个列名：每一版的 RELEASE-NOTES 都是公开面，都必须过闸。
+# 曾经是硬编码的 'RELEASE-NOTES-v0.1.1.md'，于是 v0.1.2 的 notes 天然漏扫 —— 闸门
+# 不能靠「下次记得加一行」来维持，漏一个文件是静默的。
+$releaseNotes = @(Get-ChildItem -LiteralPath $ProjectRoot -Filter 'RELEASE-NOTES-*.md' -File -ErrorAction SilentlyContinue)
+if ($releaseNotes.Count -eq 0) { throw "leak gate: 没有找到任何 RELEASE-NOTES-*.md，发布说明未被扫描" }
+$ownedSourceFiles += $releaseNotes
 foreach ($dir in @('assets', 'cmd', 'docs', 'internal', 'themes', 'plugins', 'web')) {
     $ownedSourceFiles += @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot $dir) -Recurse -File -ErrorAction SilentlyContinue)
 }

@@ -47,8 +47,8 @@ type CompatCheck struct {
 type OfficialCompatibility struct {
 	Level string `json:"level"` // READY / WARNING / ACTION_REQUIRED
 
-	OfficialExe     string `json:"official_exe"`
-	OfficialVersion string `json:"official_version"`
+	OfficialExe     string  `json:"official_exe"`
+	OfficialVersion string  `json:"official_version"`
 	OfficialSizeMB  float64 `json:"official_size_mb"`
 
 	FrozenHostExe     string `json:"frozen_host_exe"`
@@ -265,7 +265,7 @@ func buildCompatChecks(c OfficialCompatibility) []CompatCheck {
 	}
 	checks = append(checks, CompatCheck{
 		ID: "runtime_mode", OK: true,
-		Label: "当前运行形态：" + mode,
+		Label:  "当前运行形态：" + mode,
 		Detail: "官方形态下 2Ag 不注入、不挂 CDP、不改写凭据，行为接近「没有安装 2Ag」",
 	})
 
@@ -356,6 +356,11 @@ type CredentialRestoreResult struct {
 //     就是那个账号（凭据写入与读取之间有系统级缓存）。这里用 ReadHostLoginEmail
 //     复核，不一致就如实报告失败，而不是宣布成功。
 func RestoreAntigravityCredential(email string) (CredentialRestoreResult, error) {
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return CredentialRestoreResult{}, err
+	}
+	defer release()
 	var out CredentialRestoreResult
 	email = strings.TrimSpace(email)
 	if email == "" {
@@ -383,9 +388,11 @@ func RestoreAntigravityCredential(email string) (CredentialRestoreResult, error)
 	if prevOwner, _ := ReadHostLoginEmail(); strings.TrimSpace(prevOwner) != "" {
 		out.PreviousOwner = prevOwner
 	}
-	if prev, err := SnapshotAntigravityCredential(); err == nil && prev.Bytes > 0 {
+	if prev, err := snapshotAntigravityCredential(); err == nil && prev.Bytes > 0 {
 		out.PreviousSaved = true
 		out.PreviousSavedAs = filepath.Base(prev.Path)
+	} else if AntigravityCredentialPresent() {
+		return out, fmt.Errorf("备份当前凭据失败，已中止恢复")
 	}
 
 	if err := writeAntigravityCredentialRaw(blob); err != nil {

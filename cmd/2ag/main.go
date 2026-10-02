@@ -97,6 +97,9 @@ func runCLI(args []string) error {
 func run(configPath string, cfg config.Config) error { return runCommand(configPath, cfg, nil) }
 
 func runCommand(configPath string, cfg config.Config, args []string) error {
+	if _, err := supervisor.RecoverPendingLoginBroker(); err != nil {
+		return fmt.Errorf("恢复上次登录失败: %w", err)
+	}
 	// 进程级形态登记：注入链路的三个闸门（HotReloadCDP / WatchAndInjectCDP /
 	// PushHubState）都问 IsOfficialRuntime()，这里必须先把它与配置对齐。
 	supervisor.SetRuntimeMode(cfg.RuntimeMode)
@@ -221,7 +224,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 			entry["displayName"], entry["version"], entry["author"], entry["description"] = manifest.Name, manifest.Version, manifest.Author, manifest.Description
 			if manifest.UI != nil {
 				entry["ui"] = manifest.UI
-				if manifest.UI.Type == "iframe" && manifest.UI.Entry != "" {
+				if manifest.UI.Entry != "" {
 					entryPath := filepath.ToSlash(manifest.UI.Entry)
 					segments := strings.Split(entryPath, "/")
 					for index := range segments {
@@ -233,7 +236,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 		}
 		injector.Initial = patcher.HubConfig{Language: cfg.Language, WallpaperPath: cfg.WallpaperPath, GlobalRules: cfg.GlobalRules, Network: cfg.Network, Privacy: cfg.Privacy, Plugins: pluginState, PluginURL: "http://" + sidecars.Address(), CDPPort: cdpPort, HostPID: managed.PID(), Env: cfg.EnvOverrides, GravityBoost: cfg.GravityBoost}
 		injector.BridgeHandlers = coreBridgeHandlers(runtimeConfig, sidecars, injector.SetWallpaperPath, func(ctx context.Context) (any, error) { return openDevTools(ctx, cdpPort) }, func(ctx context.Context) (any, error) { return probeGateway(ctx, injector.ProxyURL) }, sm)
-		
+
 		currentState := sm.GetState()
 		if err := injector.WaitAndInject(ctx, currentState.WallpaperPath, currentState.Blur, currentState.Opacity, currentState.ModalOpacity, 15*time.Second); err != nil {
 			if ctx.Err() == nil {
@@ -242,7 +245,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 			return
 		}
 		log.Println("[2ag] Dream Skin injected successfully via CDP!")
-		
+
 		stateCh := bus.Subscribe(core.StateChangedEvent)
 		defer bus.Unsubscribe(core.StateChangedEvent, stateCh)
 

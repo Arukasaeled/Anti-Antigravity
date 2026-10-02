@@ -91,6 +91,9 @@ func isTrustedLocalOrigin(origin string) bool {
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("/api/v1/workspace", s.handleWorkspace)
+	s.mux.HandleFunc("/api/v1/extensions/local", s.handleLocalExtensions)
+	s.mux.HandleFunc("/api/v1/workspace/", s.handleWorkspace)
 	s.mux.HandleFunc("/api/v1/state", s.handleGetState)
 	s.mux.HandleFunc("/api/v1/action", s.handlePostAction)
 	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
@@ -569,13 +572,23 @@ func (s *Server) handleBrokerStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := supervisor.StartLoginBroker(s.currentRuntimeMode()); err != nil {
+	var body struct {
+		NetworkMode string `json:"network_mode"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "登录网络参数无效", http.StatusBadRequest)
+			return
+		}
+	}
+	if err := supervisor.StartLoginBroker(s.currentRuntimeMode(), body.NetworkMode); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(map[string]any{
 			"success": false,
 			"message": err.Error(),
 			"status":  supervisor.LoginBrokerStatusNow(),
+			"code":    supervisor.AccountFailureCode(err.Error()),
 		})
 		return
 	}
@@ -651,16 +664,28 @@ func (s *Server) handleVaultDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "缺少 email", http.StatusBadRequest)
 		return
 	}
-	if err := supervisor.DeleteVaultAccount(email); err != nil {
+	// 账号清单有多个来源（保险库 / 自有登记表 / 可选的第三方旧库），
+	// 「移除」的语义是「这个账号不再出现在我的账号列表里」，因此必须把两处都清掉：
+	// 只删凭据副本，登记表里那条元数据会以「未载入配额」的幽灵形态留在界面上；
+	// 只删登记表，凭据副本又会在下一次保险库列举时把账号带回来。
+	//
+	// 两处都是「不存在也算成功」：一个用 JSON 导入的账号本来就没有凭据副本，
+	// 用户点移除不该收到「保险库里没有这个账号」这种内部实现细节的报错。
+	vaultErr := supervisor.DeleteVaultAccount(email)
+	registryErr := supervisor.DeleteOwnedAccountEntry(email)
+	if vaultErr != nil || registryErr != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]any{"success": false, "message": err.Error()})
+		json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"message": "账号未完全移除，请重试",
+		})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"success": true,
-		"message": "已从保险库删除 " + email,
+		"message": "已移除账号 " + email,
 	})
 }
 
@@ -706,7 +731,13 @@ func (s *Server) handleSnapshotCredential(w http.ResponseWriter, r *http.Request
 		if !snapshotBytesWritten(snapshot) {
 			status = http.StatusNotFound
 		}
-		http.Error(w, err.Error(), status)
+		w.Header().Set("Content-Type", "application/json")
+		code := supervisor.AccountFailureCode(err.Error())
+		if code == "account_busy" {
+			status = http.StatusConflict
+		}
+		w.WriteHeader(status)
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "message": err.Error(), "code": code})
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

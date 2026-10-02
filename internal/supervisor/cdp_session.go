@@ -256,8 +256,8 @@ func (s *persistentCDPSession) commandLocked(id int, command map[string]any) (js
 			continue
 		}
 		var response struct {
-			ID     int             `json:"id"`
-			Error  *struct {
+			ID    int `json:"id"`
+			Error *struct {
 				Message string `json:"message"`
 			} `json:"error"`
 			Result json.RawMessage `json:"result"`

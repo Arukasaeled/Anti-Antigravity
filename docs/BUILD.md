@@ -19,10 +19,10 @@ go build -o 2ag.exe .\cmd\2ag
 
 ```powershell
 # release 二进制 + staging + 安装包
-.\scripts\pack.ps1 -Version 0.1.1
+.\scripts\pack.ps1 -Version 0.2.0
 
 # 只出 staging（不调 Inno Setup，用于验证产物内容）
-.\scripts\pack.ps1 -Version 0.1.1 -SkipInstaller
+.\scripts\pack.ps1 -Version 0.2.0 -SkipInstaller
 ```
 
 ## `pack.ps1` 做什么
@@ -50,6 +50,8 @@ dist\Anti-Antigravity-Setup-x64.exe
 ```
 
 `dist\staging\` **本身就是便携形态** —— 自包含，双击 `2ag.exe` 即跑。安装包与它同源同一份 `2ag.exe`，区别只是多写注册表 + 开始菜单快捷方式。
+
+> **GitHub Release 目前只上传安装包**（`Anti-Antigravity-Setup-x64.exe` + `.sha256`），**没有**独立的 portable `2ag.exe` 资产。要绿色版请自己 `pack.ps1 -SkipInstaller` 或 `go build` 后使用 `dist\staging\`。
 
 ## 可复现性
 

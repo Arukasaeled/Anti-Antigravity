@@ -3220,9 +3220,8 @@
           </span>
         </div>
 
-        <!-- 配额出处 / 新鲜度：这几个百分比来自第三方写入的本地授权缓存快照，
-             本工程只读、从不主动向官方端点握手。没有这一行时，9 小时前的快照
-             与 3 秒前的快照在界面上长得一模一样。 -->
+        <!-- 配额出处 / 新鲜度：优先 live 探测；失败时才用第三方写入的本地缓存兜底，
+             并明确标成 cockpit-cache。没有这一行时，旧快照与实时读数在界面上长得一样。 -->
         <div class="section-note" id="dash-quota-source">配额出处：读取中…</div>
 
         <div class="qring-group">
@@ -3341,7 +3340,7 @@
       <div class="panel-header-wrap">
         <div>
           <h2 class="panel-title">账号</h2>
-          <div class="panel-subtitle">官方双配额限制池实时探测与故障自愈 (Google 官方授权架构)</div>
+          <div class="panel-subtitle">官方双配额限制池按账号探测（优先 live，缓存仅作兜底）</div>
         </div>
         <div class="flex-gap">
           <button class="btn btn-primary" onclick="openAddAccountModal()">+ 接入新账号</button>
@@ -3907,12 +3906,19 @@
     <div class="modal-tab-pane active" id="modal-tab-oauth">
       <div style="font-size:12px; color:var(--text-secondary); line-height:1.5; background:var(--md-sys-color-surface-container); border:1px solid var(--md-sys-color-outline); padding:12px 14px; border-radius:14px;">
         <span style="color:var(--google-green); font-weight:700;">[官方原生登录]</span>
-        点击下方按钮后，2Ag 会以零参数启动你本机的官方 Antigravity（不注入、不改它的任何文件），并临时清空当前登录凭据让它进入登录页。
+        官方已经登录时，可直接导入当前账号。添加另一个账号时，2Ag 会备份当前登录态，启动本机官方 Antigravity，并在结束后恢复原账号。
         <b>Google 授权完全由官方 Antigravity 与系统浏览器完成</b>——2Ag 不持有、也不分发任何 Google OAuth Client 凭据。
         登录成功后 2Ag 会把账号加密存入保险库，并自动恢复你原来的账号。
       </div>
 
       <div style="margin-top:6px;">
+        <button class="btn btn-tonal" id="btn-import-official" style="width:100%; padding:12px; margin-bottom:10px;" onclick="importCurrentOfficialAccount()">导入当前官方账号</button>
+        <label for="broker-network-mode" style="font-size:12px;">本次官方登录网络</label>
+        <select id="broker-network-mode" style="width:100%; margin:6px 0 10px; padding:8px; background:var(--md-sys-color-surface-container); color:var(--text-primary); border:1px solid var(--md-sys-color-outline); border-radius:8px;">
+          <option value="AUTO">自动（使用默认网络）</option>
+          <option value="DIRECT">直连</option>
+          <option value="PROXY">代理（使用已检测到的代理）</option>
+        </select>
         <button class="btn btn-primary" id="btn-start-broker" style="width:100%; padding:12px;" onclick="startBrokerLogin()">
           🚀 启动官方 Antigravity 并登录
         </button>
@@ -4548,9 +4554,9 @@ function bindActiveAccountToDashboard(currentAcc, isLive) {
 
 // 配额出处 / 新鲜度行。
 //
-// 这几个百分比来自第三方工具写入的本地授权缓存（authorized/*.json）快照，
-// 2Ag 只读、从不主动向官方端点发起真实握手。没有这一行时，9 小时前的快照
-// 与 3 秒前的快照在界面上完全一样，用户没有任何途径知道自己在看哪一个。
+// 这几个百分比优先来自 2Ag 自己的 live 探测（source=live）；只有 live 失败时
+// 才回落到第三方工具写入的本地缓存（source=cockpit-cache，stale=true）。
+// 没有这一行时，旧快照与实时读数在界面上完全一样，用户无从分辨。
 //
 // 相对时间在前端算：浏览器此刻的时钟才是「现在」；后端一旦生成「10 分钟前」
 // 这种字面量，那句话从生成的一刻就已过期，还会被缓存重放成更离谱的错值。
@@ -4611,11 +4617,16 @@ function renderQuotaSource(pool) {
   if (!el) return;
   const updatedAt = (pool && isFinite(Number(pool.updated_at))) ? Number(pool.updated_at) : 0;
   const source = (pool && typeof pool.source === 'string') ? pool.source.trim() : '';
+  const poolNonLive = !!(pool && pool.stale === true);
   if (!updatedAt) {
-    el.style.color = 'var(--text-tertiary)';
-    el.textContent = source
-      ? '配额出处：' + source + ' · 采样时刻不详（该缓存未记录时间）'
-      : '配额出处：未读取到本地授权缓存';
+    el.style.color = poolNonLive ? 'var(--2ag-yellow)' : 'var(--text-tertiary)';
+    if (poolNonLive) {
+      el.textContent = '⚠ 非实时读数：实时探测未成功，这份是本机缓存快照，不可当作实时读数';
+    } else {
+      el.textContent = source
+        ? '配额出处：' + source + ' · 采样时刻不详'
+        : '配额出处：未读取到配额数据';
+    }
     return;
   }
   const diff = Date.now() - updatedAt;
@@ -4629,11 +4640,23 @@ function renderQuotaSource(pool) {
   else if (min < 60) age = min + ' 分钟前';
   else if (min < 1440) age = Math.floor(min / 60) + ' 小时前';
   else age = Math.floor(min / 1440) + ' 天前';
-  const stale = diff > 5 * 60 * 60 * 1000;
+  // 两个**互相独立**的理由都要求警示：
+  //   1. 采样太旧（> 5h）—— 已比一个完整滑窗还老，数字本身失去意义；
+  //   2. 这份读数不是 live 探测，而是 live 失败后回落的本机缓存快照。
+  // 第 2 条不能靠第 1 条覆盖：一份两分钟前写入的缓存同样是缓存，
+  // 若只按年龄判断，它会以「配额出处：刚刚」呈现，等于把非实时读数说成实时读数。
+  const tooOld = diff > 5 * 60 * 60 * 1000;
+  const nonLive = !!(pool && pool.stale === true);
+  const stale = tooOld || nonLive;
   el.style.color = stale ? 'var(--2ag-yellow)' : 'var(--text-tertiary)';
-  const head = stale
-    ? '⚠ 配额数据已过期：' + age + '（' + at + ' 采样），超过 5h 滑窗长度，不可当作实时读数'
-    : '配额出处：' + age + '（' + at + ' 采样）';
+  let head;
+  if (tooOld) {
+    head = '⚠ 配额数据已过期：' + age + '（' + at + ' 采样），超过 5h 滑窗长度，不可当作实时读数';
+  } else if (nonLive) {
+    head = '⚠ 非实时读数：实时探测未成功，这份是本机缓存快照（' + at + ' 采样，' + age + '），不可当作实时读数';
+  } else {
+    head = '配额出处：' + age + '（' + at + ' 采样）';
+  }
   el.textContent = source ? head + ' · ' + source : head;
 }
 
@@ -5443,6 +5466,10 @@ function renderAccounts(accounts) {
     // 唯一区别是尺寸：账号行里空间紧凑，缩到 40px，但 r 与 dasharray 都按 46 单位算
     // —— 缩放的只是 SVG 的显示尺寸，不是坐标系。
     function poolHtml(title, pool, available, isClaude, uid, logos) {
+      // live 探测失败而回落到本机缓存时，池标签必须自己说清楚 —— 否则卡片上
+      // 四个圆环与实时读数完全同形，用户只能在标题行那行小字里找线索。
+      const poolNonLive = !!(pool && pool.stale === true);
+      const titleText = title + (poolNonLive ? '（非实时）' : '');
       function ring(label, pct, reset, key) {
         const known = available && isFinite(Number(pct));
         const color = known ? getQuotaColor(pct) : 'var(--2ag-ring-unknown)';
@@ -5464,10 +5491,10 @@ function renderAccounts(accounts) {
         ].join('');
       }
       return [
-        '<div class="acct-pool">',
-          '<div class="acct-pool-name">' + (logos || '') + title +
+        '<div class="acct-pool"' + (poolNonLive ? ' data-stale="true"' : '') + '>',
+          '<div class="acct-pool-name">' + (logos || '') + escapeHtml(titleText) +
             '<span class="acct-pool-tag' + (available ? (isClaude ? ' is-hc' : '') : ' is-off') + '">' +
-            (available ? (isClaude ? 'HIGH CAPACITY' : 'SHARED') : '未载入') + '</span>' +
+            (available ? (poolNonLive ? '非实时' : (isClaude ? 'HIGH CAPACITY' : 'SHARED')) : '未载入') + '</span>' +
           '</div>',
           '<div class="acct-rings">',
             ring('5h 滑窗', pool.five_hour_percent, pool.five_hour_reset, '5h'),
@@ -5490,7 +5517,7 @@ function renderAccounts(accounts) {
             '<span class="acct-dot ' + dotCls + '"></span>',
             '<span class="acct-state-text">' + stateText + '</span>',
             (acc.name ? '<span class="acct-nick">' + escapeHtml(acc.name) + '</span>' : ''),
-            (acc.cooldown_msg && !isPrimary ? '<span class="acct-note">' + escapeHtml(acc.cooldown_msg) + '</span>' : ''),
+            (acc.cooldown_msg ? '<span class="acct-note">' + escapeHtml(acc.cooldown_msg) + '</span>' : ''),
           '</div>',
         '</div>',
         // ── 动作区：三级权重 ─────────────────────────────────────
@@ -5593,6 +5620,18 @@ const BROKER_STAGE_LABEL = {
   cancelled: '✕ 已取消'
 };
 
+function importCurrentOfficialAccount() {
+  const btn = document.getElementById('btn-import-official');
+  const text = document.getElementById('broker-status-text');
+  btn.disabled = true;
+  text.textContent = '正在读取当前官方账号…';
+  fetch('/api/v1/accounts/snapshot', { method: 'POST' })
+    .then(function(r) { return r.json().then(function(j) { if (!r.ok || !j.success) throw new Error(j.message || '导入失败'); return j; }); })
+    .then(function(j) { text.textContent = '已导入当前官方账号：' + j.email; logMsg(text.textContent, 'term-ok'); loadAccounts(); })
+    .catch(function(err) { text.textContent = err.message; logMsg('导入当前官方账号失败：' + err.message, 'term-err'); })
+    .finally(function() { btn.disabled = false; });
+}
+
 function startBrokerLogin() {
   const btn = document.getElementById('btn-start-broker');
   const badge = document.getElementById('broker-status-badge');
@@ -5602,10 +5641,10 @@ function startBrokerLogin() {
   btn.innerText = '⏳ 正在启动官方 Antigravity...';
   badge.className = 'status-pill pill-yellow';
   badge.innerText = '⏳ 流程启动中';
-  text.innerText = '正在备份当前凭据并启动官方 Antigravity（零参数、零注入）...';
+  text.innerText = '正在备份当前凭据并启动官方 Antigravity…';
   logMsg('开始「添加账号」：Google 授权将由本机官方 Antigravity 原生完成', 'term-cyan');
 
-  fetch('/api/v1/accounts/broker/start', { method: 'POST' })
+  fetch('/api/v1/accounts/broker/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ network_mode: document.getElementById('broker-network-mode').value }) })
     .then(function(r) {
       return r.json().then(function(j) { return { ok: r.ok, body: j }; });
     })
@@ -5791,7 +5830,7 @@ function saveManualAccount() {
 // 它从不发任何请求，34ms 是凭空编造的常数，用户却会以为真的探测过了。
 // 现在改为向真实的本地授权缓存扫描接口取数，并按该账号是否真有配额数据如实回报。
 function testAccount(email) {
-  logMsg("正在查询 " + email + " 的本地授权配额缓存 ...", "term-cyan");
+  logMsg("正在查询 " + email + " 的配额读数 ...", "term-cyan");
   fetch('/api/v1/accounts')
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -5808,9 +5847,9 @@ function testAccount(email) {
       }
       const usable = (hit.gemini_pool && hit.gemini_pool.available) || (hit.claude_pool && hit.claude_pool.available);
       if (usable) {
-        logMsg("探活结果: " + email + " 本地授权配额缓存命中，可读取真实额度", "term-ok");
+        logMsg("探活结果: " + email + " 已取得可用配额读数", "term-ok");
       } else {
-        logMsg("探活结果: " + email + " 未命中本地授权配额缓存 —— 该账号当前无真实额度数据（状态: " + (hit.status || 'UNKNOWN') + "）。账号未离线握手，不做任何限流判定。", "term-warn");
+        logMsg("探活结果: " + email + " 没有可用配额读数（状态: " + (hit.status || 'UNKNOWN') + "）。不做任何限流判定。", "term-warn");
       }
     })
     .catch(function(err) {
@@ -5858,9 +5897,8 @@ function removeAccount(email) {
   }
 }
 function refreshQuotas() {
-  // 这里刷新的是「本地授权配额缓存」（cockpit 写入的 authorized/*.json），
-  // 不是向官方端点发起真实握手 —— 后者本工程从未实现，提示语不能冒充它。
-  logMsg("正在重新扫描本地授权配额缓存 ...", "term-cyan");
+  // 这里刷新的是账号配额读数：优先 2Ag 自己的 live 探测，失败时才回落到本地缓存。
+  logMsg("正在重新探测账号配额 ...", "term-cyan");
   fetch('/api/v1/accounts/refresh', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(data) {
@@ -5870,11 +5908,11 @@ function refreshQuotas() {
       const loaded = currentAccounts.filter(function(a) {
         return (a.gemini_pool && a.gemini_pool.available) || (a.claude_pool && a.claude_pool.available);
       }).length;
-      logMsg("本地授权配额缓存已重新扫描: " + loaded + " / " + currentAccounts.length + " 个账号命中真实额度", "term-ok");
+      logMsg("配额已重新探测: " + loaded + " / " + currentAccounts.length + " 个账号有可用读数", "term-ok");
     })
     .catch(function() {
       loadAccounts();
-      logMsg("本地授权配额缓存扫描接口不可达，已回退到账号清单", "term-warn");
+      logMsg("配额探测接口不可达，已回退到账号清单", "term-warn");
     });
 }
 

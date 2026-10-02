@@ -16,7 +16,11 @@ func LoginBrokerStatusNow() LoginBrokerStatus {
 	return LoginBrokerStatus{Stage: brokerStageIdle, Message: "当前平台不支持登录 Broker"}
 }
 
-func StartLoginBroker(configuredMode string) error { return errBrokerUnsupported }
+func StartLoginBroker(configuredMode string, networkModes ...string) error {
+	return errBrokerUnsupported
+}
+
+func RecoverPendingLoginBroker() (bool, error) { return false, nil }
 
 func CancelLoginBroker() error { return errBrokerUnsupported }
 

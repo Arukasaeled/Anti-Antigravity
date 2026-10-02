@@ -422,14 +422,44 @@ func ReadHostLoginEmail() (string, error) {
 	return identifyCredentialOwner(blob.Token.RefreshToken, blob.Token.AccessToken)
 }
 
-// identifyCredentialOwner 用 token 字符串在 cockpit 账号库里反查归属。
-// 逐条解密账号文件做精确字符串比对；找不到归属返回 ("", nil)。
+// identifyCredentialOwner 用 token 字符串反查这份凭据属于谁。
+//
+// 先查 2Ag 自己的保险库，再查第三方 cockpit 账号库，逐条解密做精确字符串比对；
+// 找不到归属返回 ("", nil)。
+//
+// 保险库必须排在前面：它是 2Ag 自己的账号库，而 cockpit 只是可选的历史来源 ——
+// 一个没装过 cockpit-tools 的用户，他的凭据只可能在保险库里。
+// 顺序反了就意味着一份凭据「认不出主人」，而认不出主人会直接导致归档被拒。
 func identifyCredentialOwner(refreshToken, accessToken string) (string, error) {
 	refreshToken = strings.TrimSpace(refreshToken)
 	accessToken = strings.TrimSpace(accessToken)
 	if refreshToken == "" && accessToken == "" {
 		return "", nil
 	}
+
+	matches := func(raw []byte) bool {
+		var blob antigravityCredentialBlob
+		if json.Unmarshal(raw, &blob) != nil {
+			return false
+		}
+		if refreshToken != "" && strings.TrimSpace(blob.Token.RefreshToken) == refreshToken {
+			return true
+		}
+		return accessToken != "" && strings.TrimSpace(blob.Token.AccessToken) == accessToken
+	}
+
+	// ① 2Ag 自有保险库。
+	for _, e := range ListVaultAccountEntries() {
+		raw, err := ReadVaultCredential(e.Email)
+		if err != nil || len(raw) == 0 {
+			continue
+		}
+		if matches(raw) {
+			return strings.TrimSpace(e.Email), nil
+		}
+	}
+
+	// ② 第三方 cockpit 账号库（可选的历史来源）。
 	dir := cockpitDataDir()
 	if dir == "" {
 		return "", nil
@@ -516,11 +546,51 @@ func deleteAntigravityCredentialRaw() error {
 	return nil
 }
 
+// credentialPayloadForAccount 取出一份可用于写入系统凭据管理器的凭据 blob。
+//
+// 顺序即优先级，且**第一来源不依赖任何第三方工具**：
+//  1. 2Ag 自己的 DPAPI 保险库（account_vault.go）。用户在 2Ag 里加过的每个账号
+//     都在这里，保险库保存的就是凭据管理器原始 blob，可直接回写；
+//  2. 第三方 cockpit 账号库 —— 只服务于「0.1.1 之前就把账号放在那里」的老用户。
+//
+// 返回的 source 只用于日志（"vault" / "cockpit"），便于排障时看清凭据从哪来。
+//
+// 为什么不能只保留第 2 项（历史实现）：那会让「切换账号」以「本机装过 cockpit-tools」
+// 为前提，报错文案本身就是「cockpit 账号库里没有…」。一个发布版产品的核心动作
+// 不该有这样的前提。
+func credentialPayloadForAccount(email string) (payload []byte, source string, err error) {
+	email = strings.TrimSpace(email)
+
+	// ① 2Ag 自有保险库。
+	if raw, err := ReadVaultCredential(email); err == nil && len(raw) > 0 {
+		var blob antigravityCredentialBlob
+		if json.Unmarshal(raw, &blob) == nil && strings.TrimSpace(blob.Token.RefreshToken) != "" {
+			return raw, "vault", nil
+		}
+		// 保险库里那一份不足以完成登录（缺 refresh_token）：
+		// 继续往下找一个真的可用的来源，而不是把半份凭据写进去。
+		log.Printf("[2ag] 保险库里 %s 的凭据缺少 refresh_token，尝试其他来源", email)
+	}
+	// 保险库里没有该账号是**正常路径**（例如账号只登记在旧库里），
+	// 不在此处打日志，避免给每一次切换刷出误导性的「失败」。
+
+	// ② 第三方 cockpit 账号库（可选的历史来源）。
+	if acc, ok := loadCockpitAccountByEmail(email); ok {
+		built, err := BuildAntigravityCredentialPayload(acc)
+		if err != nil {
+			return nil, "", err
+		}
+		return built, "cockpit", nil
+	}
+
+	return nil, "", fmt.Errorf("本机没有 %s 的可用登录凭据：请先在「账号矩阵」里用该账号登录一次（登录后凭据会存进 2Ag 自己的保险库）", email)
+}
+
 // ApplyAntigravityCredential 把指定账号写进 Windows 凭据管理器，使其成为宿主真实登录身份。
 //
 // 幂等：若当前凭据已经属于该账号，直接返回 nil —— 这既是省一次写，更重要的是
-// **避免用 cockpit 里可能更旧的 token 覆盖宿主刚刚刷新过的凭据**。宿主刷新后
-// 凭据里会带上自己的 id_token，把它换成旧值只会让登录态倒退。
+// **避免用可能更旧的 token 覆盖宿主刚刚刷新过的凭据**。宿主刷新后凭据里会带上
+// 自己的 id_token，把它换成旧值只会让登录态倒退。
 func ApplyAntigravityCredential(email string) error {
 	email = strings.TrimSpace(email)
 	if email == "" {
@@ -532,19 +602,15 @@ func ApplyAntigravityCredential(email string) error {
 		return nil
 	}
 
-	acc, ok := loadCockpitAccountByEmail(email)
-	if !ok {
-		return fmt.Errorf("cockpit 账号库里没有 %s 的可用凭据（缺少 %s/accounts/<id>.json），无法切换宿主登录身份", email, cockpitDataDir())
-	}
-	payload, err := BuildAntigravityCredentialPayload(acc)
+	payload, source, err := credentialPayloadForAccount(email)
 	if err != nil {
 		return err
 	}
 	if err := writeAntigravityCredentialRaw(payload); err != nil {
 		return err
 	}
-	log.Printf("[2ag] 已重写 Windows 凭据管理器 target=%s ⇒ %s (blob %d B, refresh_token %d 字符)",
-		antigravityCredTarget, acc.Email, len(payload), len(acc.Token.RefreshToken))
+	log.Printf("[2ag] 已重写 Windows 凭据管理器 target=%s ⇒ %s (来源 %s, blob %d B)",
+		antigravityCredTarget, email, source, len(payload))
 
 	// 写入即失效身份缓存：下一次读取必须反映新事实，而不是 5 秒前的旧账号。
 	invalidateHostLoginCache()
@@ -584,6 +650,18 @@ type CredentialSnapshot struct {
 //  4. 落盘内容一定是 DPAPI 密文。0.1.1 之前这里是明文 WriteFile ——
 //     任何能读用户主目录的进程就等于拿到了别人的 refresh_token。
 func SnapshotAntigravityCredential() (CredentialSnapshot, error) {
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return CredentialSnapshot{}, err
+	}
+	defer release()
+	if _, err := os.Stat(brokerRecoveryPath()); !os.IsNotExist(err) {
+		return CredentialSnapshot{}, fmt.Errorf("请重启 2Ag 先恢复原账号")
+	}
+	return snapshotAntigravityCredential()
+}
+
+func snapshotAntigravityCredential() (CredentialSnapshot, error) {
 	var out CredentialSnapshot
 
 	raw, err := readAntigravityCredentialRaw()
@@ -594,9 +672,16 @@ func SnapshotAntigravityCredential() (CredentialSnapshot, error) {
 		return out, fmt.Errorf("Windows 凭据管理器中没有 %s 凭据，宿主可能尚未登录", antigravityCredTarget)
 	}
 
-	email, err := ReadHostLoginEmail()
+	view, ok := parseCredentialBlobView(raw)
+	if !ok || view.Token == nil || strings.TrimSpace(view.Token.AccessToken) == "" || strings.TrimSpace(view.Token.RefreshToken) == "" {
+		return out, fmt.Errorf("官方尚未完成登录，当前凭据不完整；请在官方客户端完成登录后重试")
+	}
+	email := emailFromCredentialPayload(raw)
+	if email == "" {
+		email, err = identifyCredentialOwner(view.Token.RefreshToken, view.Token.AccessToken)
+	}
 	if err != nil {
-		return out, fmt.Errorf("解析凭据归属失败: %w", err)
+		return out, fmt.Errorf("解析凭据归属失败")
 	}
 	email = strings.TrimSpace(email)
 	if email == "" || !strings.Contains(email, "@") {
@@ -615,7 +700,9 @@ func SnapshotAntigravityCredential() (CredentialSnapshot, error) {
 	out.Email = email
 	out.Path = filepath.Join(home, ".2ag", "vault", account.File)
 	out.Bytes = len(raw)
+	if err := SaveOwnedAccountEntry(email, account.DisplayName); err != nil {
+		return out, fmt.Errorf("凭据已保存，账号登记失败；请重试导入")
+	}
 	log.Printf("[2ag] 已归档凭据快照（DPAPI 加密）: %s (%d B) ⇒ %s", email, len(raw), out.Path)
 	return out, nil
 }
-

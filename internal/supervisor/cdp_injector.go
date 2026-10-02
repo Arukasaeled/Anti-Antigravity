@@ -273,6 +273,12 @@ type HotReloadReport struct {
 //   - 不再把异常静默吞掉（失败原因原样返回给 API 层，由界面展示）。
 func HotReloadCDP(targetAddr string) (HotReloadReport, error) {
 	report := HotReloadReport{}
+	if targetAddr == "" {
+		targetAddr = ResolveCDPAddr()
+	}
+	if isOfficialCDPTarget(targetAddr) {
+		return report, fmt.Errorf("当前目标是官方客户端；请启动增强宿主后再注入")
+	}
 
 	// 官方形态闸：注入链路共三个入口（HotReloadCDP / WatchAndInjectCDP / PushHubState），
 	// 三处都要各自早退。只在 LaunchEnhancedHost 里拦是不够的 —— 用户完全可能先手动
@@ -366,6 +372,13 @@ func HotReloadCDP(targetAddr string) (HotReloadReport, error) {
 func buildHubConfig() patcher.HubConfig { return BuildHubConfig() }
 
 func WatchAndInjectCDP(targetAddr string, timeout time.Duration) error {
+	if targetAddr == "" {
+		targetAddr = ResolveCDPAddr()
+	}
+	if isOfficialCDPTarget(targetAddr) {
+		log.Println("[2ag] 跳过官方客户端 CDP 目标，不注入")
+		return nil
+	}
 	// 官方形态闸（见 HotReloadCDP 的同名闸门注释）。这个入口由 Manager 启动后
 	// 无条件调用（manager.go 启动 600ms 后就会跑到这里），不拦的话官方形态下
 	// 仍会建立一条常驻 CDP 会话并持续巡检注入。
@@ -407,6 +420,9 @@ func WatchAndInjectCDP(targetAddr string, timeout time.Duration) error {
 			log.Printf("[2ag] CDP 自动注入监听超时 (%s)", targetAddr)
 			return ctx.Err()
 		case <-ticker.C:
+			if IsOfficialRuntime() || isOfficialCDPTarget(targetAddr) {
+				return nil
+			}
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+targetAddr+"/json", nil)
 			if err != nil {
 				continue
@@ -519,6 +535,9 @@ func runMaintainLoop(targetAddr string, expression string) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+		if IsOfficialRuntime() || isOfficialCDPTarget(targetAddr) {
+			return
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+targetAddr+"/json", nil)
@@ -971,4 +990,3 @@ func evaluateCDPString(conn net.Conn, reader *bufio.Reader, id int, expr string)
 		return "", nil
 	}
 }
-
