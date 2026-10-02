@@ -199,7 +199,7 @@ foreach ($rel in @('README.md', 'RELEASE-NOTES-v0.1.1.md', 'installer.iss', '.gi
     $p = Join-Path $ProjectRoot $rel
     if (Test-Path -LiteralPath $p -PathType Leaf) { $ownedSourceFiles += (Get-Item -LiteralPath $p) }
 }
-foreach ($dir in @('assets', 'cmd', 'internal', 'themes', 'plugins', 'web')) {
+foreach ($dir in @('assets', 'cmd', 'docs', 'internal', 'themes', 'plugins', 'web')) {
     $ownedSourceFiles += @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot $dir) -Recurse -File -ErrorAction SilentlyContinue)
 }
 $ownedSourceFiles += @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'scripts') -Recurse -File -ErrorAction SilentlyContinue |

@@ -1,247 +1,217 @@
-# Anti-Antigravity (2Ag)
+<img src="docs/screenshots/00-banner.png" alt="2Ag · Anti-Antigravity" width="560">
 
-**2Ag 是 Windows 上的 Antigravity 增强外壳。**
+# 2Ag · Anti-Antigravity
 
-它**不修改官方 Antigravity 的任何安装文件** —— `app.asar` 原样保留、不重打包、不替换。
-2Ag 做的是：在自己拉起官方宿主的时候，额外起一圈**本机回环服务**，并通过 CDP
-把一块界面注入宿主的渲染进程。
+**给 Google Antigravity 加一层控制台。**
 
-```
-2ag.exe  ──┬─ 本机回环控制面 (API + 内嵌前端)
-           ├─ 本机回环 HTTP 转发代理
-           ├─ 侧车插件进程
-           └─ 官方 Antigravity 宿主 ── CDP ──> G-Hub / G-Cockpit（注入）
-                 └─ 以上全部挂在同一条 Windows Job Object 下：宿主退出，一并清干净
-```
+一个窗口管住宿主、账号、配额、皮肤和运行时开关 —— 不改官方一个字节。
 
-当前版本：**v0.1.1**（首次公开发布）。
+[![Release](https://img.shields.io/github/v/release/arukas0623-ai/Anti-Antigravity?style=flat-square&color=4285f4)](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078d4?style=flat-square)
+
+**[⬇ Download v0.1.1](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)** · [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
+
+<img src="docs/screenshots/01-overview-light.png" alt="2Ag Manager 概览" width="880">
 
 ---
 
-## 组成
+## 2Ag 是什么
 
-`2ag.exe` 一个可执行文件同时是引擎和 GUI。不带参数（或 `2ag manager`）打开的就是
-**2Ag Manager** —— 一个 WebView2 原生窗口，里外都是本机页面：
+Google Antigravity 是一个很强的 AI 工作台，但它没有给你一个"管理它的地方"。
 
-| 面板 | 内容 |
-|---|---|
-| 概览 | 宿主状态、模型配额、协议网关、上游兼容性 |
-| 账号 | 账号矩阵、官方原生登录添加账号、账号保险库（DPAPI 加密）、主账号切换 |
-| 会话 | 会话列表、导出、删除 |
-| 视觉工坊 | 壁纸 / 模糊 / 不透明度 / 界面主题 |
-| 重力加倍 | 并发与端点相关的运行时开关 |
-| 环境诊断 | 宿主探针、运行时模式、兼容性守护报告 |
+2Ag 就是那个地方。它在你自己启动的 Antigravity 外面加一圈**本机控制台**：
 
-**G-Hub / G-Cockpit** 是注入到官方宿主里的那一层（Shadow DOM）：一个浮标 + 一块战术面板，
+- 看清宿主现在到底跑着什么；
+- 管住多个 Google 账号的配额；
+- 换个皮肤；
+- 把几个被官方藏起来的行为开关交回你手里。
+
+**它不修改官方 Antigravity 的任何安装文件** —— `app.asar` 原样保留，不重打包、不替换。注入只走运行时，宿主一关就干干净净。
+
+---
+
+## 核心功能
+
+### 🎛 2Ag Manager
+
+一个 WebView2 原生窗口，也是控制中枢。
+
+**概览** 宿主状态与真·模型配额 · **账号** 账号矩阵与保险库 · **会话** 本地会话索引与导出 ·
+**视觉工坊** 壁纸/模糊/主题 · **重力加倍** 运行时开关 · **环境诊断** 探针与兼容性报告。
+
+### 🪟 G-Hub
+
+注入到宿主里的**浮标 + 战术面板**（Shadow DOM，与宿主 DOM 完全隔离）。
+
 不切窗口就能看状态、换账号、重启宿主沙箱。
 
-## 运行
+<img src="docs/screenshots/02-g-hub.png" alt="G-Hub 战术面板" width="880">
 
-安装版：运行 `Anti-Antigravity-Setup-x64.exe`，从开始菜单或桌面快捷方式启动 `2Ag`。
+### 🔐 Account Vault
 
-源码版：
+多账号管理，凭据以 **DPAPI(CurrentUser)** 加密存放。
 
-```powershell
-go build -o 2ag.exe .\cmd\2ag
-.\2ag.exe                # 打开 2Ag Manager
-```
+> 密文只有**同一台机器的同一个 Windows 用户**能解开 —— 换用户、换机器都解不开。
+> 索引文件只存邮箱等元数据，token 不进配置、不进日志、不进 API 响应、不进前端。
 
-命令行子命令（给脚本和排障用）：
+### 📊 Model Quota
 
-```
-2ag manager                    打开 Manager 图形控制台（等同无参数启动）
-2ag run [--debug]              只启动引擎 + 宿主，不开 Manager
-2ag restore                    还原被改动过的宿主侧状态
-2ag skin show                  查看当前视觉参数
-2ag skin set-wallpaper <path>  设置壁纸
-2ag skin set-blur <0..N>       设置模糊半径
-2ag skin set-opacity <0..1>    设置不透明度
-2ag profile list|save|switch   账号档案
-2ag doctor                     打印环境诊断
-```
+如实读取 Gemini / Claude / GPT 三个池的 5 小时滑窗与周限额。
 
-### 前置条件：官方 Antigravity 需要你自己安装
+**读不到就显示 `--`，过期就明说过期。** 不会拿缓存数字冒充实时读数。
 
-2Ag **不包含、也不分发** Google Antigravity —— 这个仓库和安装包里没有任何 Google
-运行时字节。请先在本机安装官方 Antigravity（默认在
-`%LOCALAPPDATA%\Programs\Antigravity`），然后：
+<img src="docs/screenshots/05-accounts.png" alt="账号矩阵与配额" width="880">
 
-| 形态 | 用哪份宿主 | 说明 |
+### 🎨 Skin Studio
+
+自定义壁纸、模糊半径、遮罩浓度，外加多套内置主题。
+
+壁纸是你自己的图片，2Ag 不预置、不携带任何图片。
+
+### 🔀 Official / Enhanced
+
+两种形态随时切换：
+
+| | 用哪份宿主 | 加了什么 |
 |---|---|---|
-| 官方形态 | 你本机的官方安装 | 零启动参数、零注入、零凭据改写 |
-| 增强形态 | 2Ag 自己的冻结宿主副本 | 首次启动时从你本机的官方安装**物理复制**一份出来 |
+| **Official** | 你本机的官方安装 | 什么都不加，行为接近"没装 2Ag" |
+| **Enhanced** | 2Ag 自己的冻结副本 | 完整注入 + G-Hub + 皮肤 + 重力加倍 |
 
-冻结宿主副本的落点是 `2ag.exe` 同级的 `app\`（约 570 MB，首次建立需要数十秒）。
-建立过程对官方安装目录**只读**：不修改、不移动它的任何文件。副本建好后 2Ag 一直
-使用它，官方 updater 更新的则是你那份官方安装 —— 两者物理隔离，版本是否落后由
-**更新守护**如实报出，要不要同步由你决定，2Ag 不会自动替换你的宿主。
+增强形态的宿主是 2Ag 从你本机官方安装**物理复制**出的一份冻结副本，官方目录全程只读。
 
-本机既没有官方安装、也还没有冻结副本时，Manager 照常打开，只显示
-「未检测到 Antigravity」，不会伪造版本、PID 或配额。
+### 🛡 Compatibility Guardian
 
-### 添加账号：由官方 Antigravity 完成 Google 登录
+跑起来就自检：官方安装是否可定位、官方文件是否被改过、两套 profile 是否隔离、当前运行形态是什么。
 
-2Ag **不是** Google OAuth 客户端：仓库里没有、发布包里也没有任何 Google OAuth
-Client 凭据（client_id / client_secret）。添加账号走的是 **Official Antigravity
-Login Broker**：
+有问题的项如实报出来，不粉饰。
 
-1. 备份当前 `gemini:antigravity` 凭据（加密归档进保险库），然后临时清空它；
-2. 以**零参数**启动你本机的官方 Antigravity（不注入、不改它的任何文件），
-   它会显示自己的登录页；
-3. 你在官方窗口里点「Continue with Google」——授权完全由官方 Antigravity 与系统
-   浏览器完成，2Ag 全程不接触你的 Google 密码、授权码或 OAuth 客户端配置；
-4. 2Ag 只做一件事：等官方把新凭据写进 Windows 凭据管理器后**捕获**它，
-   用 DPAPI(CurrentUser) 加密存入账号保险库（`~/.2ag/vault/`）；
-5. 自动恢复你原来的账号；**若流程开始时宿主正在运行**，再按原来的运行形态把它重启
-   （当时没有宿主在跑就不会自动拉起，界面会如实说明）。
+---
 
-**账号保险库**（`~/.2ag/vault/`）：`<account-id>.bin` 是 DPAPI(CurrentUser) 加密后的
-完整登录凭据（换用户、换机器都解不开），`index.json` 只登记邮箱、显示名与时间戳 ——
-**不含任何 token**。旧版本留下的明文凭据会在首次启动时自动就地加密迁移。
+## 截图
 
-**切换账号**是事务化的：停宿主 → 写入目标凭据 → 按原形态重启 → 回读校验实际登录
-身份；校验不一致就自动回滚到原账号并如实报错，绝不用请求里的邮箱冒充结果。
+| | |
+|---|---|
+| <img src="docs/screenshots/04-diagnostics.png" alt="运行时开关"> | <img src="docs/screenshots/07-sessions.png" alt="会话索引"> |
+| **运行时开关** | **本地会话索引** |
 
-## 数据与隐私
+<!-- TODO: 以下截图待补充，勿用占位图
+     03-skin-studio.png  — 视觉工坊（壁纸 / 主题）
+     06-dark.png         — 深色主题
+-->
 
-**所有数据都留在你自己的机器上。**
+---
 
-- 2Ag 自己出网只去两个地方：`127.0.0.1`（回环控制面与代理），以及宿主本来就要访问的
-  Google 账号 / API 端点（`accounts.google.com`、`oauth2.googleapis.com`、`www.googleapis.com`）。
-  **没有任何 2Ag 作者的服务器、统计、上报。**
-- 账号凭据、会话、壁纸路径等全部从**当前用户本机**读取，并写回本机的 `2ag.json`。
-- **2Ag 不持有、也不分发任何 Google OAuth Client 凭据**，不会替你向 Google 发起授权：
-  添加账号时由本机官方 Antigravity 完成原生登录，2Ag 只捕获登录结果。
-  账号凭据以 **DPAPI(CurrentUser)** 加密存放（`~/.2ag/vault/*.bin`），
-  索引文件只存邮箱等元数据，token 不进 `2ag.json`、不进日志、不进 API 响应、不进前端。
-- 仓库里**没有**任何写死的开发机数据。新装（配置里为空）时，需要用户数据的面板显示
-  `--` / 不可用，而不是某个人的真实数值。
-- **不安装 CA 证书、不解密 TLS。** HTTPS `CONNECT` 是不透明隧道，因此本项目的代理
-  无法改写 HTTPS 请求体 —— 这是刻意的设计边界，不是待办事项。
-- 打包时有**结构性泄漏闸门**（见 `scripts/pack.ps1`）：产物里一旦出现
-  `C:\Users\<某人>\` 形式的绝对路径、构建机用户名或真实邮箱，打包当场失败。
-  发布包里没有任何上游 / 第三方运行时字节，所以闸门的作用域就是 2Ag 自己的全部产物。
+## 快速开始
 
-## 配置
+1. **先装官方 Antigravity** —— 2Ag 不含、也不分发它。
+2. **下载 2Ag** —— [最新 Release](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest) 里的 `Anti-Antigravity-Setup-x64.exe`。
+3. **安装并启动** —— 开始菜单或桌面快捷方式里的 `2Ag`。
+4. **挑一个形态** —— 首次用**增强形态**时，2Ag 会从你的官方安装复制一份冻结宿主（约 570 MB，需要数十秒）；之后一直用它。
 
-`2ag.json` 与 `2ag.exe` 同目录，首次启动自动生成：
+> 便携版：`Anti-Antigravity-Setup-x64.exe` 装到本机；想要绿色版就在 Release 的源码包里自行 `go build`，或者直接找 `2ag.exe` 同级放 `assets/` `themes/` `plugins/` 即可运行。
 
-```json
-{
-  "wallpaper_path": "",
-  "blur": 20,
-  "opacity": 0.55,
-  "modal_opacity": 0.85,
-  "language": "zh-CN",
-  "runtime_mode": "enhanced",
-  "network": { "enabled": true, "endpoint_overrides": [], "rule_targets": [] },
-  "privacy": { "blocked_hosts": ["google-analytics.com"], "block_beacons": true },
-  "global_rules": "",
-  "env_overrides": {},
-  "plugins": []
-}
-```
+系统要求：**Windows 10/11 x64** · WebView2 运行时（Win11 自带；Win10 若缺，微软官网可单独装）。
 
-`wallpaper_path` 出厂为空 = 跟随宿主原生背景。壁纸是**用户自己的数据**，
-2Ag 不预置、不携带任何图片。
+---
 
-## 代理
+## 添加账号
 
-本机回环转发代理，由宿主通过 `--proxy-server=http://127.0.0.1:<port>` 使用：
+2Ag **不是** Google OAuth 客户端，所以没有"授权登录"按钮。
 
-- 按 `privacy.blocked_hosts` 拦截遥测域名，`privacy.block_beacons` 拦截信标；
-- 按 `network.endpoint_overrides` 把明文 HTTP 请求改道到指定上游；
-- `network.rule_targets` + `global_rules` 可以往**显式指定**的 JSON 字段里前插规则。
+添加账号由**你本机的官方 Antigravity** 完成原生 Google 登录：
 
-`CONNECT` 保持不透明（见上）。
+1. 2Ag 先把你当前的凭据加密归档进保险库；
+2. 以**零参数**启动本机官方 Antigravity —— 它会显示自己的登录页；
+3. 你在官方窗口里点 **Continue with Google**，授权完全由官方与系统浏览器完成；
+4. 2Ag 等官方把新凭据写进 Windows 凭据管理器后**捕获**它、加密入库；
+5. 自动恢复你原来的账号。
 
-## 构建与打包
+**2Ag 全程不接触你的 Google 密码、授权码或 OAuth 客户端配置。**
 
-需要：Go 1.22+、Inno Setup 6（只在做安装包时需要）。
+---
 
-**打包不需要本机安装官方 Antigravity。** 发布包不含任何官方运行时字节：
-`app\`（2Ag 自己的冻结宿主副本）由 2Ag 在用户机器上按需建立，不由构建机提供。
+## 本地优先
+
+**所有数据都留在你自己的机器上。没有任何 2Ag 作者的服务器、统计或上报。**
+
+- 2Ag 自己出网只去 `127.0.0.1`，以及宿主本来就要访问的 Google 端点；
+- 账号凭据以 DPAPI 加密存放，只有本机本用户能解开；
+- **不安装 CA 证书、不解密 TLS** —— HTTPS `CONNECT` 是不透明隧道，2Ag 改不了也看不到；
+- 打包时有结构性泄漏闸门：产物里一旦出现绝对用户路径、构建机用户名或真实邮箱，打包当场失败。
+
+详见 [SECURITY.md](docs/SECURITY.md)。
+
+---
+
+## 它是怎么工作的
+
+2Ag 拉起官方宿主时附加一个 CDP 调试端口，用 `Runtime.evaluate` +
+`Page.addScriptToEvaluateOnNewDocument` 把界面注入渲染进程 —— **不碰磁盘上的任何官方文件**。
+
+界面以 Shadow DOM 挂载，与宿主自己的 DOM 完全隔离。宿主一关，注入即刻消失。
+
+宿主、代理、侧车进程挂在同一条 Windows Job Object 下，2Ag 退出时连带清干净，不留孤儿进程。
+
+详见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
+---
+
+## 文档
+
+| | |
+|---|---|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 内部结构、注入链路、进程生命周期 |
+| [SECURITY.md](docs/SECURITY.md) | 凭据处理、加密、隐私边界 |
+| [CONFIGURATION.md](docs/CONFIGURATION.md) | `2ag.json` 全部字段 |
+| [CLI.md](docs/CLI.md) | 命令行子命令 |
+| [BUILD.md](docs/BUILD.md) | 构建与打包 |
+| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境与约定 |
+| [plugins/README.md](plugins/README.md) | 插件契约 |
+| [themes/README.md](themes/README.md) | 主题定义 |
+
+---
+
+## 已知限制
+
+- **Windows x64 only** —— 依赖 Windows 凭据管理器与 Job Object。
+- **必须自备官方 Antigravity** —— 2Ag 不包含、不分发它。
+- **冻结宿主会落后** —— 官方 updater 更新的是你的官方安装，2Ag 的副本不会自动跟。落后多少由更新守护如实报出，要不要同步你决定。
+- **登录凭据是机器级共享的** —— 官方 Antigravity 与 2Ag 沙箱读同一条系统凭据记录，这是 Windows 凭据模型决定的，2Ag 只能做到 profile 隔离。环境诊断会把这一条标成共享。
+- **部分运行时开关受宿主版本限制** —— 面板会标「实验性 / 开发中」并在宿主侧容器未挂钩时明说「切换不会生效」。
+
+---
+
+## 最新版本
+
+**v0.1.1** —— 首次公开发布。
+
+**[下载](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)** ·
+[发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
+
+发布页附带 `Anti-Antigravity-Setup-x64.exe.sha256`，下载后自行校验：
 
 ```powershell
-# 1) 本地自用：普通二进制
-go build -o 2ag.exe .\cmd\2ag
-
-# 2) 出发布包：release 二进制 + staging + 安装包
-.\scripts\pack.ps1 -Version 0.1.1
-
-# 只出 staging（不调 Inno Setup，用于验证产物内容）
-.\scripts\pack.ps1 -Version 0.1.1 -SkipInstaller
+Get-FileHash .\Anti-Antigravity-Setup-x64.exe -Algorithm SHA256
 ```
 
-`pack.ps1` 依次做三件事：release 构建（`-H=windowsgui -X main.version=<版本>`）、
-写入中性初始配置、**跑泄漏闸门**。闸门不过就 `throw`，不会产出安装包。
-
-发布包内容：
-
-```
-dist\staging\
-  2ag.exe                  引擎 + Manager（release 构建）
-  2ag.json                 中性初始配置
-  assets\                  logo / icon / 注入载荷
-  themes\                  主题定义（纯数据）
-  plugins\                 示例侧车插件
-dist\Anti-Antigravity-Setup-x64.exe
-```
-
-`/dist` 与 `app\` 都不进仓库：`app\` 是运行时在用户本机生成的派生物，仓库里既没有
-上游字节，也没有指向某台机器的链接。安装包与仓库遵循同一条边界。
-
-## 目录结构
-
-```
-cmd/2ag/            进程入口、Manager 窗口、子命令
-internal/api/       回环控制面（state / accounts / sessions / wallpaper / compat …）
-internal/config/    配置模型与持久化
-internal/core/      状态与事件总线
-internal/netproxy/  本机回环转发代理
-internal/patcher/   CDP 桥与注入载荷（injected_hub.js）
-internal/supervisor/宿主启动、账号扫描、官方登录 Broker、DPAPI 账号保险库、兼容性与更新守护、壁纸、侧车
-web/                内嵌前端（go:embed，手工维护的单文件 SPA）
-assets/             2Ag logo / 图标 / 内嵌资源
-themes/ plugins/    主题定义 / 插件契约（各自有 README）
-scripts/pack.ps1    发布构建 + 泄漏闸门
-installer.iss       Inno Setup 安装脚本
-```
-
-## 插件与主题
-
-见 [`plugins/README.md`](plugins/README.md) 与 [`themes/README.md`](themes/README.md)。
-两处都写明了契约和边界：插件是外部侧车进程 + 一个 Hub 标签页；
-`themes/` 只是纯数据描述，运行时真正生效的主题预设内嵌在注入载荷里。
+---
 
 ## Credits / Inspirations
 
-- **Google Antigravity** —— 被增强的宿主本体。2Ag 与 Google 无关联，未获其背书。
-- **Cockpit Tools**（[@jlcodes99](https://github.com/jlcodes99/cockpit-tools)，作者 jlcodes，
-  CC-BY-NC-SA-4.0）—— 模型配额探测的**协议行为参考**。2Ag 的配额探针是照着它观测到的
-  接口形状重写的，**没有复制其任何代码**；该项目的源码与授权都不属于本仓库，
-  也不随 2Ag 分发（其许可与本项目的发布方式不兼容）。
-- **Material Design 3 / Google Gemini 视觉语言** —— Manager 的配色、圆角与
-  明暗双调色板参照。
+- **Google Antigravity** —— 被增强的宿主本体。
+- **[Cockpit Tools](https://github.com/jlcodes99/cockpit-tools)**（作者 jlcodes，CC-BY-NC-SA-4.0）—— 模型配额探测的**协议行为参考**。2Ag 的探针照着它观测到的接口形状重写，**没有复制其任何代码**；该项目源码与授权不属本仓库，也不随 2Ag 分发。
+- **Material Design 3 / Google Gemini 视觉语言** —— Manager 配色、圆角与明暗双调色板的参照。
 - **[jchv/go-webview2](https://github.com/jchv/go-webview2)** —— Manager 的原生窗口容器。
-- **Chromium DevTools Protocol** —— 注入链路（端口自分配、整段注入、增量推送）。
-- **上游第三方组件** —— 官方 Antigravity 运行时里的第三方组件（如
-  `resources/app.asar.unpacked/` 下的 `chrome-devtools-mcp`）版权归其各自作者，
-  授权条款随上游附带。2Ag **不包含也不分发**这些字节：发布包里没有官方运行时，
-  它们只存在于你自己安装的官方 Antigravity 中。
-- 第三方模型标识 **Gemini / Claude / ChatGPT** 的图形是其各自权利人的商标，
-  在此**仅用于标注数据属于哪个模型池**，不表示任何关联或背书。
+- **Chromium DevTools Protocol** —— 注入链路的技术基础。
+- 第三方模型标识 **Gemini / Claude / ChatGPT** 的图形是其各自权利人的商标，在此**仅用于标注数据属于哪个模型池**。
 
-## 商标声明
+---
 
-**Google**、**Antigravity**、**Gemini**、**Claude**、**ChatGPT** 等名称与标识归各自权利人
-所有，在此仅用于**指称被提及的产品或服务**（描述性使用）。2Ag 与 Google、Anthropic、OpenAI
-**没有官方关联**，也未获其赞助、授权或背书。
+## 许可与商标
 
-## 许可
+2Ag **自有代码与文档**以 [Apache License 2.0](LICENSE) 授权。
 
-2Ag **自有代码与文档**以 [Apache License 2.0](LICENSE) 授权，完整文本见仓库根 `LICENSE`。
+许可只覆盖 2Ag 自己的内容。2Ag **不包含也不分发** Google Antigravity 运行时；其版权归 Google，授权条款随你本机安装的官方 Antigravity 附带。
 
-许可只覆盖 2Ag 自己的内容。第三方内容不属于本仓库、也不随发布包分发：Google Antigravity
-运行时的版权归 Google，授权条款随你本机安装的官方 Antigravity 附带；`Credits / Inspirations`
-里提到的第三方项目各有其自己的许可。
+**Google**、**Antigravity**、**Gemini**、**Claude**、**ChatGPT** 等名称与标识归各自权利人所有，在此仅用于指称被提及的产品或服务。2Ag 与 Google、Anthropic、OpenAI **没有官方关联**，也未获其赞助、授权或背书。
