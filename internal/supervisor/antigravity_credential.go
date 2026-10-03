@@ -404,9 +404,9 @@ func ReadHostLoginEmail() (string, error) {
 	if len(raw) == 0 {
 		return "", nil
 	}
-	var blob antigravityCredentialBlob
-	if err := json.Unmarshal(raw, &blob); err != nil {
-		return "", fmt.Errorf("解析凭据 blob 失败: %w", err)
+	blob, ok := parseCredentialBlobView(raw)
+	if !ok {
+		return "", fmt.Errorf("原生凭据格式无效或身份字段冲突")
 	}
 	if payload := decodeJWTPayload(blob.IDToken); payload != nil {
 		if email, ok := payload["email"].(string); ok && strings.Contains(email, "@") {
@@ -415,6 +415,9 @@ func ReadHostLoginEmail() (string, error) {
 	}
 	if e := strings.TrimSpace(blob.Email); strings.Contains(e, "@") {
 		return e, nil
+	}
+	if blob.Token == nil {
+		return "", nil
 	}
 	if e := strings.TrimSpace(blob.Token.AccessToken); e == "" && strings.TrimSpace(blob.Token.RefreshToken) == "" {
 		return "", nil

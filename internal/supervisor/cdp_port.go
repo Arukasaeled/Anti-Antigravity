@@ -80,6 +80,9 @@ func probeCDPPortAlive(port int) bool {
 // 优先读取 DevToolsActivePort 文件第一行并对候选端口做存活探测
 // （避免读到已退出实例留下的陈旧端口）；全部失败时回退 DefaultCDPPort。
 func ResolveCDPPort() int {
+	if root := GetManagedHostPID(); root > 0 {
+		return managedCDPPort(root, cdpPortCandidates())
+	}
 	for _, path := range cdpPortCandidates() {
 		port := ReadCDPPortFromFile(path)
 		if probeCDPPortAlive(port) {
@@ -87,6 +90,23 @@ func ResolveCDPPort() int {
 		}
 	}
 	return DefaultCDPPort
+}
+
+// A live port is insufficient: another official/profile instance can be alive
+// too. Never use its auth state, task state, or injected UI for this host.
+func resolveCDPPortForHost(root, advertised int, candidates []int, owner func(int) int) int {
+	if advertised > 0 {
+		if owner(advertised) == root {
+			return advertised
+		}
+		return 0
+	}
+	for _, port := range candidates {
+		if port > 0 && owner(port) == root {
+			return port
+		}
+	}
+	return 0
 }
 
 // CDPAddrForPort 将端口号格式化为可直接连接的 CDP 地址（127.0.0.1:<port>）。

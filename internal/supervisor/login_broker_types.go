@@ -45,7 +45,8 @@ type LoginBrokerStatus struct {
 	Message    string           `json:"message"`
 	Steps      []string         `json:"steps"`
 
-	AccountEmail  string `json:"account_email,omitempty"`  // 本次添加到的账号
+	AccountEmail  string `json:"account_email,omitempty"` // 本次添加到的账号
+	ExpectedEmail string `json:"expected_email,omitempty"`
 	OriginalEmail string `json:"original_email,omitempty"` // 流程开始前的账号（可能为空）
 	CurrentEmail  string `json:"current_email,omitempty"`  // 流程结束时的实际登录身份
 	OriginalMode  string `json:"original_mode,omitempty"`  // 流程开始前的运行形态
@@ -68,16 +69,18 @@ type LoginBrokerStatus struct {
 // 「切过去了吗」和「没切过去的话，原来的账号回来了吗」。只报前者，用户就无法
 // 判断自己现在到底在哪个账号上。
 type AccountSwitchResult struct {
-	Email            string `json:"email"`
-	PreviousOwner    string `json:"previous_owner,omitempty"`
-	Mode             string `json:"mode,omitempty"`
-	HostRestarted    bool   `json:"host_restarted"`
-	VerifiedOwner    string `json:"verified_owner,omitempty"`
-	Verified         bool   `json:"verified"`
-	RolledBack       bool   `json:"rolled_back"`
-	RollbackVerified bool   `json:"rollback_verified"`
-	Message          string `json:"message"`
-	AlreadyActive    bool   `json:"already_active,omitempty"`
+	Email                  string `json:"email"`
+	PreviousOwner          string `json:"previous_owner,omitempty"`
+	Mode                   string `json:"mode,omitempty"`
+	HostRestarted          bool   `json:"host_restarted"`
+	VerifiedOwner          string `json:"verified_owner,omitempty"`
+	Verified               bool   `json:"verified"`
+	RolledBack             bool   `json:"rolled_back"`
+	RollbackVerified       bool   `json:"rollback_verified"`
+	Message                string `json:"message"`
+	AlreadyActive          bool   `json:"already_active,omitempty"`
+	CredentialRefreshed    bool   `json:"credential_refreshed,omitempty"`
+	GoogleIdentityVerified bool   `json:"google_identity_verified,omitempty"`
 }
 
 // ExpectedOwner prevents a quota decision from racing a manual account switch.

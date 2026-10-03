@@ -250,9 +250,25 @@ func launchEnhancedHost(exePath, activeAccountEmail string, useRecordedAccount b
 	// 时序是承重的：必须排在 StopHostClient 之后（宿主退出时可能回写凭据，若先写会被覆盖），
 	// 并且排在 cmd.Start 之前（宿主一启动就读凭据完成登录）。
 	// 身份切换失败必须阻断启动，不能以旧身份假装目标账号已启动。
-	if activeAccountEmail != "" {
-		if err := ApplyAntigravityCredential(activeAccountEmail); err != nil {
-			return fmt.Errorf("切换系统登录凭据失败，未启动宿主: %w", err)
+	// A transaction already wrote and checked its exact blob. Re-applying an
+	// archive here would replace freshly renewed credentials with an older copy.
+	// Normal startup also preserves the current native login of the same owner.
+	if activeAccountEmail != "" && useRecordedAccount {
+		current, readErr := readAntigravityCredentialRaw()
+		if readErr != nil {
+			return fmt.Errorf("读取当前登录失败，未启动宿主: %w", readErr)
+		}
+		owner, complete := credentialRestorableEmail(current)
+		if !complete || !strings.EqualFold(owner, activeAccountEmail) {
+			if err := ApplyAntigravityCredential(activeAccountEmail); err != nil {
+				return fmt.Errorf("切换系统登录凭据失败，未启动宿主: %w", err)
+			}
+		}
+	} else if activeAccountEmail != "" {
+		current, readErr := readAntigravityCredentialRaw()
+		owner, complete := credentialRestorableEmail(current)
+		if readErr != nil || !complete || !strings.EqualFold(owner, activeAccountEmail) {
+			return fmt.Errorf("已恢复登录与目标账号不一致，未启动宿主")
 		}
 	}
 

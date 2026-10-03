@@ -41,6 +41,14 @@ type upstreamProxy struct {
 // 生产语义由 isDirectTarget 决定，不变。
 var directTargetCheck = isDirectTarget
 
+// Share the same environment/system proxy and bypass decisions with Google
+// account preflight. This does not change the global transport or OS settings.
+func NewUserNetworkTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = loadUpstreamProxy("").proxyFunc()
+	return transport
+}
+
 // loadUpstreamProxy 解析用户的上游代理，没有则返回 nil（行为与本层引入前一致）。
 //
 // 优先级：环境变量（HTTPS_PROXY / HTTP_PROXY / ALL_PROXY，与 curl 等工具一致）

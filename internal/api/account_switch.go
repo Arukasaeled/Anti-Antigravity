@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/2ag/2ag/internal/patcher"
 	"github.com/2ag/2ag/internal/supervisor"
@@ -129,6 +130,20 @@ func switchUserMessage(result supervisor.AccountSwitchResult, err error) (string
 		return "原生登录已核验", "Native sign-in verified"
 	}
 	zh, en := "无法切换账号。请查看账号健康状态。", "Couldn't switch accounts. Check Account Health."
+	var refreshErr *supervisor.CredentialRefreshError
+	if errors.As(err, &refreshErr) {
+		zh, en = "目标登录预检失败，当前宿主未停止。请重试。", "Target sign-in preflight failed. Your host is still running. Try again."
+		switch refreshErr.Code {
+		case "invalid_grant", "access_denied":
+			zh, en = "目标登录已失效，请重新添加该账号。当前宿主未停止。", "Target sign-in expired or was revoked. Add the account again. Your host is still running."
+		case "network", "temporarily_unavailable":
+			zh, en = "无法连接登录服务，请稍后重试。当前宿主未停止。", "Couldn't reach the sign-in service. Try again later. Your host is still running."
+		case "identity_mismatch":
+			zh, en = "Google 返回的身份与目标账号不一致，请重新添加该账号。当前宿主未停止。", "Google's identity doesn't match the target account. Add it again. Your host is still running."
+		case "native_client_unavailable":
+			zh, en = "无法读取此版宿主的登录配置，请更新冻结宿主后重试。当前宿主未停止。", "This host's sign-in configuration is unavailable. Update the frozen host and retry. Your host is still running."
+		}
+	}
 	if result.RolledBack {
 		if result.RollbackVerified {
 			zh += " 原账号已恢复并核验。"

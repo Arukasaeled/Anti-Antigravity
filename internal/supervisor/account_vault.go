@@ -327,6 +327,9 @@ func DeleteVaultAccount(email string) error {
 	if !ok {
 		return fmt.Errorf("保险库里没有账号 %s", email)
 	}
+	if err := clearRefreshCandidate(meta.Email); err != nil {
+		return fmt.Errorf("删除未验证刷新候选失败")
+	}
 	if err := os.Remove(filepath.Join(dir, meta.File)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("删除保险库文件失败: %w", err)
 	}

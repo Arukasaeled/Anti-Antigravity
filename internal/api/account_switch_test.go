@@ -19,3 +19,10 @@ func TestSwitchMessageSeparatesFailureAndRecovery(t *testing.T) {
 		t.Fatal("unverified rollback cannot claim success")
 	}
 }
+
+func TestRefreshFailureKeepsHostAndOffersReLogin(t *testing.T) {
+	zh, en := switchUserMessage(supervisor.AccountSwitchResult{}, &supervisor.CredentialRefreshError{Code: "invalid_grant", HTTPStatus: 400})
+	if !strings.Contains(zh, "重新添加") || !strings.Contains(en, "still running") {
+		t.Fatal("revoked sign-in needs a recovery action and unchanged-host feedback")
+	}
+}

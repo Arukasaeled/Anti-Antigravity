@@ -33,7 +33,7 @@ func readNativeAuthAt(addr string) NativeAuthState {
 			cancel()
 			continue
 		}
-		raw, err := evaluateCDPString(conn, reader, 1, `(async()=>{const c=window.Wj?.lsClient;if(!c?.getAuthStatus)return JSON.stringify({available:false});const r=(await c.getAuthStatus({})).authResult;if(!r)return JSON.stringify({available:false});let email='';if(r.hasValidAuth&&c.getUserStatus)email=(await c.getUserStatus({})).userStatus?.email||'';return JSON.stringify({available:true,valid:r.hasValidAuth===true,email,failure:r.failureDetails?.case||'',message:(r.uiMessage||'').slice(0,500)})})()`)
+		raw, err := evaluateCDPString(conn, reader, 1, `(async()=>{const c=window.Wj?.lsClient;if(!c?.getAuthStatus)return JSON.stringify({available:false});const r=(await c.getAuthStatus({})).authResult;if(!r)return JSON.stringify({available:false});let email='';try{if(c.getUserStatus)email=(await c.getUserStatus({})).userStatus?.email||''}catch{}return JSON.stringify({available:true,valid:r.hasValidAuth===true,email,failure:r.failureDetails?.case||'',message:(r.uiMessage||'').slice(0,500)})})()`)
 		conn.Close()
 		cancel()
 		if err == nil {
@@ -73,7 +73,7 @@ func waitForNativeAccount(email string, timeout time.Duration) ([]byte, error) {
 		}
 		last = ReadNativeAuthState()
 		if last.Available {
-			if last.Failure != "" {
+			if terminalNativeAccountRejection(last, email) {
 				return nil, fmt.Errorf("原生 Antigravity 登录被拒绝（%s）：%s", last.Failure, last.Message)
 			}
 			// Refresh grants need not issue a new ID token. Require the complete
@@ -83,6 +83,9 @@ func waitForNativeAccount(email string, timeout time.Duration) ([]byte, error) {
 			}
 		}
 		time.Sleep(300 * time.Millisecond)
+	}
+	if last.Available && last.Failure != "" {
+		return nil, fmt.Errorf("原生 Antigravity 登录核验未完成（%s）：%s", last.Failure, last.Message)
 	}
 	_, fresh := credentialUsableEmail(lastRaw)
 	return nil, fmt.Errorf("原生 Antigravity 登录/刷新未确认（RPC 可读=%v，原生登录有效=%v，完整新登录=%v）；未提交切号", last.Available, last.Valid, fresh)

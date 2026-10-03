@@ -51,6 +51,7 @@ type credentialBlobView struct {
 		TokenType    string `json:"token_type"`
 		RefreshToken string `json:"refresh_token"`
 		Expiry       string `json:"expiry"`
+		IDToken      string `json:"id_token"`
 	} `json:"token"`
 	AuthMethod string `json:"auth_method"`
 	IDToken    string `json:"id_token"`
@@ -64,6 +65,26 @@ func parseCredentialBlobView(raw []byte) (*credentialBlobView, bool) {
 	var v credentialBlobView
 	if json.Unmarshal(raw, &v) != nil {
 		return nil, false
+	}
+	if v.Token != nil && strings.TrimSpace(v.Token.IDToken) != "" {
+		nested := v.Token.IDToken
+		if strings.TrimSpace(v.IDToken) == "" {
+			v.IDToken = nested
+		} else if v.IDToken != nested {
+			topClaims, nestedClaims := decodeJWTPayload(v.IDToken), decodeJWTPayload(nested)
+			topEmail, _ := topClaims["email"].(string)
+			nestedEmail, _ := nestedClaims["email"].(string)
+			topAudience, _ := topClaims["aud"].(string)
+			nestedAudience, _ := nestedClaims["aud"].(string)
+			if topEmail == "" || !strings.EqualFold(topEmail, nestedEmail) || (topAudience != "" && nestedAudience != "" && topAudience != nestedAudience) {
+				return nil, false
+			}
+			topExpiry, _ := topClaims["exp"].(float64)
+			nestedExpiry, _ := nestedClaims["exp"].(float64)
+			if nestedExpiry > topExpiry {
+				v.IDToken = nested
+			}
+		}
 	}
 	return &v, true
 }

@@ -588,7 +588,8 @@ func (s *Server) handleBrokerStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		NetworkMode string `json:"network_mode"`
+		NetworkMode   string `json:"network_mode"`
+		ExpectedEmail string `json:"expected_email"`
 	}
 	if r.Body != nil && r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -596,7 +597,7 @@ func (s *Server) handleBrokerStart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := supervisor.StartLoginBroker(s.currentRuntimeMode(), body.NetworkMode); err != nil {
+	if err := supervisor.StartLoginBroker(s.currentRuntimeMode(), body.NetworkMode, body.ExpectedEmail); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(map[string]any{

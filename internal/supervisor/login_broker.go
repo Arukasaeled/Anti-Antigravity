@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/mail"
 	"os"
 	"os/exec"
 	"strconv"
@@ -51,6 +52,16 @@ func StartLoginBroker(configuredMode string, networkModes ...string) error {
 	if len(networkModes) > 0 {
 		mode = networkModes[0]
 	}
+	expectedEmail := ""
+	if len(networkModes) > 1 {
+		expectedEmail = strings.TrimSpace(networkModes[1])
+		if expectedEmail != "" {
+			address, err := mail.ParseAddress(expectedEmail)
+			if err != nil || address.Address != expectedEmail {
+				return fmt.Errorf("重新登录需要有效的目标邮箱")
+			}
+		}
+	}
 	network, err := buildLoginNetwork(mode, os.Environ())
 	if err != nil {
 		return err
@@ -72,17 +83,18 @@ func StartLoginBroker(configuredMode string, networkModes ...string) error {
 	loginBrokerRunning = true
 	loginBrokerCancel = false
 	loginBrokerStatus = LoginBrokerStatus{
-		Running:     true,
-		Stage:       brokerStageBackingUp,
-		Message:     "正在备份当前登录凭据…",
-		Steps:       nil,
-		NetworkMode: network.Mode,
-		StartedAt:   time.Now().Format(time.RFC3339),
-		UpdatedAt:   time.Now().Format(time.RFC3339),
+		Running:       true,
+		Stage:         brokerStageBackingUp,
+		Message:       "正在备份当前登录凭据…",
+		Steps:         nil,
+		NetworkMode:   network.Mode,
+		ExpectedEmail: expectedEmail,
+		StartedAt:     time.Now().Format(time.RFC3339),
+		UpdatedAt:     time.Now().Format(time.RFC3339),
 	}
 	loginBrokerMu.Unlock()
 
-	go func() { defer release(); runLoginBroker(configuredMode, network) }()
+	go func() { defer release(); runLoginBroker(configuredMode, network, expectedEmail) }()
 	return nil
 }
 
@@ -338,7 +350,7 @@ func officialLoginPageDiagnostic() string {
 }
 
 // runLoginBroker 是流程本体。
-func runLoginBroker(configuredMode string, network loginNetwork) {
+func runLoginBroker(configuredMode string, network loginNetwork, expectedEmail string) {
 	// 流程期间把进程内形态钉成「官方」：2Ag 的注入链路（HotReload / WatchAndInjectCDP /
 	// PushHubState）统一以 IsOfficialRuntime() 为闸门，钉住它才能保证
 	// 「添加账号期间 2Ag 绝不往官方宿主里打补丁」。
@@ -457,21 +469,41 @@ func runLoginBroker(configuredMode string, network loginNetwork) {
 		raw, err := readAntigravityCredentialRaw()
 		if err == nil && len(raw) > 0 {
 			if email, ok := credentialUsableEmail(raw); ok {
-				port, _, _ := officialDevToolsActivePort()
-				native := readNativeAuthAt(CDPAddrForPort(port))
+				if expectedEmail != "" && !strings.EqualFold(expectedEmail, email) {
+					if lastHint != "wrong-account" {
+						lastHint = "wrong-account"
+						brokerStage(brokerStageWaiting, "已登录 "+email+"；请在官方窗口退出并登录目标账号 "+expectedEmail)
+					}
+					time.Sleep(time.Second)
+					continue
+				}
+				native := readNativeAuthAt(ResolveCDPAddr())
 				brokerMutate(func(s *LoginBrokerStatus) { s.NativeAuth = &native })
 				if nativeCredentialReady(raw, native, email) {
 					addedEmail = email
 					break
 				}
 				if native.Failure != "" {
-					brokerStage(brokerStageWaiting, "原生 Antigravity 拒绝登录（"+native.Failure+"）："+native.Message)
+					if lastHint != "native-"+native.Failure+native.Message {
+						lastHint = "native-" + native.Failure + native.Message
+						brokerStage(brokerStageWaiting, "原生 Antigravity 拒绝登录（"+native.Failure+"）："+native.Message)
+					}
+					if terminalBrokerRejection(native, expectedEmail) {
+						brokerRollbackAndFinish("官方 Antigravity 拒绝账号登录（"+native.Failure+"）："+native.Message, origRaw, origEmail, prior, hadHost, wasOfficial)
+						return
+					}
 				}
 				time.Sleep(time.Second)
 				continue
 			}
 			// 中间态（官方先写 {"token":null}）。这里**绝不入库**，
 			// 只是如实告诉用户「看到了但还不算完成」。
+			native := readNativeAuthAt(ResolveCDPAddr())
+			brokerMutate(func(s *LoginBrokerStatus) { s.NativeAuth = &native })
+			if terminalBrokerRejection(native, expectedEmail) {
+				brokerRollbackAndFinish("官方 Antigravity 拒绝账号登录（"+native.Failure+"）："+native.Message, origRaw, origEmail, prior, hadHost, wasOfficial)
+				return
+			}
 			if lastHint != "placeholder" {
 				lastHint = "placeholder"
 				brokerStage(brokerStageWaiting, "已检测到中间态凭据（尚未完成登录），继续等待…")
@@ -544,8 +576,7 @@ func runLoginBroker(configuredMode string, network loginNetwork) {
 		brokerRollbackAndFinish("identity mismatch：登录凭据归属发生变化，未归档", origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
 	}
-	port, _, _ := officialDevToolsActivePort()
-	if !nativeCredentialReady(rawNow, readNativeAuthAt(CDPAddrForPort(port)), addedEmail) {
+	if !nativeCredentialReady(rawNow, readNativeAuthAt(ResolveCDPAddr()), addedEmail) {
 		brokerRollbackAndFinish("归档前原生登录身份未确认，未归档", origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
 	}
@@ -561,6 +592,15 @@ func runLoginBroker(configuredMode string, network loginNetwork) {
 	brokerStage(brokerStageSaving, "账号 "+addedEmail+" 已加密保存到保险库（index.json 只写元数据）")
 
 	// ⑦ 恢复原账号（原本没有账号则保留新账号）
+	if strings.EqualFold(addedEmail, origEmail) {
+		// Re-login of the original account must keep its freshly verified grant,
+		// including a rotated refresh token, rather than resurrecting the backup.
+		if err := updateBrokerRecovery(rawNow, origEmail); err != nil {
+			brokerFinish(brokerStageFailed, "新登录已保存，请重启 2Ag 恢复", "恢复记录更新失败")
+			return
+		}
+		origRaw = rawNow
+	}
 	restored, _, restoreErr := brokerRestore(origRaw, origEmail, prior, hadHost, wasOfficial, true)
 	if restoreErr != nil {
 		brokerFinish(brokerStageFailed,
@@ -796,6 +836,26 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 			return out, fmt.Errorf("接力工作目录不可用，未切换")
 		}
 	}
+	transactionStage("RefreshingTargetCredential", "")
+	target, err = refreshTargetCredential(target, out.Email, out.Mode)
+	if err != nil {
+		return out, err
+	}
+	out.CredentialRefreshed, out.GoogleIdentityVerified = true, true
+	// Persist rotated target refresh credentials before any host operation.
+	if _, err := StoreVaultCredential(out.Email, displayNameFromCredentialPayload(target), target); err != nil {
+		return out, fmt.Errorf("保存目标最新登录失败，当前宿主未停止")
+	}
+	if err := clearRefreshCandidate(out.Email); err != nil {
+		return out, fmt.Errorf("目标登录已保存，但刷新候选清理失败，当前宿主未停止")
+	}
+	// Native refresh or a separate official instance can change the current
+	// blob while preflight runs. Back up the latest original, never a stale one.
+	latest, err := readAntigravityCredentialRaw()
+	if err != nil || !strings.EqualFold(emailFromCredentialPayload(latest), out.PreviousOwner) {
+		return out, fmt.Errorf("预检期间当前账号发生变化，当前宿主未停止")
+	}
+	prevRaw = latest
 
 	// 切换是破坏性的：当前凭据里可能有宿主刚刷新过的 refresh_token，
 	// 那是全世界唯一的一份。先归档再动手。

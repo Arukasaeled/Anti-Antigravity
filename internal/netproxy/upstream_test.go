@@ -29,6 +29,28 @@ func clearProxyEnv(t *testing.T) {
 	}
 }
 
+func TestUserNetworkTransportKeepsProxyAndBypass(t *testing.T) {
+	clearProxyEnv(t)
+	t.Setenv("HTTPS_PROXY", "http://proxy.example.test:8080")
+	t.Setenv("NO_PROXY", "bypass.example.test")
+	transport := NewUserNetworkTransport()
+	defer transport.CloseIdleConnections()
+	if transport == http.DefaultTransport || transport.Proxy == nil {
+		t.Fatal("preflight must use an independent user-network transport")
+	}
+	request, _ := http.NewRequest(http.MethodGet, "https://service.example.test/", nil)
+	proxy, err := transport.Proxy(request)
+	if err != nil || proxy == nil || proxy.Host != "proxy.example.test:8080" {
+		t.Fatal("preflight must retain the user's HTTPS proxy")
+	}
+	for _, endpoint := range []string{"https://bypass.example.test/", "http://127.0.0.1:8080/"} {
+		request, _ = http.NewRequest(http.MethodGet, endpoint, nil)
+		if proxy, err = transport.Proxy(request); err != nil || proxy != nil {
+			t.Fatal("user bypass and loopback must remain direct")
+		}
+	}
+}
+
 func TestParseUpstreamURL(t *testing.T) {
 	cases := []struct {
 		raw      string

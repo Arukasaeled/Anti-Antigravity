@@ -29,7 +29,7 @@ type nativeRPCConnection struct {
 }
 
 // The host's per-process CSRF nonce is kept in memory and never logged.
-func nativeProcessCSRF(pid int) string {
+func nativeProcessCommandLine(pid int) string {
 	h, _, _ := procOpenProcess.Call(processQueryLimitedInformation, 0, uintptr(pid))
 	if h == 0 {
 		return ""
@@ -56,7 +56,11 @@ func nativeProcessCSRF(pid int) string {
 	if ptr < start || ptr+uintptr(text.Length) > start+uintptr(len(buffer)) {
 		return ""
 	}
-	command := syscall.UTF16ToString(unsafe.Slice(text.Buffer, int(text.Length)/2))
+	return syscall.UTF16ToString(unsafe.Slice(text.Buffer, int(text.Length)/2))
+}
+
+func nativeProcessCSRF(pid int) string {
+	command := nativeProcessCommandLine(pid)
 	match := regexp.MustCompile(`--csrf_token(?:=|\s+)([^\s]+)`).FindStringSubmatch(command)
 	if len(match) > 1 {
 		return strings.Trim(match[1], `"`)
@@ -203,7 +207,7 @@ func readNativeAuthRPC() NativeAuthState {
 		if !state.Valid && state.Failure == "" && state.Message != "" {
 			state.Failure = "native-auth"
 		}
-		if state.Valid {
+		{
 			var user struct {
 				Status struct {
 					Email string `json:"email"`

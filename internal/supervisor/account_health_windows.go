@@ -164,5 +164,6 @@ func AccountHealthSnapshot(requested string) map[string]any {
 		home, _ := os.UserHomeDir()
 		profile = filepath.Join(home, ".2ag", "profiles", sanitizeEmail(current))
 	}
-	return map[string]any{"account": email, "current_account": current, "is_current": strings.EqualFold(email, current), "native": native, "last_verified": observation.LastVerified, "last_refresh": observation.LastRefresh, "vault": vaultState, "vault_updated_at": archived, "has_refresh_credential": refreshCredential, "credential_complete": complete, "access_expiry": observation.AccessExpiry, "host": host, "profile": profile, "transaction": tx, "accounts": ListVaultAccounts(), "native_live": host.ProcessFound && strings.EqualFold(email, current), "last_native": observation.Native}
+	_, pendingErr := os.Stat(refreshCandidatePath(email))
+	return map[string]any{"refresh_pending": pendingErr == nil, "account": email, "current_account": current, "is_current": strings.EqualFold(email, current), "native": native, "last_verified": observation.LastVerified, "last_refresh": observation.LastRefresh, "vault": vaultState, "vault_updated_at": archived, "has_refresh_credential": refreshCredential, "credential_complete": complete, "access_expiry": observation.AccessExpiry, "host": host, "profile": profile, "transaction": tx, "accounts": ListVaultAccounts(), "native_live": host.ProcessFound && strings.EqualFold(email, current), "last_native": observation.Native}
 }
