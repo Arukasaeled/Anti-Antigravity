@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/2ag/2ag/plugins/examples"
 )
 
 // hubSource 是编译期快照，仅作为「磁盘上找不到源文件」时的兜底。
@@ -43,6 +45,9 @@ func loadHubCompanion(origin, name, embedded string) string {
 	}
 	return embedded
 }
+
+//go:embed hub_i18n.js
+var hubI18nSource string
 
 // hubSourceFileName 是补丁源文件名。
 const hubSourceFileName = "injected_hub.js"
@@ -193,5 +198,8 @@ func BuildHubExpressionWithSource(config HubConfig) (string, string, error) {
 	}
 	text = strings.Replace(text, "__2AG_CONTEXT_READER__", loadHubCompanion(origin, "context_reader.js", contextReaderSource), 1)
 	text = strings.Replace(text, "__2AG_CONTEXT_VIEW__", loadHubCompanion(origin, "context_view.js", ContextViewSource), 1)
-	return strings.Replace(text, "__2AG_INITIAL_CONFIG__", string(data), 1), origin, nil
+	text = strings.Replace(text, "__2AG_INITIAL_CONFIG__", string(data), 1)
+	text = strings.Replace(text, "__2AG_BUNDLED_EXTENSIONS__", examples.Expression(), 1)
+	text = strings.Replace(text, "__2AG_HUB_I18N__", hubI18nSource, 1)
+	return text, origin, nil
 }

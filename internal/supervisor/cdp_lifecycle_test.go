@@ -59,9 +59,9 @@ func waitForCondition(t *testing.T, timeout time.Duration, desc string, cond fun
 // fakeCDPServer 是一个最小但忠实的 CDP 端点：HTTP 上提供 /json 目标清单，
 // websocket 上按方法名回包，并记录收到的命令序列与连接生死。
 type fakeCDPServer struct {
-	t    *testing.T
-	ln   net.Listener
-	addr string // host:port
+	t     *testing.T
+	ln    net.Listener
+	addr  string // host:port
 	wsURL string
 
 	mu       sync.Mutex

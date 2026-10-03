@@ -30,9 +30,14 @@ type Snapshot struct {
 
 // Server is an ordinary forward proxy. HTTPS CONNECT is passed through as
 // opaque TCP; no certificate is installed and TLS payloads are never decoded.
+//
+// 它同时是「插入层」而不是「替换层」：用户自己的上游代理会被接回来
+// （见 upstream.go），宿主的流量仍然照用户原本的路径出去，2Ag 只在其上
+// 追加隐私拦截与端点改写。
 type Server struct {
 	config    *config.Runtime
 	transport *http.Transport
+	upstream  *upstreamProxy
 	server    *http.Server
 	listener  net.Listener
 	mu        sync.RWMutex
@@ -71,6 +76,10 @@ func Start(ctx context.Context, runtime *config.Runtime) (*Server, error) {
 	}
 	p := &Server{config: runtime, listener: listener,
 		transport: &http.Transport{Proxy: nil, MaxIdleConns: 32, IdleConnTimeout: 45 * time.Second, TLSHandshakeTimeout: 10 * time.Second}}
+	// 上游代理必须在监听建立之后解析：只有拿到自己的地址，才能识别并拒绝
+	// 「指回 2Ag 自身」的配置（那会造成转发自环）。
+	p.upstream = loadUpstreamProxy(listener.Addr().String())
+	p.transport.Proxy = p.upstream.proxyFunc()
 	p.server = &http.Server{Handler: p, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = p.server.Serve(listener) }()
 	SetActive(p)
@@ -222,12 +231,25 @@ func (p *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.record(response.StatusCode, false, time.Since(start))
 }
 
+// dialUpstream 建立到 CONNECT 目标的链路：命中用户上游代理时经其 CONNECT
+// 隧道借道，否则直连（与引入上游链路之前的行为一致）。
+func (p *Server) dialUpstream(ctx context.Context, address string) (net.Conn, error) {
+	proxyURL := p.upstream.proxyFor(hostname(address), true)
+	if proxyURL == nil {
+		return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, "tcp", address)
+	}
+	return dialThroughUpstream(ctx, proxyURL, address)
+}
+
+// closeWrite 半关闭链路的写方向；直连与借道两种连接都支持。
+type closeWriter interface{ CloseWrite() error }
+
 func (p *Server) connect(w http.ResponseWriter, r *http.Request, start time.Time) {
 	address := r.Host
 	if _, _, err := net.SplitHostPort(address); err != nil {
 		address = net.JoinHostPort(address, "443")
 	}
-	upstream, err := (&net.Dialer{Timeout: 10 * time.Second}).DialContext(r.Context(), "tcp", address)
+	upstream, err := p.dialUpstream(r.Context(), address)
 	if err != nil {
 		http.Error(w, "CONNECT upstream unavailable", http.StatusBadGateway)
 		p.record(502, false, time.Since(start))
@@ -252,8 +274,10 @@ func (p *Server) connect(w http.ResponseWriter, r *http.Request, start time.Time
 	finished := make(chan struct{}, 1)
 	go func() {
 		_, _ = io.Copy(upstream, buffered)
-		if tcp, ok := upstream.(*net.TCPConn); ok {
-			_ = tcp.CloseWrite()
+		// 借道上游代理时链路是 *tunnelConn，直连时是 *net.TCPConn；
+		// 两者都实现 CloseWrite，半关闭语义保持一致。
+		if cw, ok := upstream.(closeWriter); ok {
+			_ = cw.CloseWrite()
 		}
 		finished <- struct{}{}
 	}()

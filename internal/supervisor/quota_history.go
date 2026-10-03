@@ -58,7 +58,7 @@ func loadQuotaHistoryLocked() {
 	}
 }
 
-// Records the cache's real timestamp, never a polling timestamp for an unchanged cache.
+// Records a real quota sample timestamp; unchanged cache reads never create new points.
 func recordQuotaHistory(email string, gemini, claude QuotaWindow) {
 	quotaHistory.Lock()
 	defer quotaHistory.Unlock()

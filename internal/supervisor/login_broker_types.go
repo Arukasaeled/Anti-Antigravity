@@ -5,10 +5,8 @@ package supervisor
 //
 // 为什么要 broker，而不是 2Ag 自己走一遍 OAuth：
 //
-//	2Ag 一旦自己发起 Google OAuth，它就必然要持有 client_id / client_secret，
-//	而「一个本机工具持有 Google OAuth 客户端凭据」既不该发布、也不该存在 ——
-//	用户会因此把自己的账号授权给一个他并不认识的应用。正确的位置是：
-//	**官方 Antigravity 做它本来就在做的原生登录，2Ag 只捕获结果。**
+//	当前版本复用官方 Antigravity 原生登录，2Ag 捕获结果并保护原登录态。
+//	Desktop OAuth client 是可评估的另一种架构，并非不能公开；本版本不并行引入。
 //
 // 流程（每一步都在 LoginBrokerStatus.Stage 里如实体现）：
 //
@@ -41,10 +39,10 @@ const (
 // 刻意把阶段、已完成步骤、以及原始账号/当前账号都报出来：添加账号会短暂地改动
 // 机器上唯一那份登录凭据，用户必须能一眼看到「现在到哪一步了」「我的原账号回来没有」。
 type LoginBrokerStatus struct {
-	Running  bool   `json:"running"`
-	Stage    string `json:"stage"`
-	Message  string `json:"message"`
-	Steps    []string `json:"steps"`
+	Running bool     `json:"running"`
+	Stage   string   `json:"stage"`
+	Message string   `json:"message"`
+	Steps   []string `json:"steps"`
 
 	AccountEmail  string `json:"account_email,omitempty"`  // 本次添加到的账号
 	OriginalEmail string `json:"original_email,omitempty"` // 流程开始前的账号（可能为空）
@@ -56,6 +54,8 @@ type LoginBrokerStatus struct {
 	HostRestarted bool `json:"host_restarted"`
 
 	FailureReason string `json:"failure_reason,omitempty"`
+	FailureCode   string `json:"failure_code,omitempty"`
+	NetworkMode   string `json:"network_mode,omitempty"`
 	StartedAt     string `json:"started_at,omitempty"`
 	UpdatedAt     string `json:"updated_at,omitempty"`
 	FinishedAt    string `json:"finished_at,omitempty"`

@@ -39,9 +39,9 @@ import (
 //	needs_bootstrap —— 官方安装在本机，冻结副本还没有（首次启动时建立）；
 //	no_official   —— 两者都没有：这台机器上没有任何 Antigravity 可用。
 const (
-	HostBootstrapReady       = "ready"
-	HostBootstrapNeedsSetup  = "needs_bootstrap"
-	HostBootstrapNoOfficial  = "no_official"
+	HostBootstrapReady      = "ready"
+	HostBootstrapNeedsSetup = "needs_bootstrap"
+	HostBootstrapNoOfficial = "no_official"
 )
 
 // FrozenHostDir 是 2Ag 冻结副本的落点：<2ag 根目录>\app。

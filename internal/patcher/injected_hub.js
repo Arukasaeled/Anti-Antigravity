@@ -4,6 +4,14 @@
   const INITIAL_CONFIG = __2AG_INITIAL_CONFIG__;
   const readContext = __2AG_CONTEXT_READER__;
   __2AG_CONTEXT_VIEW__
+  const BUNDLED_EXTENSIONS = __2AG_BUNDLED_EXTENSIONS__;
+  const HUB_I18N = __2AG_HUB_I18N__;
+  const HUB_ENGLISH_LABELS = new Map(Object.entries(HUB_I18N.labels).map(([en,zh])=>[zh,en]));
+  function translateHub(source,values={},language=state.language) {
+    const english=HUB_ENGLISH_LABELS.get(source)||source;
+    const label=language==='en-US'?english:HUB_I18N.labels[english]||source;
+    return String(label).replace(/\{([a-z_]+)\}/g,(token,key)=>Object.prototype.hasOwnProperty.call(values,key)?String(values[key]):token);
+  }
   const BG_ID = '2ag-dream-skin-bg';
   const OVERLAY_ID = '2ag-dream-skin-overlay';
   const SHADOW_HOST_ID = 'twoag-injected-root';
@@ -1435,8 +1443,8 @@
        历史实现把池与窗口交叉配对了（Gemini 只显示 5h、Claude 只显示周限额），
        于是「剩余最少」的那两个桶在面板上根本不可见：用户拿 Claude 的周百分比
        去比 Manager 里 Gemini 的周百分比，必然对不上，而真正告急的桶一次都没露面。
-       本块只做展示，任何百分比都来自后端授权缓存；available=false 时整池置灰并
-       如实标注，绝不回填默认值或历史值。 */
+       本块只做展示，任何百分比都来自后端探测（live 或明确标注的缓存兜底）；
+       available=false 时整池置灰并如实标注，绝不回填默认值或历史值。 */
     .quota-caps {
       display: flex;
       flex-direction: column;
@@ -3233,6 +3241,1377 @@
   // 11. Shadow DOM 核心构建与 G-Hub / G-Cockpit 挂载
   let isPanelOpen = false;
 
+  // All Interaction Layer host access lives here. Unknown upstream semantics
+  // stay unknown; features never query a second set of host selectors.
+  const host = (() => {
+    const messageNodes = new Map();
+    const transientKeys = new WeakMap();
+    const conversationKeys = new WeakMap();
+    let sequence = 0;
+    let nativeSelection = null;
+    const view = () => document.querySelector('[data-testid="conversation-view"]');
+    const title = (text) => String(text || '').trim().split(/\n\s*\n|\n|(?<=[.!?。！？])\s/)[0].slice(0, 96) || 'Untitled message';
+    function roleOf(node, root) {
+      for (let el = node; el && el !== root; el = el.parentElement) {
+        const role = el.getAttribute('data-role') || el.getAttribute('data-message-role') || '';
+        if (/^(user|assistant|tool|agent)$/i.test(role)) return role.toLowerCase();
+        const label = el.getAttribute('aria-label') || '';
+        if (/^(Agent response|Assistant message|助手回复)$/i.test(label)) return 'assistant';
+        if (/^(User message|用户消息)$/i.test(label) || el.dataset.testid === 'user-input-step') return 'user';
+        const semantics = [el.getAttribute('data-testid'), el.getAttribute('aria-label'), el.className].filter(v => typeof v === 'string').join(' ').replace(/([a-z])([A-Z])/g, '$1-$2');
+        if (/(?:^|[\s_-])(?:user|human)(?:[\s_-]|$)/i.test(semantics)) return 'user';
+        if (/(?:^|[\s_-])(?:assistant|model)(?:[\s_-]|$)/i.test(semantics)) return 'assistant';
+        if (/(?:^|[\s_-])(?:tool|agent)[\s_-](?:message|progress|output)/i.test(semantics)) return 'tool';
+      }
+      return 'message';
+    }
+    function current() {
+      const root = view();
+      if (!root) return { key: '', title: 'No conversation detected', available: false };
+      // Prefer upstream IDs or a conversation URL. DOM-only keys deliberately
+      // cannot match another conversation after a reload.
+      const nativeID = root.getAttribute('data-conversation-id') || root.getAttribute('data-session-id') || root.getAttribute('data-cascade-id');
+      const route = location.pathname + location.search + location.hash;
+      const routeID = /(?:conversation|chat|session|\/c)[/=]([^/?&#]+)/i.exec(route);
+      const first = root.querySelector('[data-testid^="markdown-"]');
+      const prior = conversationKeys.get(root);
+      if (!prior || (prior.first && first && prior.first !== first)) conversationKeys.set(root, { key: 'dom:' + crypto.randomUUID(), first });
+      else if (prior && !prior.first && first) prior.first = first;
+      const breadcrumbs = document.querySelectorAll('[data-testid="breadcrumb-segment"]');
+      return { key: nativeID ? 'host:' + nativeID : routeID ? 'route:' + routeID[1] : conversationKeys.get(root).key, title: breadcrumbs.length ? breadcrumbs[breadcrumbs.length - 1].textContent.trim() : root.getAttribute('aria-label') || 'Current Conversation', available: true };
+    }
+    function messages() {
+      const root = view();
+      messageNodes.clear();
+      if (!root) return [];
+      // conversation-view / markdown-* are existing upstream anchors. Additional
+      // attributes are used only when the actual element supplies their values.
+      const candidates = Array.from(root.querySelectorAll('[data-testid], [data-message-id], [data-message-role], [data-role], [role="article"][data-quotable]')).filter(el => {
+        const testID = el.getAttribute('data-testid') || '';
+        const explicitRole = el.getAttribute('data-role') || el.getAttribute('data-message-role') || '';
+        return el.matches('[role="article"][data-quotable]') || testID === 'user-input-step' || testID.startsWith('markdown-') || el.hasAttribute('data-message-id') || /^(user|assistant|tool|agent)$/i.test(explicitRole) || /(?:user|assistant|tool|agent)[-_](?:message|progress)|message[-_](?:user|assistant)/i.test(testID);
+      });
+      const nodes = new Set();
+      for (const markdown of candidates) {
+        if (markdown.parentElement && markdown.parentElement.closest('[data-testid^="markdown-"]')) continue;
+        let node = markdown;
+        for (let el = markdown; el && el !== root; el = el.parentElement) {
+          if (el.hasAttribute('data-message-id') || /^(user|assistant|tool|agent)$/i.test(el.getAttribute('data-role') || el.getAttribute('data-message-role') || '')) { node = el; break; }
+        }
+        nodes.add(node);
+      }
+      const info = current();
+      const testIDs = new Map();
+      root.querySelectorAll('[data-testid]').forEach(el => { const id = el.getAttribute('data-testid'); testIDs.set(id, (testIDs.get(id) || 0) + 1); });
+      return Array.from(nodes).filter(node => !Array.from(nodes).some(parent => parent !== node && parent.contains(node))).sort((a,b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1).flatMap(node => {
+        // Read the rendered message body. Hidden CSS and collapsed tool details
+        // must not become conversation text or appear in copied context.
+        const text = (node.innerText || '').trim();
+        if (!text) return [];
+        const nativeID = node.getAttribute('data-message-id') || node.id;
+        const testID = node.getAttribute('data-testid');
+        const uniqueTestID = testID && testIDs.get(testID) === 1;
+        if (!transientKeys.has(node)) transientKeys.set(node, 'dom-message:' + (++sequence));
+        const id = nativeID ? 'id:' + nativeID : uniqueTestID ? 'testid:' + testID : transientKeys.get(node);
+        messageNodes.set(id, node);
+        const role = roleOf(node, root);
+        const progressOnly = role === 'assistant' && node.querySelector('[data-testid="worked-for-collapsible"]') && !node.querySelector('.leading-relaxed.select-text');
+        const kind = /^(?:error\b|exception\b|traceback\b|failed\b|错误|失败)/i.test(text) ? 'error' : progressOnly || /^(tool|agent)$/.test(role) || /^(?:running\b|executing\b|agent progress\b|正在执行|调用工具)/i.test(text) ? 'progress' : role;
+        return [{ id, locator: id, conversation_key: info.key, role, kind, text, title: title(text) }];
+      });
+    }
+    function jump(locator, pin) {
+      const list = messages();
+      if (pin && pin.conversation_key !== current().key) return false;
+      let message = list.find(m => m.id === locator && (!pin || m.text === pin.text));
+      // Saved text is a fallback locator, not a content hash or hidden state.
+      if (!message && pin) message = list.find(m => m.role === pin.role && m.text === pin.text);
+      const node = message && messageNodes.get(message.id);
+      if (!node) return false;
+      node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return true;
+    }
+    function observe(callback) {
+      let timer = null;
+      const schedule = () => { clearTimeout(timer); timer = setTimeout(() => callback(messages(), current()), 250); };
+      const observer = new MutationObserver(records => {
+        if (records.some(r => !r.target.closest?.('#' + SHADOW_HOST_ID) && (r.target === document.body || r.target === document.documentElement || r.target.parentElement?.closest('[data-testid="conversation-view"],[data-testid="conversation-list-history"]') || r.target.closest?.('[data-testid="conversation-view"],[data-testid="conversation-list-history"]') || [...r.addedNodes, ...r.removedNodes].some(n => n.nodeType === 1 && (n.matches?.('[data-testid="conversation-view"],[data-testid="conversation-list-history"]') || n.querySelector?.('[data-testid="conversation-view"],[data-testid="conversation-list-history"]')))))) schedule();
+      });
+      observer.observe(document.documentElement, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ['data-conversation-id','data-session-id','data-cascade-id'] });
+      window.addEventListener('popstate', schedule);
+      window.addEventListener('hashchange', schedule);
+      return () => { observer.disconnect(); clearTimeout(timer); window.removeEventListener('popstate', schedule); window.removeEventListener('hashchange', schedule); };
+    }
+    function project() {
+      // Project metadata is optional. Never substitute an account quota project.
+      const root = view();
+      for (let el = root; el; el = el.parentElement) {
+        const path = el.getAttribute('data-project-path') || el.getAttribute('data-workspace-path');
+        if (path) return { available: true, text: path, path, name: path.split(/[\\/]/).filter(Boolean).at(-1) || '' };
+      }
+      const breadcrumbs = document.querySelectorAll('[data-testid="breadcrumb-segment"]');
+      // A project breadcrumb is real metadata even when the host omits its path.
+      if (root && breadcrumbs.length > 1) {
+        const name = breadcrumbs[0].textContent.trim();
+        if (name) return { available: true, name, text: name };
+      }
+      return { available: false, text: '' };
+    }
+    return {
+      prompt: {
+        find: () => findInputTargetTiered(findSendButtonTiered().btn).el,
+        get() { const el = this.find(); return el ? (el.isContentEditable ? el.innerText : el.value) : ''; },
+        captureSelection() {
+          const el = this.find(); if (!el) return;
+          if (!el.isContentEditable) {
+            if (document.activeElement === el) nativeSelection = { el, text: el.value, start: el.selectionStart, end: el.selectionEnd };
+            return;
+          }
+          const selection = window.getSelection();
+          if (selection?.rangeCount && el.contains(selection.anchorNode) && el.contains(selection.focusNode)) nativeSelection = { el, text: el.textContent, range: selection.getRangeAt(0).cloneRange(), selected: selection.toString() };
+        },
+        selection() {
+          const el = this.find(); if (!el) return null;
+          if (!el.isContentEditable) return { el, text: el.value, start: el.selectionStart || 0, end: el.selectionEnd || 0, selected: el.value.slice(el.selectionStart || 0, el.selectionEnd || 0) };
+          return nativeSelection?.el === el && nativeSelection.text === el.textContent ? nativeSelection : null;
+        },
+        observeSelection() {
+          const capture = () => this.captureSelection(); document.addEventListener('selectionchange', capture); document.addEventListener('select', capture, true);
+          return () => { document.removeEventListener('selectionchange', capture); document.removeEventListener('select', capture, true); nativeSelection = null; };
+        },
+        set(text, options = {}) {
+          const el = this.find();
+          if (!el || isLockedInput(el) || el.getAttribute('aria-disabled') === 'true') throw new Error(translateHub('Native Prompt is not writable. Open an editable conversation first.'));
+          const selected = this.selection();
+          const selectionMode = options.mode === 'replace-selection' || options.mode === 'after-selection';
+          if (selectionMode && selected && (selected.range ? !!selected.selected : selected.end > selected.start)) {
+            if (!el.isContentEditable) {
+              const start = options.mode === 'after-selection' ? selected.end : selected.start;
+              const value = selected.text.slice(0, start) + String(text) + selected.text.slice(selected.end);
+              el.focus(); if (!writeValueIntoInput(el, value)) throw new Error(translateHub('Unable to insert into the native selection'));
+              el.setSelectionRange(start + String(text).length, start + String(text).length); return true;
+            }
+            const range = selected.range.cloneRange(); if (options.mode === 'after-selection') range.collapse(false);
+            el.focus(); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+            if (!document.execCommand('insertText', false, String(text))) throw new Error(translateHub('The host rich-text selection does not support insertion; original text was preserved'));
+            nativeSelection = null; return true;
+          }
+          el.focus();
+          if (el.isContentEditable) {
+            const selection = window.getSelection(), range = document.createRange();
+            range.selectNodeContents(el); selection.removeAllRanges(); selection.addRange(range);
+            // Native editing preserves the host rich-text editor's input pipeline.
+            if (document.execCommand('insertText', false, String(text))) return true;
+          }
+          if (!writeValueIntoInput(el, String(text))) throw new Error(translateHub('Unable to write the native Prompt'));
+          return true;
+        }
+      },
+      conversation: { messages, current, jump, observe, node: id => messageNodes.get(id),
+        history() { const link = document.querySelector('[data-testid="history-button"]'); if (!link) return false; link.click(); return true; },
+        list() { return [...document.querySelectorAll('[data-testid="conversation-row-history"]')].flatMap(row => {
+          const link = row.matches('a[href]') ? row : row.querySelector('a[href^="/c/"]');
+          const href = link?.getAttribute('href');
+          if (!href || !/^\/c\/[a-zA-Z0-9-]+(?:\?|$)/.test(href)) return [];
+          return [{ href, title: (row.innerText || row.getAttribute('aria-label') || href).trim().split('\n')[0] }];
+        }); },
+        open(href) { const link = [...document.querySelectorAll('a[href^="/c/"]')].find(el => el.getAttribute('href') === href); if (!link) return false; link.click(); return true; }
+      },
+      project: { current: project }
+    };
+  })();
+
+  let interactionCleanup = null;
+  let interactionLanguageChanged = null;
+
+  function mountInteractionLayer({ shadow, panel, request, layout, open, accounts, appearance }) {
+    if (interactionCleanup) interactionCleanup();
+    const cleanups = [];
+    const $ = id => shadow.getElementById(id);
+    const uid = prefix => prefix + '-' + crypto.randomUUID();
+    const esc = escapeHtml;
+    // Read delegated event targets while dispatch is active. Once dispatch ends,
+    // Shadow DOM retargets event.target to the outer host, losing the button.
+    const run = fn => {
+      const report = error => { if (alive) showToast('[2Ag] ' + t(error.message || String(error))); };
+      try { return Promise.resolve(fn()).catch(report); }
+      catch (error) { report(error); return Promise.resolve(); }
+    };
+    let alive = true;
+    let ready = false;
+    let workspace = { drafts: [], snippets: [], pins: [], capsules: [], recent: [], 'extension-state': [] };
+    let activeDraft = null;
+    let capsuleID = null;
+    let saveTimer = null;
+    let saveQueue = Promise.resolve();
+    let draftChanging = false;
+    const pinSaves = new Set();
+    let page = 'home';
+    let outline = [];
+    let selectedPins = new Set();
+    let capsulePins = new Set();
+    let capsuleSnapshots = [];
+    let recovery = {};
+    const recoveryKey = '__2ag_workspace_recovery';
+    try { recovery = JSON.parse(localStorage.getItem(recoveryKey) || '{}'); } catch (_) {}
+    const hadRecoveryDraft = !!recovery.draft;
+    let restored = false;
+    let showcase = null;
+    let lastHostStatus = null;
+    let draftStatus = null;
+    let uiLanguage = state.language === 'en-US' ? 'en-US' : 'zh-CN';
+    const languageListeners = new Set();
+    const staticLabels = [];
+    const reverseLabels = HUB_ENGLISH_LABELS;
+    function t(source, values = {}) {
+      return translateHub(source,values,uiLanguage);
+    }
+    const titleOf = item => uiLanguage === 'zh-CN' && item.title_zh ? item.title_zh : item.builtin ? t(item.title || item.id) : item.title || item.id;
+    function rememberLabels(root) {
+      // Capture only the initial UI. Loaded Pins, drafts and plugin DOM never
+      // enter this list; changing language must not translate authored content.
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for(let node=walker.nextNode();node;node=walker.nextNode()) {
+        if(node.parentElement?.closest('script,style,textarea,input,pre,code,.item-latin,[data-user-content]'))continue;
+        const source=node.textContent, key=source.trim();
+        if(HUB_I18N.labels[key] || reverseLabels.has(key))staticLabels.push({node,source,last:source});
+      }
+      for(const element of root.querySelectorAll('[placeholder],[title],[aria-label]')) for(const attribute of ['placeholder','title','aria-label']) {
+        const source=element.getAttribute(attribute);
+        if(source && (HUB_I18N.labels[source] || reverseLabels.has(source)))staticLabels.push({node:element,attribute,source,last:source});
+      }
+    }
+    function applyLanguage(language) {
+      const focused=shadow.activeElement;
+      const selection=focused?.dataset.section?{key:focused.dataset.section,start:focused.selectionStart,end:focused.selectionEnd,direction:focused.selectionDirection}:null;
+      uiLanguage = language === 'en-US' ? 'en-US' : 'zh-CN'; state.language=uiLanguage;
+      panel.lang=uiLanguage;
+      for(const label of staticLabels) {
+        if(!label.node.isConnected)continue;
+        const current=label.attribute?label.node.getAttribute(label.attribute):label.node.textContent;
+        if(current!==label.last)continue;
+        const key=label.source.trim(), next=label.source.replace(key,t(key));
+        if(label.attribute)label.node.setAttribute(label.attribute,next);else label.node.textContent=next;
+        label.last=next;
+      }
+      $('il-language').value=uiLanguage;
+      if(showcase) {
+        renderLists();renderHistory();draftMeta();renderCommands();renderContextProviders();
+        renderActions(promptActions,$('il-prompt-actions'),promptContext);
+        if(detailPin)renderActions(messageActions,$('il-message-actions'),()=>({...detailPin}));
+        showcase.languageChanged();
+        if(page==='lens')refreshOutline();
+        paintHostStatus(lastHostStatus);
+      }
+      for(const callback of languageListeners) { try { callback(uiLanguage); } catch(error) { showToast('[2Ag] '+error.message); } }
+      if(selection&&!focused.isConnected) {
+        const replacement=Array.from($('il-capsule-extra-sections').querySelectorAll('textarea')).find(el=>el.dataset.section===selection.key);
+        if(replacement){replacement.focus({preventScroll:true});replacement.setSelectionRange(selection.start,selection.end,selection.direction);}
+      }
+    }
+    const commands = new Map(), panels = new Map(), promptActions = new Map(), messageActions = new Map(), contextProviders = new Map(), quickActions = new Map(), lensFilters = new Map();
+    const registrationStacks = new WeakMap();
+    const extensionRecords = new Map();
+    let commandIndex = 0, commandMatches = [], paletteFocus = null;
+    const b = (id, label, extra = '') => `<button type="button" id="${id}" ${extra}>${label}</button>`;
+
+    const body = panel.querySelector('.cockpit-body');
+    const header = body.querySelector('.cockpit-header');
+    header.querySelector('.brand-title').textContent = '2Ag';
+    header.querySelector('.status-text').id = 'interaction-status';
+    header.querySelector('.status-text').textContent = 'Connecting…';
+    header.querySelector('.brand-wrap').insertAdjacentHTML('beforeend', '<span id="interaction-account" class="il-muted">—</span>');
+    header.insertAdjacentHTML('beforeend','<select id="il-language" aria-label="Language" title="Language"><option value="zh-CN">中文</option><option value="en-US">English</option></select>');
+    $('il-language').value=uiLanguage;
+    $('il-language').addEventListener('change',()=>run(async()=>{
+      const next=$('il-language').value, previous=uiLanguage;
+      $('il-language').disabled=true;
+      applyLanguage(next);persistRecovery();
+      try { await request('/api/v1/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'SET_LANGUAGE',payload:{language:next}})}); }
+      catch(error) { if(alive){applyLanguage(previous);showToast('[2Ag] '+t('Language could not be saved: {error}',{error:error.message}));} }
+      finally { if(alive)$('il-language').disabled=false; }
+    }));
+    header.insertAdjacentHTML('afterend', `
+      <div id="interaction-quota" class="il-muted il-header-quota">Gemini — · Claude/GPT —</div>
+      <nav class="il-nav" aria-label="G-Hub pages">${['home','compose','lens','capsule'].map(p => `<button type="button" data-page="${p}" aria-pressed="${p === 'home'}">${p.toUpperCase()}</button>`).join('')}${b('il-command-open', '⌕', 'aria-label="Search commands" title="Commands · Ctrl+Shift+K"')}</nav>
+      <div id="il-command-palette" class="il-palette" hidden><label>Commands<input id="il-command-search" type="search" placeholder="draft, pin, capsule, account…"></label><div id="il-command-results"></div></div>
+      <div id="il-workspace-status" class="il-muted" role="status">正在载入本地工作区…</div>
+      <main id="il-pages">
+        <section id="il-home" class="il-page">
+          <div class="il-eyebrow">CURRENT ACCOUNT</div><div id="il-home-account" class="il-account">—</div>
+          <div class="il-home-quota"><strong>Gemini</strong><span id="il-home-gemini">5h — · weekly —</span><strong>Claude &amp; GPT</strong><span id="il-home-claude">5h — · weekly —</span></div>
+          ${b('il-switch-account', '切换账号')}
+          <div class="il-section"><div class="il-eyebrow">QUICK ACTIONS</div><div class="il-quick">${b('il-new-draft','+ New Draft')}${b('il-pin-current','☆ Pin Current')}${b('il-create-capsule','▣ Create Capsule')}${b('il-restart','↻ Restart Host')}</div></div>
+          <div id="il-settings"></div>
+        </section>
+        <section id="il-compose" class="il-page" hidden>
+          <div class="il-toolbar"><label class="il-grow">Draft<select id="il-drafts" aria-label="Saved drafts"><option value="">New draft</option></select></label>${b('il-draft-new','New')}${b('il-draft-delete','Delete')}</div>
+          <label>Title<input id="il-draft-title" placeholder="Untitled draft"></label>
+          <label class="il-editor-label">Prompt<textarea id="il-prompt" class="il-editor" placeholder="Write your prompt…" spellcheck="false"></textarea></label>
+          <div class="il-toolbar il-muted"><span id="il-draft-meta" role="status">Draft · unsaved</span>${b('il-draft-save','Save')}<label class="il-grow">History<select id="il-history" aria-label="Draft versions"><option value="">Select a version</option></select></label>${b('il-draft-restore','Restore')}</div>
+          <div class="il-toolbar">${b('il-preview-toggle','Preview')}${b('il-insert-prompt','Insert into Antigravity','class="il-primary"')}</div>
+          <pre id="il-prompt-preview" class="il-text" hidden></pre>
+          <div class="il-section"><div class="il-eyebrow">OPTIONAL BLOCKS</div><div class="il-toolbar">${['Goal','Context','Constraints','Output'].map(p => `<button type="button" data-block="${p}">${p}</button>`).join('')}</div><div id="il-prompt-actions" class="il-toolbar"></div></div>
+          <div class="il-section"><div class="il-toolbar"><strong>Snippets</strong>${b('il-snippet-add','Save selected text')}</div><div id="il-snippets"></div>
+            <div id="il-snippet-form" hidden><label>Name<input id="il-snippet-title"></label><label>Text<textarea id="il-snippet-text" rows="4"></textarea></label>${b('il-snippet-save','Save snippet')}${b('il-snippet-cancel','Cancel')}</div>
+          </div>
+        </section>
+        <section id="il-lens" class="il-page" hidden>
+          <div class="il-toolbar"><strong id="il-conversation-title">Current Conversation</strong>${b('il-lens-history','Open conversations')}${b('il-lens-refresh','Refresh')}</div>
+          <div id="il-conversation-list"></div>
+          <p class="il-muted">导航到原始消息；仅显示当前宿主已经加载的内容。</p><div id="il-outline" class="il-outline"></div>
+          <div class="il-section"><div class="il-toolbar"><strong>Pinned</strong>${b('il-compare','Compare','disabled')}${b('il-pins-capsule','Add to Capsule')}</div><div id="il-pins"></div></div>
+          <section id="il-pin-detail" hidden><div class="il-toolbar"><strong id="il-pin-title"></strong>${b('il-pin-detail-close','Close')}</div><p id="il-pin-location" class="il-muted"></p><pre id="il-pin-text" class="il-text"></pre><div id="il-message-actions" class="il-toolbar"></div></section>
+          <section id="il-comparison" hidden><div class="il-toolbar"><strong>Compare saved messages</strong>${b('il-compare-close','Close')}</div><div class="il-compare-grid"><article><h3 id="il-compare-a-title"></h3><pre id="il-compare-a" class="il-text"></pre></article><article><h3 id="il-compare-b-title"></h3><pre id="il-compare-b" class="il-text"></pre></article></div></section>
+        </section>
+        <section id="il-capsule" class="il-page" hidden>
+          <div class="il-toolbar"><label class="il-grow">Saved capsules<select id="il-capsules"><option value="">New capsule</option></select></label>${b('il-capsule-new','New')}${b('il-capsule-delete','Delete')}</div>
+          <label>Title<input id="il-capsule-title" placeholder="Context Capsule"></label>
+          <label>Goal<textarea id="il-capsule-goal" rows="2"></textarea></label>
+          <label>Decisions<textarea id="il-capsule-decisions" rows="3"></textarea></label>
+          <details class="il-details" open><summary>Important Context · select Pins</summary><div id="il-capsule-pins"></div><label>Manual Notes<textarea id="il-capsule-notes" rows="3"></textarea></label><label class="il-check"><input id="il-project-include" type="checkbox">Include visible project context</label><p id="il-project-context" class="il-muted"></p><div id="il-context-providers"></div></details>
+          <label>Current State<textarea id="il-capsule-current" rows="2"></textarea></label><label>Remaining Work<textarea id="il-capsule-remaining" rows="3"></textarea></label>
+          <div class="il-toolbar">${b('il-capsule-copy','Copy')}${b('il-capsule-insert','Insert into Antigravity','class="il-primary"')}${b('il-capsule-save','Save Capsule')}</div>
+          <details class="il-details"><summary>Markdown preview</summary><pre id="il-capsule-preview" class="il-text"></pre></details>
+        </section>
+        <section id="il-extensions" class="il-page" hidden><div id="il-extension-tabs" class="il-toolbar"></div><div id="il-extension-panel"></div></section>
+      </main>`);
+
+    // Move the original live nodes, keeping their IDs and bound handlers.
+    const settings = $('il-settings');
+    const groups = {};
+    for (const name of ['Runtime','Appearance','Accounts']) {
+      const detail = document.createElement('details'); detail.className = 'il-details'; detail.id = 'il-settings-' + name.toLowerCase();
+      const summary = document.createElement('summary'); summary.textContent = name;
+      const content = document.createElement('div'); content.className = 'il-settings-content';
+      detail.append(summary, content); settings.append(detail); groups[name] = content;
+      detail.addEventListener('toggle', () => layout());
+    }
+    let group = 'Appearance';
+    const legacyNodes = Array.from(body.children).filter(n => n !== header && !n.id?.startsWith('il-') && n.id !== 'interaction-quota' && !n.classList.contains('il-nav'));
+    for (const node of legacyNodes) {
+      if (node.classList.contains('section-tag')) {
+        const text = node.textContent;
+        if (text.includes('ACCOUNT')) group = 'Accounts';
+        if (text.includes('GRAVITY') || text.includes('EMERGENCY')) group = 'Runtime';
+      }
+      groups[group].append(node);
+    }
+
+    const css = document.createElement('style');
+    css.textContent = `
+      .cockpit-panel {width:380px;transition:width 230ms var(--2ag-ease),opacity 220ms var(--2ag-ease),transform 220ms var(--2ag-ease);}
+      .cockpit-panel[data-mode="workspace"] {width:640px;}
+      .cockpit-body {padding:16px 18px;gap:0;}
+      .cockpit-header {margin-bottom:4px;align-items:center;}
+      .cockpit-header .brand-wrap {flex:1;flex-wrap:wrap;}
+      #il-language {width:76px;flex:0 0 auto;background:var(--2ag-surface,#202124);color:var(--2ag-text-primary);border:1px solid var(--2ag-outline-variant);border-radius:6px;padding:5px;font:11px system-ui;}
+      .cockpit-panel:lang(en-US) .item-latin {display:none;}
+      #interaction-account {margin-left:auto;max-width:160px;overflow:hidden;text-overflow:ellipsis;}
+      .il-header-quota {padding:6px 0 12px;}
+      .il-nav {display:flex;gap:4px;border-bottom:1px solid var(--2ag-outline-variant);padding-bottom:9px;margin-bottom:16px;}
+      .il-nav button {flex:1;padding:8px 5px;font-size:11px;letter-spacing:.7px;}
+      .il-nav button[aria-pressed="true"] {background:rgba(138,180,248,.13);color:var(--2ag-blue);}
+      .il-nav #il-command-open {flex:0 0 30px;font-size:20px;}
+      #il-pages {min-height:0;}
+      .il-page[hidden],.il-palette[hidden],[hidden] {display:none!important;}
+      .il-page {animation:il-enter 150ms ease-out;}
+      @keyframes il-enter {from{opacity:.4;transform:translateY(3px)}to{opacity:1;transform:none}}
+      .il-page,.il-palette {color:var(--2ag-text-primary);font-size:13px;line-height:1.55;}
+      .il-page button,.il-nav button,.il-palette button {border:1px solid var(--2ag-outline-variant);border-radius:8px;background:transparent;color:var(--2ag-text-primary);padding:7px 11px;cursor:pointer;font:inherit;}
+      .il-page button:hover,.il-palette button:hover {background:var(--2ag-surface-2);}
+      .il-page button:disabled {opacity:.45;cursor:default;}
+      .il-page button.il-primary {background:rgba(138,180,248,.15);border-color:rgba(138,180,248,.4);color:var(--2ag-blue);}
+      .il-page :is(button,input,textarea,select):focus-visible,.il-nav button:focus-visible,.il-palette input:focus-visible {outline:2px solid var(--2ag-blue);outline-offset:2px;}
+      .il-page label,.il-palette label {display:block;font-size:11px;color:var(--2ag-text-secondary);margin:8px 0;}
+      .il-page :is(input,textarea,select),.il-palette input {box-sizing:border-box;width:100%;border:1px solid var(--2ag-outline-variant);border-radius:8px;background:#17181a;color:var(--2ag-text-primary);padding:9px 11px;font:13px/1.6 var(--2ag-font-ui,system-ui);margin-top:5px;}
+      .il-page textarea {resize:vertical;min-height:64px;}
+      .il-page .il-editor {min-height:260px;padding:18px;font-size:14px;line-height:1.75;tab-size:2;}
+      .il-muted {color:var(--2ag-text-secondary);font-size:11px;}
+      #il-workspace-status:empty {display:none;}
+      #il-workspace-status {margin-bottom:10px;}
+      .il-eyebrow {font-size:10px;letter-spacing:1.3px;color:var(--2ag-text-secondary);margin-bottom:10px;}
+      .il-account {font-size:20px;margin:8px 0 16px;overflow-wrap:anywhere;}
+      .il-home-quota {display:grid;grid-template-columns:1fr;gap:3px;margin:0 0 15px;}
+      .il-home-quota span {font-size:12px;color:var(--2ag-text-secondary);margin-bottom:9px;}
+      .il-section {border-top:1px solid var(--2ag-outline-variant);margin-top:20px;padding-top:16px;}
+      .il-toolbar {display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:9px 0;}
+      .il-toolbar .il-grow {flex:1;min-width:110px;margin:0;}
+      .il-quick {display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;}
+      .il-details {border-top:1px solid var(--2ag-outline-variant);padding:12px 0;}
+      .il-details summary {cursor:pointer;font-size:13px;color:var(--2ag-text-primary);}
+      .il-settings-content {padding-top:12px;}
+      .il-text {white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.75 var(--2ag-font-ui,system-ui);background:#17181a;border-radius:8px;padding:15px;margin:12px 0;max-height:420px;overflow:auto;}
+      .il-row {display:flex;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--2ag-outline-variant);}
+      .il-row .il-row-title {flex:1;text-align:left;overflow-wrap:anywhere;border:0;min-width:0;}
+      .il-row input[type="checkbox"],.il-check input[type="checkbox"] {width:auto;margin:0;accent-color:var(--2ag-blue);}
+      .il-check {display:flex!important;align-items:center;gap:8px;padding:5px 0;}
+      .il-outline {border-left:1px solid var(--2ag-outline-variant);margin:14px 0 16px 6px;padding-left:15px;}
+      .il-outline button {display:block;text-align:left;width:100%;position:relative;border:0;padding:9px 6px;}
+      .il-outline button::before {content:'•';position:absolute;left:-20px;color:var(--2ag-blue);}
+      .il-outline small {display:block;color:var(--2ag-text-secondary);font-size:10px;}
+      .il-compare-grid {display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+      .il-compare-grid article {min-width:0;}
+      .il-compare-grid h3 {font-size:12px;overflow-wrap:anywhere;}
+      .il-compare-grid .il-text {max-height:none;}
+      .il-palette {border-bottom:1px solid var(--2ag-outline-variant);padding-bottom:12px;margin-bottom:12px;}
+      .il-palette button {display:block;width:100%;text-align:left;margin:5px 0;}
+      @media(max-width:540px){.il-compare-grid{grid-template-columns:1fr}.il-page .il-editor{min-height:180px}}
+      @media(prefers-reduced-motion:reduce){.cockpit-panel{transition:none}.il-page{animation:none}}
+    `;
+    shadow.append(css);
+
+    function persistRecovery() {
+      if (!restored) return;
+      recovery = { draft: { id: activeDraft?.id || '', title: $('il-draft-title').value, text: $('il-prompt').value }, capsule: capsuleForm(), page, preferences: showcase?.preferences() || recovery.preferences };
+      try { localStorage.setItem(recoveryKey, JSON.stringify(recovery)); } catch (_) {}
+    }
+    function status(text,values) { if (alive) $('il-workspace-status').textContent = t(text,values); }
+    async function mutate(collection, item, action = 'save', id = '') {
+      if (!ready) throw new Error(t('Local workspace is not connected. Click Retry.'));
+      const response = await request('/api/v1/workspace/' + collection, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, item, id }) });
+      const data = await response.json();
+      if (!alive) return data.item;
+      workspace[collection] = data.items;
+      renderLists();
+      status('');
+      return data.item;
+    }
+    function sorted(items) { return [...items].sort((a,b) => String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || ''))); }
+    function lastUsed(item) { return (workspace.recent || []).find(recent => recent.target_id === item.id)?.updated_at || item.last_used_at || item.updated_at || ''; }
+    function optionList(select, items, chosen, emptyLabel) {
+      const ordered = [...items].sort((a,b) => Number(!!b.favorite) - Number(!!a.favorite) || String(lastUsed(b)).localeCompare(String(lastUsed(a))));
+      select.innerHTML = `<option value="">${esc(t(emptyLabel))}</option>` + ordered.map(item => `<option value="${esc(item.id)}">${item.favorite ? '★ ' : ''}${esc(item.title || t('Untitled'))}</option>`).join('');
+      select.value = chosen || '';
+    }
+    function renderLists() {
+      optionList($('il-drafts'), workspace.drafts, activeDraft?.id, 'New draft');
+      optionList($('il-capsules'), workspace.capsules, capsuleID, 'New capsule');
+      $('il-snippets').innerHTML = workspace.snippets.length ? workspace.snippets.map(s => `<div class="il-row"><button type="button" class="il-row-title" data-snippet="${esc(s.id)}">${esc(s.title)}</button><button type="button" data-snippet-rename="${esc(s.id)}">Rename</button><button type="button" data-snippet-delete="${esc(s.id)}" aria-label="${esc(t('Delete'))} ${esc(s.title)}">×</button></div>`).join('') : '<p class="il-muted">保存常用文本，点击即可插入光标处。</p>';
+      renderPins(); renderCapsulePins(); paintPinHover();
+      showcase?.renderLibraries();
+    }
+    function showPage(next) {
+      page = next;
+      const wide = ['compose','lens','capsule','extensions'].includes(next);
+      panel.dataset.mode = wide ? 'workspace' : 'compact';
+      for (const p of ['home','compose','lens','capsule','extensions']) $('il-' + p).hidden = p !== next;
+      shadow.querySelectorAll('.il-nav [data-page]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.page === next)));
+      layout();
+      if (next === 'lens') refreshOutline();
+      if (next === 'capsule') { refreshProject(); renderCapsulePins(); updateCapsulePreview(); }
+      persistRecovery();
+      showcase?.pageChanged(next);
+    }
+    function insertAtCursor(text) {
+      const editor = $('il-prompt');
+      const start = editor.selectionStart, end = editor.selectionEnd;
+      editor.setRangeText(String(text), start, end, 'end'); editor.focus(); draftChanged();
+    }
+    function draftMeta(text,values) {
+      if(arguments.length)draftStatus=text?{text,values}:null;
+      $('il-draft-meta').textContent = draftStatus?t(draftStatus.text,draftStatus.values):(activeDraft ? `${t('Draft')} v${activeDraft.version || 0} · ${activeDraft.updated_at ? new Date(activeDraft.updated_at).toLocaleString(uiLanguage) : t('unsaved')}` : `${t('Draft')} · ${t('unsaved')}`);
+    }
+    function renderHistory() {
+      const selected=$('il-history').value;
+      $('il-history').innerHTML = `<option value="">${esc(t('Select a version'))}</option>` + [...(activeDraft?.versions || [])].reverse().map(v => `<option value="${v.version}">${esc(t('Draft'))} v${v.version} · ${esc(new Date(v.saved_at).toLocaleString(uiLanguage))}</option>`).join('');
+      $('il-history').value=selected;
+    }
+    function saveDraft() {
+      clearTimeout(saveTimer);
+      if (!activeDraft) activeDraft = { id: uid('draft') };
+      const snapshot = { id: activeDraft.id, title: $('il-draft-title').value.trim() || 'Untitled draft', text: $('il-prompt').value, favorite: !!activeDraft.favorite, last_used_at: new Date().toISOString() };
+      persistRecovery(); draftMeta('Saving…');
+      const job = saveQueue.catch(() => {}).then(() => mutate('drafts', snapshot)).then(saved => {
+        if (!alive || activeDraft?.id !== snapshot.id) return;
+        // An older save response must not overwrite a newer favorite toggle.
+        activeDraft = { ...saved, favorite: !!activeDraft.favorite }; renderHistory();
+        if ($('il-prompt').value === snapshot.text && ($('il-draft-title').value.trim() || 'Untitled draft') === snapshot.title) draftMeta(null);
+        else draftMeta('Draft v{version} · unsaved changes',{version:saved.version});
+        $('il-drafts').value = saved.id; persistRecovery();
+        showcase?.record('draft', saved.id, saved.title);
+      }).catch(error => { if (alive) draftMeta('Not saved · {error}',{error:error.message}); throw error; });
+      saveQueue = job;
+      // Background saves handle their own failure; manual callers can await.
+      job.catch(() => {});
+      return job;
+    }
+    function draftChanged() {
+      draftMeta('Unsaved changes'); $('il-prompt-preview').textContent = $('il-prompt').value; persistRecovery();
+      clearTimeout(saveTimer); saveTimer = setTimeout(() => { if (alive && ready) saveDraft(); }, 900);
+    }
+    async function changeDraft(item) {
+      if (draftChanging) return;
+      draftChanging = true; clearTimeout(saveTimer);
+      $('il-prompt').readOnly = true; $('il-draft-title').readOnly = true;
+      try {
+        if ($('il-prompt').value || activeDraft || $('il-draft-title').value) await saveDraft();
+        if (item) item = workspace.drafts.find(draft => draft.id === item.id) || item;
+        activeDraft = item || { id: uid('draft') };
+        $('il-prompt').value = item?.text || ''; $('il-draft-title').value = item?.title || '';
+        $('il-prompt-preview').textContent = $('il-prompt').value;
+        draftMeta(null); renderHistory(); renderLists(); showPage('compose');
+        if (item) showcase?.record('draft', item.id, item.title);
+      } finally {
+        draftChanging = false; $('il-prompt').readOnly = false; $('il-draft-title').readOnly = false;
+      }
+    }
+    async function pinMessage(message) {
+      if (!message) throw new Error(t('No readable message is available.'));
+      const existing = workspace.pins.find(p => p.conversation_key === message.conversation_key && p.locator === message.locator);
+      if (existing) { openPin(existing); showPage('lens'); return existing; }
+      const pendingKey = message.conversation_key + ':' + message.locator;
+      if (pinSaves.has(pendingKey)) return;
+      pinSaves.add(pendingKey);
+      try {
+        const saved = await mutate('pins', { id: uid('pin'), conversation_key: message.conversation_key, role: message.role, text: message.text, title: message.title, locator: message.locator, note:'', tags:[] });
+        if (alive) { refreshOutline(); showcase?.pinCreated(saved); showToast('[2Ag] '+t('Message pinned')); }
+        return saved;
+      } finally { pinSaves.delete(pendingKey); }
+    }
+    function refreshOutline() {
+      outline = host.conversation.messages();
+      const current = host.conversation.current(); $('il-conversation-title').textContent = current.title === 'Current Conversation' ? t(current.title) : current.title;
+      if (showcase) { showcase.renderOutline(current); return; }
+      $('il-outline').innerHTML = outline.length ? outline.map(m => {
+        const pinned = workspace.pins.some(p => p.conversation_key === m.conversation_key && p.locator === m.locator);
+        return `<button type="button" data-message="${esc(m.id)}"><small>${esc(m.role)}${pinned ? ' · ★ Pinned' : ''}</small>${esc(m.title)}</button>`;
+      }).join('') : `<p class="il-muted">${current.available ? '尚未找到可读取的消息。宿主加载更多消息后会更新；无法辨认的角色会标为 message。' : '请先打开 Antigravity 对话。'}</p>`;
+    }
+    function renderPins() {
+      selectedPins = new Set([...selectedPins].filter(id => workspace.pins.some(p => p.id === id)));
+      $('il-pins').innerHTML = workspace.pins.length ? sorted(workspace.pins).map(p => `<div class="il-row"><input type="checkbox" data-pin-select="${esc(p.id)}" aria-label="${esc(t('Select'))} ${esc(p.title)}" ${selectedPins.has(p.id) ? 'checked' : ''}><button type="button" class="il-row-title" data-pin="${esc(p.id)}">★ ${esc(p.title)}<span class="il-muted"> · ${esc(t(p.role))}</span></button><button type="button" data-pin-delete="${esc(p.id)}" aria-label="${esc(t('Delete'))} ${esc(p.title)}">×</button></div>`).join('') : `<p class="il-muted">${esc(t('Pin original messages worth keeping here.'))}</p>`;
+      $('il-compare').disabled = selectedPins.size !== 2;
+    }
+    let detailPin = null;
+    function openPin(pin) {
+      detailPin = pin;
+      const jumped = host.conversation.jump(pin.locator, pin);
+      $('il-pin-detail').hidden = false; $('il-pin-title').textContent = pin.title; $('il-pin-text').textContent = pin.text;
+      $('il-pin-location').dataset.located=String(jumped);
+      $('il-pin-location').textContent = t(jumped ? 'Located the original message · saved text below' : 'The original message is not loaded · saved text remains available');
+      renderActions(messageActions, $('il-message-actions'), () => ({ ...pin }));
+      showcase?.editPin(pin);
+      showcase?.record('pin', pin.id, pin.title);
+    }
+    function compare() {
+      const pins = [...selectedPins].map(id => workspace.pins.find(p => p.id === id)).filter(Boolean);
+      if (pins.length !== 2) throw new Error(t('Select two Pins.'));
+      showPage('lens'); $('il-comparison').hidden = false;
+      for (const [index, side] of ['a','b'].entries()) { $('il-compare-' + side + '-title').textContent = pins[index].title; $('il-compare-' + side).textContent = pins[index].text; }
+      $('il-comparison').scrollIntoView({ block: 'nearest' });
+    }
+    function capsuleForm() {
+      return { id: capsuleID || '', title: $('il-capsule-title').value, goal: $('il-capsule-goal').value, decisions: $('il-capsule-decisions').value, notes: $('il-capsule-notes').value, current_state: $('il-capsule-current').value, remaining_work: $('il-capsule-remaining').value, pin_ids: [...capsulePins], pin_snapshots: capsuleSnapshots, include_project: $('il-project-include').checked, project_context: $('il-project-context').dataset.text || '', context_values: Array.from($('il-context-providers').querySelectorAll('textarea')).map(el => ({ id: el.dataset.provider, title: el.dataset.title, text: el.value })), ...(showcase?.capsuleExtras() || {}) };
+    }
+    function selectedCapsuleMessages() {
+      return [...capsulePins].map(id => workspace.pins.find(p => p.id === id) || capsuleSnapshots.find(p => p.id === id)).filter(Boolean);
+    }
+    function capsuleMarkdown(form = capsuleForm()) {
+      if (showcase) return showcase.markdown(form);
+      const context = [];
+      for (const pin of selectedCapsuleMessages()) context.push(`### ${pin.title}\n\n${pin.text}`);
+      if (form.notes.trim()) context.push(form.notes);
+      if (form.include_project && form.project_context) context.push(`### Project\n\n${form.project_context}`);
+      for (const provider of form.context_values || []) if (provider.text.trim()) context.push(`### ${provider.title}\n\n${provider.text}`);
+      return `# ${form.title.trim() || 'Context Capsule'}\n\n## Goal\n${form.goal}\n\n## Decisions\n${form.decisions}\n\n## Important Context\n${context.join('\n\n')}\n\n## Current State\n${form.current_state}\n\n## Remaining Work\n${form.remaining_work}\n`;
+    }
+    function updateCapsulePreview() { $('il-capsule-preview').textContent = capsuleMarkdown(); }
+    function renderCapsulePins() {
+      const pins = [...workspace.pins, ...capsuleSnapshots.filter(p => !workspace.pins.some(other => other.id === p.id))];
+      $('il-capsule-pins').innerHTML = pins.length ? pins.map(p => `<label class="il-check"><input type="checkbox" data-capsule-pin="${esc(p.id)}" ${capsulePins.has(p.id) ? 'checked' : ''}><span>★ ${esc(p.title)}</span></label>`).join('') : `<p class="il-muted">${esc(t('No Pins yet. You can write Manual Notes directly.'))}</p>`;
+    }
+    function fillCapsule(item) {
+      capsuleID = item?.id || null; capsulePins = new Set(item?.pin_ids || []); capsuleSnapshots = item?.pin_snapshots || [];
+      for (const [id, key] of [['title','title'],['goal','goal'],['decisions','decisions'],['notes','notes'],['current','current_state'],['remaining','remaining_work']]) $('il-capsule-' + id).value = item?.[key] || '';
+      $('il-project-include').checked = !!item?.include_project;
+      $('il-project-context').dataset.text = item?.project_context || ''; $('il-project-context').textContent = item?.project_context || '';
+      $('il-context-providers').replaceChildren();
+      for (const value of item?.context_values || []) appendContext(value);
+      renderContextProviders();
+      showcase?.fillCapsuleExtras(item);
+      renderLists(); updateCapsulePreview(); persistRecovery();
+      if (item?.id) showcase?.record('capsule', item.id, item.title);
+    }
+    function refreshProject() {
+      const project = host.project.current();
+      if (project.available && !$('il-project-context').dataset.text) { $('il-project-context').dataset.text = project.text; $('il-project-context').textContent = project.text; }
+      else if (!$('il-project-context').dataset.text) $('il-project-context').textContent = t('The host did not provide a project path. Add it to Notes manually.');
+    }
+    function appendContext(value) {
+      let label = Array.from($('il-context-providers').querySelectorAll('label')).find(el => el.dataset.provider === value.id);
+      if (!label) { label = document.createElement('label'); label.dataset.provider = value.id; $('il-context-providers').append(label); }
+      label.textContent = value.title;
+      const editor = document.createElement('textarea'); editor.rows = 3; editor.dataset.provider = value.id; editor.dataset.title = value.title; editor.value = String(value.text || '');
+      editor.addEventListener('input', () => { updateCapsulePreview(); persistRecovery(); }); label.append(editor);
+    }
+    function register(map, item, name) {
+      if (!item || !item.id || typeof item.id !== 'string') throw new Error(name + ' requires a string id');
+      if (map === commands && item.keywords != null && (!Array.isArray(item.keywords) || item.keywords.some(keyword => typeof keyword !== 'string'))) throw new Error(name + ' keywords must be an array of strings');
+      const implementation = map === panels ? item.render : map === contextProviders ? item.provide || item.get : map === lensFilters ? item.match : item.run || item.action;
+      if (typeof implementation !== 'function') throw new Error(name + ' requires a callback');
+      if(name==='builtin')item={...item,builtin:true};
+      let stacks = registrationStacks.get(map);
+      if (!stacks) { stacks = new Map(); registrationStacks.set(map, stacks); }
+      let stack = stacks.get(item.id);
+      if (!stack) { stack = []; stacks.set(item.id, stack); }
+      const entry = { item };
+      stack.push(entry);
+      map.set(item.id, item);
+      if (map === commands) renderCommands();
+      if (map === panels) renderPanelTabs();
+      if (map === promptActions) renderActions(promptActions, $('il-prompt-actions'), promptContext);
+      if (map === messageActions && detailPin) renderActions(messageActions, $('il-message-actions'), () => ({ ...detailPin }));
+      if (map === contextProviders) renderContextProviders();
+      showcase?.registryChanged(map);
+      return () => {
+        const index = stack.indexOf(entry);
+        if (index < 0) return;
+        const wasCurrent = index === stack.length - 1;
+        stack.splice(index, 1);
+        if (!stack.length) stacks.delete(item.id);
+        if (!wasCurrent) return;
+        if (stack.length) map.set(item.id, stack[stack.length - 1].item); else map.delete(item.id);
+        if (map === commands) renderCommands();
+        if (map === panels) renderPanelTabs();
+        if (map === promptActions) renderActions(promptActions, $('il-prompt-actions'), promptContext);
+        if (map === messageActions && detailPin) renderActions(messageActions, $('il-message-actions'), () => ({ ...detailPin }));
+        if (map === contextProviders) renderContextProviders();
+        showcase?.registryChanged(map);
+      };
+    }
+    function renderContextProviders() {
+      $('il-context-providers').querySelectorAll('button').forEach(button => button.remove());
+      for (const item of contextProviders.values()) {
+        const button = document.createElement('button'); button.type = 'button'; button.dataset.provider = item.id; button.textContent = t('Add')+' '+titleOf(item);
+        button.onclick = () => run(async () => { const value = await (item.provide || item.get)({ host }); if (!alive) return; appendContext({ id: item.id, title: item.title || item.id, text: typeof value === 'string' ? value : JSON.stringify(value, null, 2) }); updateCapsulePreview(); persistRecovery(); });
+        $('il-context-providers').append(button);
+      }
+    }
+    function renderActions(map, container, context) {
+      container.replaceChildren();
+      for (const action of map.values()) { const button = document.createElement('button'); button.type = 'button'; button.textContent = titleOf(action); button.onclick = () => run(() => (action.run || action.action)(context())); container.append(button); }
+    }
+    function promptContext() {
+      const editor = $('il-prompt');
+      return { text: editor.value, selection: editor.value.slice(editor.selectionStart, editor.selectionEnd), start: editor.selectionStart, end: editor.selectionEnd, insert: insertAtCursor, replace(text) { editor.value = String(text); draftChanged(); editor.focus(); }, copy: copyText };
+    }
+    let activePanel = null, activePanelRegistration = null, panelCleanup = null, panelGeneration = 0;
+    function renderPanelTabs() {
+      if (showcase) { showcase.renderPanelTabs(); return; }
+      let entry = $('il-extension-entry');
+      if (panels.size && !entry) { entry = document.createElement('button'); entry.type = 'button'; entry.id = 'il-extension-entry'; entry.textContent = 'Extensions'; entry.onclick = () => { showPage('extensions'); const first = panels.get(activePanel) || panels.values().next().value; if (first) openPanel(first); }; settings.append(entry); }
+      if (!panels.size) { entry?.remove(); if (page === 'extensions') showPage('home'); }
+      $('il-extension-tabs').replaceChildren();
+      for (const extension of panels.values()) { const button = document.createElement('button'); button.type = 'button'; button.textContent = extension.title || extension.id; button.onclick = () => run(() => openPanel(extension)); $('il-extension-tabs').append(button); }
+    }
+    function openPanel(extension) {
+      if (typeof panelCleanup === 'function') { try { panelCleanup(); } catch (error) { showToast('[2Ag] Panel cleanup: ' + error.message); } } panelCleanup = null;
+      activePanel = extension.id; activePanelRegistration = extension; const generation = ++panelGeneration;
+      const surface = $('il-extension-panel'); surface.replaceChildren();
+      const target = document.createElement('div'); surface.append(target);
+      const dispose = extension.render;
+      try {
+        const result = dispose(target, extensionAPI);
+        if (result?.then) result.then(cleanup => { if (panelGeneration === generation && activePanel === extension.id && alive) panelCleanup = cleanup; else if (typeof cleanup === 'function') cleanup(); }).catch(error => { if (panelGeneration === generation && activePanel === extension.id && alive) { target.textContent = t('Panel error: {error}',{error:error.message}); showcase?.extensionError(extension, error); } });
+        else panelCleanup = result;
+      } catch (error) { target.textContent = t('Panel error: {error}',{error:error.message}); showcase?.extensionError(extension, error); }
+    }
+    function renderCommands() {
+      const needle = $('il-command-search').value.trim().toLowerCase();
+      const target = $('il-command-results'); target.replaceChildren();
+      const recent = new Map((workspace.recent || []).filter(r => r.kind === 'command').map(r => [r.target_id, r.updated_at || '']));
+      commandMatches = [...commands.values()].filter(command => !needle || [command.title,command.title_zh,titleOf(command),command.id,...(command.keywords || [])].join(' ').toLowerCase().includes(needle)).sort((a,b) => (recent.get(b.id) || '').localeCompare(recent.get(a.id) || ''));
+      commandIndex = Math.max(0, Math.min(commandIndex, commandMatches.length - 1));
+      for (const [index, command] of commandMatches.entries()) {
+        const button = document.createElement('button'); button.type = 'button'; button.textContent = titleOf(command);
+        button.setAttribute('role','option'); button.setAttribute('aria-selected', String(index === commandIndex)); button.id = 'il-command-option-' + index;
+        button.onpointermove = () => { commandIndex = index; paintCommandSelection(); };
+        button.onclick = () => run(() => executeCommand(command)); target.append(button);
+      }
+      if (!target.children.length) target.textContent = t('No matching commands');
+    }
+    function paintCommandSelection() { $('il-command-results').querySelectorAll('button').forEach((button,index) => button.setAttribute('aria-selected',String(index === commandIndex))); $('il-command-search').setAttribute('aria-activedescendant','il-command-option-' + commandIndex); }
+    function closePalette() { $('il-command-palette').hidden = true; if (paletteFocus?.isConnected) paletteFocus.focus(); }
+    async function executeCommand(command) { closePalette(); await (command.run || command.action)(); showcase?.record('command', command.id, command.title || command.id); }
+    function palette() { open(true); if (!$('il-command-palette').hidden) { closePalette(); return; } paletteFocus = shadow.activeElement || document.activeElement; $('il-command-palette').hidden = false; commandIndex = 0; renderCommands(); $('il-command-search').focus(); }
+
+    function installShowcase() {
+      let timelineFilter = 'all';
+      let capsuleSections = [], templateID = 'classic', capsuleFavorite = false;
+      let sourceTrace = [];
+      let recentQueue = Promise.resolve();
+      let captureReturnFocus = null;
+      const librarySelection = new Set();
+      let preferences = { compact:380, workspace:640, dock:'right', ...(recovery.preferences || {}) };
+      const templates = {
+        classic: { title:'Custom / Classic', sections:['Goal','Decisions','Important Context','Current State','Remaining Work'] },
+        engineering: { title:'Engineering Handoff', sections:['Goal','Current State','Decisions','Changed Files','Known Issues','Important Context','Remaining Work'] },
+        bug: { title:'Bug Investigation', sections:['Goal','Symptoms','Evidence','Root Cause','Decisions','Important Context','Remaining Work'] },
+        architecture: { title:'Architecture Decision', sections:['Goal','Context','Options','Decisions','Consequences','Important Context','Remaining Work'] },
+        release: { title:'Release State', sections:['Goal','Current State','Changed Files','Known Issues','Important Context','Remaining Work'] },
+        research: { title:'Research Notes', sections:['Goal','Questions','Findings','Sources','Important Context','Remaining Work'] }
+      };
+      const sectionKey = title => String(title).toLowerCase().replace(/[^\p{L}\p{N}]+/gu,'_').replace(/^_|_$/g,'');
+      const basic = { goal:'goal', decisions:'decisions', current_state:'current', remaining_work:'remaining' };
+      const fragment = (id, label, value = '') => `<label>${label}<input id="${id}" value="${esc(value)}"></label>`;
+      const action = (label, attribute, value, extra = '') => `<button type="button" ${attribute}="${esc(value)}" ${extra}>${['data-snippet-rename','data-library-rename','data-library-duplicate','data-library-delete','data-extension-toggle','data-extension-reload'].includes(attribute)?esc(t(label)):label}</button>`;
+
+      const nav = panel.querySelector('.il-nav');
+      nav.insertAdjacentHTML('beforeend','<button type="button" data-page="extensions" aria-pressed="false" title="Local extensions">EXTENSIONS</button>');
+      $('il-command-results').setAttribute('role','listbox');
+      $('il-command-search').setAttribute('role','combobox'); $('il-command-search').setAttribute('aria-controls','il-command-results'); $('il-command-search').setAttribute('aria-autocomplete','list');
+      $('il-command-palette').insertAdjacentHTML('beforeend','<div class="il-muted">↑ ↓ select · Enter run · Esc close · Ctrl+Shift+K</div>');
+      $('il-workspace-status').insertAdjacentHTML('beforebegin',`<div class="il-global-tools"><button type="button" id="il-capture-open">+ Quick Capture</button><span class="il-muted">LOCAL INTERACTION LAYER</span></div><section id="il-capture" class="il-capture" hidden aria-label="Quick Capture"><label>Quick Capture<textarea id="il-capture-text" rows="3" placeholder="idea, todo, decision, prompt fragment…"></textarea></label><div class="il-toolbar"><label class="il-grow">Destination<select id="il-capture-destination"><option value="draft">Draft</option><option value="snippet">Snippet</option><option value="pin">Pin Note</option><option value="capsule">Capsule Notes</option></select></label><label class="il-grow" id="il-capture-pin-label" hidden>Pin<select id="il-capture-pin"></select></label>${b('il-capture-save','Capture')}${b('il-capture-close','Close')}</div></section>`);
+      $('il-settings').insertAdjacentHTML('beforebegin',`<div class="il-section"><div class="il-eyebrow">RECENT</div><div id="il-recent"></div><div id="il-quick-actions" class="il-toolbar"></div></div>`);
+      const home=$('il-home'), quickSection=$('il-new-draft').closest('.il-section'), recentSection=$('il-recent').closest('.il-section');
+      const accountDetail=document.createElement('details');accountDetail.className='il-details';
+      const accountSummary=document.createElement('summary');accountSummary.textContent='Account & quota';accountDetail.append(accountSummary);
+      const accountNodes=[home.querySelector('.il-eyebrow'),$('il-home-account'),home.querySelector('.il-home-quota'),$('il-switch-account')];
+      accountNodes.forEach(node=>accountDetail.append(node));home.prepend(quickSection,recentSection);home.insertBefore(accountDetail,$('il-settings'));accountDetail.hidden=true;
+      $('il-settings').insertAdjacentHTML('beforeend',`<details class="il-details"><summary>Workspace preferences</summary><div class="il-toolbar"><label class="il-grow">Compact<select id="il-pref-compact">${[360,380,400].map(w=>`<option>${w}</option>`).join('')}</select></label><label class="il-grow">Workspace<select id="il-pref-workspace">${[580,640,680].map(w=>`<option>${w}</option>`).join('')}</select></label><label class="il-grow">Dock<select id="il-pref-dock"><option value="right">Right</option><option value="left">Left</option></select></label></div></details>`);
+      $('il-draft-new').insertAdjacentHTML('afterend',`${b('il-draft-rename','Rename')}${b('il-draft-favorite','☆ Favorite')}${b('il-draft-duplicate','Duplicate')}`);
+      $('il-insert-prompt').insertAdjacentHTML('beforebegin','<label class="il-grow">Native selection<select id="il-insert-mode"><option value="replace-all">Write prompt</option><option value="replace-selection">Replace selection</option><option value="after-selection">Insert after selection</option></select></label>');
+      $('il-snippets').insertAdjacentHTML('beforebegin','<div class="il-toolbar"><label class="il-grow">Find snippet<input id="il-snippet-search" type="search" placeholder="Search text, name, category"></label><label class="il-grow">Category<select id="il-snippet-filter"><option value="">All categories</option></select></label></div>');
+      $('il-snippet-title').parentElement.insertAdjacentHTML('afterend',fragment('il-snippet-category','Category · optional'));
+      $('il-outline').insertAdjacentHTML('beforebegin','<label>Search loaded conversation<input id="il-lens-search" type="search" placeholder="Search full message text"></label><div id="il-lens-filters" class="il-toolbar"></div><p id="il-lens-count" class="il-muted"></p>');
+      $('il-compare').insertAdjacentHTML('afterend',b('il-pins-copy','Copy selected'));
+      $('il-pin-detail').insertAdjacentHTML('beforeend',`<div id="il-pin-edit">${fragment('il-pin-edit-title','Pin title · editable')}${fragment('il-pin-note','One-line note')}${fragment('il-pin-tags','Tags · comma-separated','')}<div class="il-toolbar">${b('il-pin-metadata-save','Save Pin')}${b('il-pin-title-auto','Use auto title')}</div></div>`);
+      $('il-capsule').insertAdjacentHTML('afterbegin',`<details id="il-capsule-library" class="il-details" open><summary>Capsule Library</summary><label>Search library<input id="il-capsule-search" type="search" placeholder="Title, content, template"></label><div class="il-toolbar">${b('il-capsule-merge','Merge two','disabled')}<span class="il-muted">Select two capsules to concatenate sections</span></div><div id="il-capsule-list"></div><div id="il-library-rename" hidden>${fragment('il-library-title','Rename capsule')}${b('il-library-title-save','Save name')}${b('il-library-title-cancel','Cancel')}</div></details><label>Template<select id="il-capsule-template">${Object.entries(templates).map(([id,t])=>`<option value="${id}">${t.title}</option>`).join('')}<option value="merged">Merged / Custom sections</option></select></label>`);
+      $('il-capsule-current').parentElement.insertAdjacentHTML('beforebegin','<div id="il-capsule-extra-sections"></div>');
+      $('il-capsule-preview').parentElement.insertAdjacentHTML('beforebegin','<details id="il-capsule-source" class="il-details"><summary>Source · conversation / role / saved time</summary><div id="il-capsule-source-list"></div></details>');
+      $('il-extensions').insertAdjacentHTML('afterbegin','<div class="il-toolbar"><strong>Local Extensions</strong><button type="button" id="il-extension-refresh">Refresh local list</button></div><p class="il-muted">Prompt · Conversation · Context · Command · Extension</p><div id="il-extension-list"></div><div class="il-section"><strong>Panels</strong></div>');
+
+      const topbar = document.createElement('div'); topbar.className = 'il-topbar'; body.prepend(topbar);
+      for (const node of [header,$('interaction-quota'),nav,$('il-command-palette'),panel.querySelector('.il-global-tools'),$('il-capture'),$('il-workspace-status')]) topbar.append(node);
+      // Keep the already-bound account picker and all four authoritative quota
+      // rings visible on every page. No duplicate IDs or parallel quota state.
+      $('interaction-quota').replaceChildren($('acct-acc'),$('quota-caps'),$('quota-source'));
+      $('interaction-account').hidden=true;
+      $('acct-head').setAttribute('role','button');$('acct-head').tabIndex=0;
+      const accountKey=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();$('acct-head').click();}};
+      $('acct-head').addEventListener('keydown',accountKey);
+      cleanups.push(()=>$('acct-head')?.removeEventListener('keydown',accountKey));
+      // Progressive disclosure keeps the everyday path short: text → insert;
+      // message → Pin / Capsule / extension action. Existing editors stay mounted.
+      const fold=(target,label)=>{const details=document.createElement('details');details.className='il-details';const summary=document.createElement('summary');summary.textContent=label;target.before(details);details.append(summary,target);return details;};
+      const draftTools=fold($('il-draft-meta').parentElement,'Draft tools');
+      for(const id of ['il-draft-rename','il-draft-favorite','il-draft-duplicate','il-draft-delete'])draftTools.append($(id));
+      fold($('il-prompt-actions').closest('.il-section'),'More prompt actions');
+      fold($('il-snippets').closest('.il-section'),'Snippets');
+      $('il-insert-prompt').before(Object.assign(document.createElement('button'),{id:'il-structure-prompt',type:'button',textContent:'Structure prompt'}));
+      $('il-capsule-library').open=false;
+      $('il-home').insertAdjacentHTML('afterbegin','<p class="il-start-hint">Write a prompt, keep a message, or collect context. Everything stays local.</p>');
+      $('il-restart').hidden=true;
+      $('il-new-draft').insertAdjacentHTML('afterend',b('il-home-lens','Open conversation'));
+      const style = document.createElement('style');
+      style.textContent = `
+        .cockpit-body{overflow:hidden}.il-topbar{flex-shrink:0}#il-pages{overflow-y:auto;min-height:0;padding-right:3px}
+        .il-nav{flex-wrap:wrap;gap:3px}.il-nav button{font-size:10px;letter-spacing:.2px;padding:7px 4px}.il-nav #il-command-open{order:2}
+        .il-global-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 12px}.il-global-tools span{font-size:9px;letter-spacing:.6px}
+        .il-global-tools button,.il-capture button{border:1px solid var(--2ag-outline-variant);color:var(--2ag-text-primary);background:transparent;padding:6px 9px;border-radius:7px;cursor:pointer;font:12px system-ui}
+        .il-capture{padding:12px 0;border-block:1px solid var(--2ag-outline-variant);margin-bottom:12px}.il-capture label{display:block;color:var(--2ag-text-secondary);font-size:11px}
+        .il-capture :is(input,textarea,select){box-sizing:border-box;width:100%;background:#17181a;color:var(--2ag-text-primary);border:1px solid var(--2ag-outline-variant);padding:9px;border-radius:7px;margin-top:5px;font:13px/1.6 system-ui}
+        #il-command-results{max-height:220px;overflow:auto}.il-palette button[aria-selected="true"]{background:rgba(138,180,248,.16);border-color:var(--2ag-blue)}
+        #il-lens-filters button[aria-pressed="true"]{background:rgba(138,180,248,.14);color:var(--2ag-blue)}.il-outline button[data-kind="error"]::before{color:#f28b82}.il-outline button[data-kind="progress"]::before{color:#fdd663}
+        .il-source{padding:8px 0;font-size:11px;color:var(--2ag-text-secondary);overflow-wrap:anywhere}.il-library-row,.il-extension-row{padding:12px 0;border-bottom:1px solid var(--2ag-outline-variant)}
+        .il-library-row .il-toolbar{margin:4px 0;flex-wrap:wrap}.il-library-row .il-title{flex:1;min-width:120px;text-align:left;border:0;padding-left:0}.il-library-row input[type=checkbox]{width:auto;accent-color:var(--2ag-blue)}
+        .il-extension-status{font-size:10px;letter-spacing:.4px;color:#81c995}.il-extension-status[data-error=true]{color:#f28b82}.il-extension-error{font-size:11px;color:#f28b82;overflow-wrap:anywhere;margin:6px 0}
+        #il-home>.il-section:first-child{border-top:0;margin-top:0;padding-top:0}.il-home-quota{margin-top:12px}.il-account{font-size:15px}.il-recent-row{display:flex;gap:9px;align-items:center;padding:7px 0}.il-recent-row button{flex:1;text-align:left;border:0;padding:4px}.il-recent-row small{font-size:10px;color:var(--2ag-text-secondary);text-transform:uppercase}
+        .il-pin-tags{font-size:10px;color:var(--2ag-blue)}.il-section-input{margin:10px 0}.il-outline .il-excerpt{font-size:11px;color:var(--2ag-text-secondary)}
+        .il-header-quota{padding:8px 0 10px}#interaction-quota .acct-acc{margin-bottom:8px}#interaction-quota .acct-head{min-height:40px;padding:9px 12px}
+        #interaction-quota .quota-caps{display:grid;grid-template-columns:1fr 1fr;gap:8px}#interaction-quota .quota-pool{padding:9px 10px;gap:7px}
+        #interaction-quota .quota-pool-name{font-size:11px;color:var(--2ag-text-primary)}#interaction-quota .quota-pool-hint{display:none}
+        #interaction-quota .quota-pool[data-stale="true"] .quota-pool-hint{display:block;color:#fdd663}
+        #interaction-quota .quota-buckets{gap:5px}#interaction-quota .quota-bucket{flex-direction:column;gap:3px}#interaction-quota .quota-bucket-text{align-items:center;text-align:center}
+        #interaction-quota .quota-ring-wrap{width:46px;height:46px}#interaction-quota .quota-bucket-value{font-size:12px;font-weight:600}
+        #interaction-quota .quota-bucket-reset{display:none}#interaction-quota .quota-source{font-size:10px;line-height:1.4;margin:4px 0 0}
+        #interaction-quota .acct-body{max-height:190px;overflow:auto}.il-start-hint{color:var(--2ag-text-secondary);font-size:12px;margin:0 0 15px}
+        .il-message-row{border-bottom:1px solid var(--2ag-outline-variant);padding:3px 0 8px}.il-outline .il-message-actions{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 0}
+        .il-outline .il-message-actions button{width:auto;padding:4px 8px;border:1px solid var(--2ag-outline-variant);font-size:11px}.il-outline .il-message-actions button::before{content:none}
+        .il-conversation-choice{display:block;width:100%;text-align:left;margin:5px 0}#il-conversation-title{flex:1;min-width:120px}
+        .il-nav button{letter-spacing:0}.il-global-tools span{display:none}
+      `; shadow.append(style);
+
+      function record(kind, targetID, title) {
+        if (!targetID || !alive) return;
+        const item = { id:kind + ':' + targetID, kind, target_id:targetID, title:String(title || targetID), updated_at:new Date().toISOString() };
+        workspace.recent = [...(workspace.recent || []).filter(r=>r.id !== item.id),item].slice(-60);
+        renderRecent();
+        if (ready) recentQueue = recentQueue.catch(()=>{}).then(()=>mutate('recent',item)).catch(error=>{ if(alive) status('Recent could not be saved: {error}',{error:error.message}); });
+      }
+      function applyPreferences() {
+        preferences.compact = Math.max(360,Math.min(400,Number(preferences.compact)||380)); preferences.workspace = Math.max(580,Math.min(680,Number(preferences.workspace)||640)); preferences.dock = preferences.dock === 'left' ? 'left' : 'right';
+        panel.dataset.compactWidth = preferences.compact; panel.dataset.workspaceWidth = preferences.workspace; panel.dataset.dock = preferences.dock;
+        panel.style.width = (panel.dataset.mode === 'workspace' ? preferences.workspace : preferences.compact) + 'px';
+        for (const [key,value] of Object.entries(preferences)) if ($('il-pref-' + key)) $('il-pref-' + key).value = String(value);
+        recovery.preferences = { ...preferences }; layout();
+      }
+      function renderRecent() {
+        const live = (workspace.recent || []).filter(r => r.kind === 'command' ? commands.has(r.target_id) : (workspace[r.kind === 'draft' ? 'drafts' : r.kind === 'capsule' ? 'capsules' : 'pins'] || []).some(item=>item.id === r.target_id));
+        $('il-recent').innerHTML = sorted(live).slice(0,6).map(r=>{const item=r.kind==='command'?commands.get(r.target_id):(workspace[r.kind==='draft'?'drafts':r.kind==='capsule'?'capsules':'pins']||[]).find(item=>item.id===r.target_id);return `<div class="il-recent-row"><small>${esc(t(r.kind))}</small>${action(esc(r.kind==='command'&&item?titleOf(item):item?.title||r.title),'data-recent',r.id)}</div>`;}).join('') || `<p class="il-muted">${esc(t('Drafts, Capsules, Pins and commands you use appear here.'))}</p>`;
+      }
+      function renderSnippets() {
+        const needle = $('il-snippet-search').value.trim().toLowerCase(), category = $('il-snippet-filter').value;
+        const categories = [...new Set(workspace.snippets.map(s=>s.category).filter(Boolean))].sort();
+        $('il-snippet-filter').innerHTML = `<option value="">${esc(t('All categories'))}</option>` + categories.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join(''); $('il-snippet-filter').value = categories.includes(category) ? category : '';
+        const items = [...workspace.snippets].filter(s=>(!category || s.category === category) && (!needle || [s.title,s.text,s.category].join(' ').toLowerCase().includes(needle))).sort((a,b)=>Number(!!b.favorite)-Number(!!a.favorite) || String(a.title).localeCompare(String(b.title)));
+        $('il-snippets').innerHTML = items.map(s=>`<div class="il-row">${action(s.favorite?'★':'☆','data-snippet-favorite',s.id,`aria-label="${esc(t('Favorite'))} ${esc(s.title)}" aria-pressed="${!!s.favorite}"`)}<button type="button" class="il-row-title" data-snippet="${esc(s.id)}">${esc(s.title)}<span class="il-muted">${s.category?' · '+esc(s.category):''}</span></button>${action('Edit','data-snippet-rename',s.id)}${action('×','data-snippet-delete',s.id,`aria-label="${esc(t('Delete'))} ${esc(s.title)}"`)}</div>`).join('') || `<p class="il-muted">${esc(t('No matching snippets. Save text to insert it with one click.'))}</p>`;
+      }
+      function renderLibrary() {
+        const needle = $('il-capsule-search').value.trim().toLowerCase();
+        const items = [...workspace.capsules].filter(c=>!needle || [c.title,c.markdown,c.template_id].join(' ').toLowerCase().includes(needle)).sort((a,b)=>Number(!!b.favorite)-Number(!!a.favorite) || String(lastUsed(b)).localeCompare(String(lastUsed(a))));
+        for (const id of [...librarySelection]) if(!workspace.capsules.some(c=>c.id===id)) librarySelection.delete(id);
+        $('il-capsule-list').innerHTML = items.map(c=>`<article class="il-library-row"><div class="il-toolbar"><input type="checkbox" data-library-select="${esc(c.id)}" aria-label="${esc(t('Select'))} ${esc(c.title)}" ${librarySelection.has(c.id)?'checked':''}>${action(esc(c.title),'data-library-open',c.id,'class="il-title"')}${action(c.favorite?'★':'☆','data-library-favorite',c.id,`aria-label="${esc(t('Favorite'))} ${esc(c.title)}" aria-pressed="${!!c.favorite}"`)}</div><div class="il-muted">${esc(t(templates[c.template_id]?.title || c.template_id || 'Custom'))} · ${esc(c.updated_at ? new Date(c.updated_at).toLocaleString(uiLanguage) : '')}</div><div class="il-toolbar">${action('Rename','data-library-rename',c.id)}${action('Duplicate','data-library-duplicate',c.id)}${action('Delete','data-library-delete',c.id)}</div></article>`).join('') || `<p class="il-muted">${esc(t('Saved Capsules appear here.'))}</p>`;
+        $('il-capsule-merge').disabled = librarySelection.size !== 2;
+      }
+      function renderLibraries() {
+        renderSnippets(); renderLibrary(); renderRecent();
+        $('il-draft-favorite').textContent = t(activeDraft?.favorite ? '★ Favorite' : '☆ Favorite');
+        $('il-draft-favorite').setAttribute('aria-pressed',String(!!activeDraft?.favorite));
+        optionList($('il-capture-pin'),workspace.pins,$('il-capture-pin').value,'Choose a saved Pin');
+        $('il-pins').querySelectorAll('[data-pin]').forEach(button=>{ const p=workspace.pins.find(pin=>pin.id===button.dataset.pin); if(!p)return; const meta=document.createElement('span');meta.className='il-pin-tags';meta.textContent=[p.note,...(p.tags||[])].filter(Boolean).join(' · '); if(meta.textContent) button.append(document.createElement('br'),meta); });
+        renderTrace();
+      }
+      function isPinned(message) { return workspace.pins.some(pin=>pin.conversation_key===message.conversation_key && pin.locator===message.locator); }
+      function renderFilters() {
+        const filters = [{id:'all',title:'ALL',builtin:true},{id:'user',title:'USER',builtin:true},{id:'assistant',title:'ASSISTANT',builtin:true},{id:'pinned',title:'PINNED',builtin:true},...lensFilters.values()];
+        if (!filters.some(f=>f.id===timelineFilter)) timelineFilter='all';
+        $('il-lens-filters').innerHTML = filters.map(f=>action(esc(titleOf(f)),'data-lens-filter',f.id,`aria-pressed="${timelineFilter===f.id}"`)).join('');
+      }
+      function renderOutline(current = host.conversation.current()) {
+        $('il-conversation-list').innerHTML=host.conversation.list().map(item=>`<button type="button" class="il-conversation-choice" data-conversation-href="${esc(item.href)}">${esc(item.title)}</button>`).join('');
+        const needle=$('il-lens-search').value.trim().toLowerCase(), custom=lensFilters.get(timelineFilter);
+        const messages=outline.filter(m=> {
+          if (needle && !m.text.toLowerCase().includes(needle)) return false;
+          if(timelineFilter==='user'||timelineFilter==='assistant') return m.role===timelineFilter;
+          if(timelineFilter==='pinned') return isPinned(m);
+          if(custom) { try { return !!custom.match({...m},{pinned:isPinned(m)}); } catch(error) { extensionError(custom,error);return false; } }
+          return true;
+        });
+        $('il-lens-count').textContent=t('{count} / {total} loaded messages · DOM / text classification',{count:messages.length,total:outline.length});
+        $('il-outline').innerHTML=messages.map(m=>{
+          const index=needle?m.text.toLowerCase().indexOf(needle):-1;
+          const excerpt=index>=0&&!m.title.toLowerCase().includes(needle)?m.text.slice(Math.max(0,index-35),index+needle.length+70):'';
+          const kindLabel=m.kind==='progress'?'Tool / Agent progress':m.kind==='error'?'Error-like':m.role;
+          return `<article class="il-message-row"><button type="button" data-message="${esc(m.id)}" data-kind="${esc(m.kind || m.role)}"><small>${esc(t(kindLabel))}${m.kind!==m.role?' · '+esc(t(m.role)):''}${isPinned(m)?' · ★ '+esc(t('Pinned')):''}</small>${esc(m.title)}${excerpt?`<span class="il-excerpt">…${esc(excerpt)}…</span>`:''}</button><div class="il-message-actions"><button type="button" data-message-pin="${esc(m.id)}">${isPinned(m)?'★':'☆'} ${esc(t('Pin'))}</button><button type="button" data-message-capsule="${esc(m.id)}">${esc(t('Add to Capsule'))}</button>${[...messageActions.values()].map(item=>`<button type="button" data-message-action="${esc(item.id)}" data-action-message="${esc(m.id)}">${esc(titleOf(item))}</button>`).join('')}</div></article>`;
+        }).join('') || `<p class="il-muted">${esc(t(current.available?'No loaded messages match this search or filter.':'Open an Antigravity conversation first.'))}</p>`;
+      }
+      function editPin(pin) { $('il-pin-edit-title').value=pin.title; $('il-pin-note').value=pin.note||''; $('il-pin-tags').value=(pin.tags||[]).join(', '); }
+      function pinCreated(pin) { open(true);showPage('lens');openPin(pin); }
+      function currentSections() {
+        const sectionValues = new Map(capsuleSections.map(section=>[section.key,section.text || '']));
+        for(const [key,id] of Object.entries(basic)) sectionValues.set(key,$('il-capsule-'+id).value);
+        $('il-capsule-extra-sections').querySelectorAll('textarea').forEach(el=>sectionValues.set(el.dataset.section,el.value));
+        return capsuleSections.map(section=>({...section,text:sectionValues.get(section.key)||''}));
+      }
+      function renderSections(next) {
+        capsuleSections=next;
+        for(const [key,id] of Object.entries(basic)) $('il-capsule-'+id).parentElement.hidden=!next.some(s=>s.key===key);
+        $('il-capsule-extra-sections').innerHTML=next.filter(s=>!basic[s.key]&&s.key!=='important_context').map(s=>`<label class="il-section-input">${esc(templateID!=='merged'?t(s.title):s.title)}<textarea rows="3" data-section="${esc(s.key)}">${esc(s.text||'')}</textarea></label>`).join('');
+      }
+      function capsuleExtras() { return { template_id:templateID,sections:currentSections(),favorite:capsuleFavorite,source_trace:sourceTrace,last_used_at:new Date().toISOString() }; }
+      function fillCapsuleExtras(item) {
+        templateID=templates[item?.template_id]?item.template_id:item?.template_id==='merged'?'merged':'classic'; capsuleFavorite=!!item?.favorite;sourceTrace=item?.source_trace||[];
+        $('il-capsule-template').value=templateID;
+        const sections=Array.isArray(item?.sections)&&item.sections.length?item.sections.map(s=>({key:s.key||sectionKey(s.title),title:s.title,text:s.text||''})):(templates[templateID]||templates.classic).sections.map(title=>({key:sectionKey(title),title,text:item?.[sectionKey(title)]||''}));
+        renderSections(sections); renderTrace();
+      }
+      function renderTrace() {
+        const pins=[...selectedCapsuleMessages(),...sourceTrace]; const seen=new Set();
+        $('il-capsule-source-list').innerHTML=pins.filter(pin=>{const key=pin.id||pin.conversation_key+':'+pin.title;if(seen.has(key))return false;seen.add(key);return true;}).map(pin=>`<div class="il-source"><strong>${esc(pin.title)}</strong><br>${esc(t('conversation'))}: ${esc(pin.conversation_key || '')}<br>${esc(t('role'))}: ${esc(pin.role || '')} · ${esc(t('created_at'))}: ${esc(pin.created_at || '')}${pin.note?'<br>'+esc(t('note'))+': '+esc(pin.note):''}${pin.tags?.length?'<br>'+esc(t('tags'))+': '+esc(pin.tags.join(', ')):''}</div>`).join('') || `<p class="il-muted">${esc(t('Manual content has no Pin source.'))}</p>`;
+      }
+      function capsuleContext(form) {
+        const context=[];
+        const messages=(form.pin_ids||[]).map(id=>(form.pin_snapshots||[]).find(pin=>pin.id===id)||workspace.pins.find(pin=>pin.id===id)).filter(Boolean);
+        for(const pin of messages) context.push(`### ${pin.title}\n\n${pin.text}\n\n> Source · conversation: ${pin.conversation_key || ''} · role: ${pin.role || ''} · pin title: ${pin.title} · ${esc(t('created_at'))}: ${pin.created_at || ''}${pin.note?'\n> Note: '+pin.note:''}${pin.tags?.length?'\n> Tags: '+pin.tags.join(', '):''}`);
+        if(form.notes?.trim())context.push(form.notes);
+        if(form.include_project&&form.project_context)context.push(`### Project\n\n${form.project_context}`);
+        for(const provider of form.context_values||[])if(provider.text.trim())context.push(`### ${provider.title}\n\n${provider.text}`);
+        return context;
+      }
+      function markdown(form) {
+        const context=capsuleContext(form);
+        const sections=Array.isArray(form.sections)&&form.sections.length?form.sections:currentSections();
+        const parts=sections.map(section=>`## ${section.title}\n${section.key==='important_context'?[section.text,...context].filter(Boolean).join('\n\n'):section.text||''}`);
+        if(!sections.some(section=>section.key==='important_context')&&context.length)parts.push(`## Important Context\n${context.join('\n\n')}`);
+        return `# ${form.title.trim() || 'Context Capsule'}\n\n${parts.join('\n\n')}\n`;
+      }
+      function parseSections(capsule) {
+        if(Array.isArray(capsule.sections)&&capsule.sections.length) {
+          // Saved section bodies are authoritative. Parsing their exported
+          // Markdown would mistake headings inside Pins or notes for sections.
+          const sections=capsule.sections.map(section=>({...section,key:section.key||sectionKey(section.title),text:section.text||''}));
+          const context=capsuleContext(capsule).join('\n\n');
+          if(context) {
+            const important=sections.find(section=>section.key==='important_context');
+            if(important) important.text=[important.text,context].filter(Boolean).join('\n\n');
+            else sections.push({key:'important_context',title:'Important Context',text:context});
+          }
+          return sections;
+        }
+        return parseMarkdown(capsule.markdown||'');
+      }
+      function parseMarkdown(text) {
+        const sections=[];let current=null,fence=null;
+        for(const line of String(text).split('\n')) {
+          const marker=/^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+          const inFence=!!fence;
+          if(marker) {
+            if(!fence) fence={character:marker[1][0],length:marker[1].length};
+            else if(marker[1][0]===fence.character&&marker[1].length>=fence.length&&!marker[2].trim()) fence=null;
+          }
+          const heading=!inFence&&!marker&&/^##\s+(.+)$/.exec(line);
+          if(heading){current={key:sectionKey(heading[1]),title:heading[1],text:''};sections.push(current);}
+          else if(current)current.text+=(current.text?'\n':'')+line;
+        }
+        return sections.map(s=>({...s,text:s.text.trim()}));
+      }
+      function mergeCapsules() {
+        const selected=[...librarySelection].map(id=>workspace.capsules.find(c=>c.id===id)).filter(Boolean);if(selected.length!==2)throw new Error(t('Select two Capsules.'));
+        const sections=new Map();for(const capsule of selected)for(const section of parseSections(capsule)){const prior=sections.get(section.key);sections.set(section.key,{...section,text:[prior?.text,section.text].filter(Boolean).join('\n\n---\n\n')});}
+        const merged={title:selected.map(c=>c.title).join(' + '),goal:'',decisions:'',notes:'',current_state:'',remaining_work:'',pin_ids:[],pin_snapshots:[],template_id:'merged',sections:[...sections.values()],source_trace:selected.flatMap(c=>[...(c.pin_snapshots||[]),...(c.source_trace||[])])};
+        for(const key of Object.keys(basic)) merged[key]=sections.get(key)?.text||'';
+        fillCapsule(merged);showPage('capsule');updateCapsulePreview();
+      }
+      function renderPanelTabs() {
+        $('il-extension-entry')?.remove(); $('il-extension-tabs').replaceChildren();
+        for(const entry of panels.values()){const button=document.createElement('button');button.type='button';button.textContent=titleOf(entry);button.onclick=()=>run(()=>openPanel(entry));$('il-extension-tabs').append(button);}
+        if(activePanel&&panels.get(activePanel)!==activePanelRegistration){try{if(typeof panelCleanup==='function')panelCleanup();}catch(_){}panelCleanup=null;activePanel=null;activePanelRegistration=null;panelGeneration++;$('il-extension-panel').replaceChildren();}
+      }
+      function counts(record) {
+        const maps={commands,panels,'prompt actions':promptActions,'message actions':messageActions,'context providers':contextProviders,'quick actions':quickActions,'Lens filters':lensFilters};
+        return Object.entries(maps).map(([name,map])=>`${[...map.values()].filter(item=>item.extension_id===record.id).length} ${t(name)}`).join(' · ');
+      }
+      function renderExtensions() {
+        $('il-extension-list').innerHTML=[...extensionRecords.values()].map(record=>{
+          const owned=map=>[...map.values()].filter(item=>item.extension_id===record.id);
+          const entries=owned(panels).map(item=>action(esc(titleOf(item)),'data-extension-panel',item.id)).concat(owned(commands).map(item=>action(esc(titleOf(item)),'data-extension-command',item.id)),owned(contextProviders).map(item=>action(esc(t('Add')+' '+titleOf(item)),'data-extension-context',item.id)));
+          return `<article class="il-extension-row"><div class="il-toolbar"><strong>${esc(titleOf(record))}</strong><span class="il-extension-status" data-error="${!!record.error}">${esc(t(record.status||'registered'))}</span></div><div class="il-muted">${esc(record.id)} · ${esc(record.version||'1.0')} · ${esc(t(record.bundled?'bundled':'local'))}</div>${entries.length?`<div class="il-toolbar">${entries.join('')}</div>`:''}<details><summary>${esc(t('Extension capabilities'))}</summary><p class="il-muted">${esc(counts(record))}</p></details>${record.error?`<p class="il-extension-error">${esc(t(record.error))}</p>`:''}<div class="il-toolbar">${action(record.enabled?'Disable':'Enable','data-extension-toggle',record.id)}${action('Reload','data-extension-reload',record.id)}</div></article>`;
+        }).join('') || `<p class="il-muted">${esc(t('Loading local extensions…'))}</p>`;
+      }
+      function extensionError(item,error) {
+        const record=extensionRecords.get(item.extension_id || item.id);if(!record)return;
+        const message=String(error?.message || error);if(record.error===message)return;record.error=message;record.status='error';renderExtensions();
+      }
+      function guarded(record, callback) {
+        const generation=record.generation;
+        return (...args)=>{ if(!record.enabled || !alive || generation!==record.generation) return; try { const result=callback(...args);if(result?.then)return result.catch(error=>{extensionError(record,error);throw error;});return result; }catch(error){extensionError(record,error);throw error;} };
+      }
+      function scopedAPI(record) {
+        const api=Object.assign({},extensionAPI);
+        const generation=record.generation;
+        api.host={...host,conversation:{...host.conversation,observe(callback){
+          const wrapped=guarded(record,callback);
+          const stop=host.conversation.observe((...args)=>{try{const result=wrapped(...args);if(result?.then)result.catch(()=>{});}catch(error){extensionError(record,error);}});
+          record.disposers.push(stop);
+          return()=>{const index=record.disposers.indexOf(stop);if(index>=0)record.disposers.splice(index,1);stop();};
+        }}};
+        for(const [name,map] of Object.entries({registerCommand:commands,registerPanel:panels,registerTab:panels,registerPromptAction:promptActions,registerMessageAction:messageActions,registerContextProvider:contextProviders,registerQuickAction:quickActions,registerLensFilter:lensFilters})) api[name]=item=>{
+          if(!alive || !record.enabled || generation!==record.generation)throw new Error('Extension mount has been disposed');
+          const copy={...item,extension_id:record.id};for(const key of ['run','action','render','provide','get','match'])if(typeof copy[key]==='function'){
+            const callback=copy[key];copy[key]=guarded(record,(...args)=>{if(key==='render')args[1]=api;else if(args[0]&&typeof args[0]==='object'&&'host' in args[0])args[0]={...args[0],host:api.host};return callback(...args);});
+          }
+          const remove=register(map,copy,name);record.disposers.push(remove);return()=>{const index=record.disposers.indexOf(remove);if(index>=0)record.disposers.splice(index,1);remove();};
+        };
+        api.onCleanup=fn=>{if(typeof fn!=='function')throw new Error('onCleanup requires a function');if(!alive||generation!==record.generation){fn();return()=>{};}record.disposers.push(fn);return()=>{const index=record.disposers.indexOf(fn);if(index>=0)record.disposers.splice(index,1);};};
+        api.i18n={get language(){return uiLanguage;},t:extensionAPI.i18n.t,onChange(callback){
+          if(typeof callback!=='function')throw new Error('onChange requires a function');
+          if(!alive||!record.enabled||generation!==record.generation)throw new Error('Extension mount has been disposed');
+          const wrapped=guarded(record,callback);
+          const stop=extensionAPI.i18n.onChange((...args)=>{try{const result=wrapped(...args);if(result?.then)result.catch(()=>{});}catch(_) {}});
+          record.disposers.push(stop);
+          return()=>{const index=record.disposers.indexOf(stop);if(index>=0)record.disposers.splice(index,1);stop();};
+        }};
+        api.registerExtension=definition=>registerExtension(definition);
+        return api;
+      }
+      function stopExtension(record) {
+        record.generation=(record.generation||0)+1;
+        for(const dispose of record.disposers.splice(0).reverse()) {try{dispose();}catch(error){record.error='Cleanup: '+error.message;}}
+        if(activePanel&&panels.get(activePanel)!==activePanelRegistration){try{if(typeof panelCleanup==='function')panelCleanup();}catch(error){record.error='Cleanup: '+error.message;}panelCleanup=null;activePanel=null;activePanelRegistration=null;panelGeneration++;$('il-extension-panel').replaceChildren();}
+        record.status=record.error?'error':'disabled'; renderExtensions();
+      }
+      async function startExtension(record) {
+        stopExtension(record);record.enabled=true;record.error='';record.status='loading';const generation=record.generation;
+        renderExtensions();
+        try{
+          let definition=record.definition;
+          if(!definition) definition=(new Function('"use strict"; return ('+record.source+'\n);'))();
+          if(!definition || typeof definition.setup!=='function')throw new Error('Local factory must export {id, setup(api)}');
+          if(definition.id!==record.id)throw new Error('Factory id differs from manifest id');
+          record.definition=definition;
+          record.title_zh=definition.title_zh||record.title_zh;
+          const cleanup=await definition.setup(scopedAPI(record));
+          if(generation!==record.generation || !alive || !record.enabled){if(typeof cleanup==='function')cleanup();return;}
+          if(typeof cleanup==='function')record.disposers.push(cleanup);
+          record.status='loaded';
+        }catch(error){if(generation===record.generation){record.error=error.message||String(error);stopExtension(record);record.status='error';}}
+        renderExtensions();renderFilters();renderPanelTabs();renderCommands();renderQuickActions();
+      }
+      function registerExtension(definition) {
+        if(!definition?.id || typeof definition.setup!=='function')throw new Error('registerExtension requires {id, setup(api)}');
+        const previous=extensionRecords.get(definition.id);if(previous)stopExtension(previous);
+        const setting=(workspace['extension-state']||[]).find(item=>item.id===definition.id);
+        const record={id:definition.id,title:definition.title||definition.id,title_zh:definition.title_zh,version:definition.version||'1.0',definition,enabled:setting?.enabled!==false,disposers:[],status:'registered'};extensionRecords.set(record.id,record);
+        if(record.enabled)startExtension(record);else renderExtensions();
+        return()=>{stopExtension(record);if(extensionRecords.get(record.id)===record)extensionRecords.delete(record.id);renderExtensions();};
+      }
+      async function loadExtensions(refresh=false) {
+        const bundled=new Map(BUNDLED_EXTENSIONS.map(definition=>[definition.id,definition]));
+        let catalog=[],catalogAvailable=false;
+        try{catalog=await(await request('/api/v1/extensions/local')).json();if(!Array.isArray(catalog))throw new Error('Invalid local extension catalog');catalogAvailable=true;}catch(error){status('Could not read extension catalog; using bundled examples: {error}',{error:error.message});catalog=BUNDLED_EXTENSIONS.map(d=>({id:d.id,title:d.title,version:d.version,bundled:true}));}
+        if(!alive)return;
+        if(refresh&&catalogAvailable) {
+          const present=new Set(catalog.map(entry=>entry.id));
+          for(const [id,record] of extensionRecords) if(record.origin==='catalog'&&!present.has(id)) {
+            record.enabled=false;stopExtension(record);extensionRecords.delete(id);
+          }
+        }
+        for(const entry of catalog){
+          let record=extensionRecords.get(entry.id);
+          if(record&&record.origin!=='catalog')continue;
+          if(record&&!refresh)continue;
+          if(record)stopExtension(record);
+          const setting=workspace['extension-state'].find(item=>item.id===entry.id);
+          record={...entry,title_zh:entry.bundled?bundled.get(entry.id)?.title_zh:entry.title_zh,origin:'catalog',definition:entry.bundled?bundled.get(entry.id):null,enabled:setting?.enabled!==false,disposers:[],status:setting?.enabled===false?'disabled':'registered'};
+          extensionRecords.set(record.id,record);
+          if(entry.error){record.status='error';record.error=entry.error;}else if(record.enabled)await startExtension(record);
+        }
+        for(const [id,plugin] of Object.entries(INITIAL_CONFIG.plugins||{})) {
+          if(!plugin?.uiURL || extensionRecords.has(id))continue;
+          const setting=workspace['extension-state'].find(item=>item.id===id);
+          const definition={id,setup:async api=>{
+            const url=new URL(plugin.uiURL);if(!['127.0.0.1','localhost','[::1]'].includes(url.hostname))throw new Error('Only local plugin UI URLs are supported');
+            if(plugin.ui?.type==='iframe') { api.registerPanel({id:'plugin.'+id,title:plugin.displayName||id,render(target){const frame=document.createElement('iframe');frame.src=url.href;frame.title=plugin.displayName||id;frame.style.cssText='width:100%;height:440px;border:0;background:#17181a';target.append(frame);return()=>frame.remove();}});return; }
+            const response=await fetch(url.href,{cache:'no-store'});if(!response.ok)throw new Error('Plugin UI HTTP '+response.status);const source=await response.text();
+            // Alias only __2AG__ for legacy scripts; this is lifecycle scoping,
+            // not a security sandbox or an alternate browser environment.
+            const localWindow=new Proxy(window,{get(target,key){if(key==='__2AG__')return api;return Reflect.get(target,key,target);},set(target,key,value){return Reflect.set(target,key,value,target);}});
+            new Function('window','document',source)(localWindow,document);
+          }};
+          const record={id,title:plugin.displayName||id,version:plugin.version||'',definition,enabled:setting?setting.enabled!==false:!!plugin.enabled,disposers:[],status:'registered'};extensionRecords.set(id,record);
+          if(record.enabled)await startExtension(record);else record.status='disabled';
+        }
+        renderExtensions();
+      }
+      function renderQuickActions() { renderActions(quickActions,$('il-quick-actions'),()=>({host,selectedPins:extensionAPI.getSelectedPins()})); }
+      function registryChanged(map) {
+        if(map===quickActions)renderQuickActions();
+        if(map===messageActions&&page==='lens')renderOutline();
+        if(map===lensFilters){renderFilters();if(page==='lens')renderOutline();}
+        renderExtensions();
+      }
+      function pageChanged(next) { applyPreferences(); if(next==='extensions'){renderExtensions();renderPanelTabs();} if(next==='compose')$('il-prompt').focus({preventScroll:true}); if(next==='lens'){renderFilters();$('il-lens-search').focus({preventScroll:true});} if(next==='capsule')$('il-capsule-title').focus({preventScroll:true}); }
+      function closeCapture(){ $('il-capture').hidden=true;if(captureReturnFocus?.isConnected)captureReturnFocus.focus(); }
+      function dismiss(event) {
+        if(event.type!=='keydown'||event.key!=='Escape')return false;
+        if(!$('il-command-palette').hidden){closePalette();return true;}
+        if(!$('il-capture').hidden){closeCapture();return true;}
+        if($('acct-acc').dataset.open==='true'){$('acct-head').click();return true;}
+        for(const id of ['il-library-rename','il-snippet-form','il-comparison','il-pin-detail'])if(!$(id).hidden&&!$(id).closest('.il-page')?.hidden){$(id).hidden=true;return true;}
+        return false;
+      }
+      async function saveCapture() {
+        const text=$('il-capture-text').value;if(!text.trim())throw new Error(t('Enter capture text first.'));
+        const destination=$('il-capture-destination').value;
+        if(destination==='draft'){const editor=$('il-prompt');editor.value+=[editor.value?'\n\n':'',text].join('');draftChanged();await saveDraft();}
+        if(destination==='snippet')await mutate('snippets',{id:uid('snippet'),title:text.trim().split('\n')[0].slice(0,64),text,category:'Capture',favorite:false});
+        if(destination==='pin'){const pin=workspace.pins.find(p=>p.id===$('il-capture-pin').value);if(!pin)throw new Error(t('Choose a target Pin first.'));await mutate('pins',{...pin,note:[pin.note,text].filter(Boolean).join('\n')});}
+        if(destination==='capsule'){ $('il-capsule-notes').value=[$('il-capsule-notes').value,text].filter(Boolean).join('\n\n');updateCapsulePreview();persistRecovery();const form=capsuleForm();form.id=capsuleID||uid('capsule');form.title=form.title.trim()||'Context Capsule';form.pin_snapshots=selectedCapsuleMessages().map(p=>({...p}));form.markdown=markdown(form);const saved=await mutate('capsules',form);capsuleID=saved.id;capsuleSnapshots=saved.pin_snapshots;$('il-capsules').value=saved.id;persistRecovery();record('capsule',saved.id,saved.title);}
+        $('il-capture-text').value='';closeCapture();showToast('[2Ag] '+t('Capture saved to {destination}',{destination:t({draft:'Draft',snippet:'Snippet',pin:'Pin Note',capsule:'Capsule Notes'}[destination])}));
+      }
+      panel.addEventListener('input',event=>{if(event.target.id==='il-snippet-search')renderSnippets();if(event.target.id==='il-capsule-search')renderLibrary();if(event.target.id==='il-lens-search')renderOutline();if(event.target.closest('#il-capsule'))renderTrace();});
+      panel.addEventListener('change',event=>run(async()=>{
+        const el=event.target;
+        if(el.id==='il-snippet-filter')renderSnippets();
+        if(el.dataset.librarySelect){if(el.checked)librarySelection.add(el.dataset.librarySelect);else librarySelection.delete(el.dataset.librarySelect);$('il-capsule-merge').disabled=librarySelection.size!==2;}
+        if(el.id==='il-capsule-template'){const saved=currentSections();templateID=el.value;const structure=templates[templateID]?.sections;if(structure){const existing=new Map(saved.map(s=>[s.key,s]));const next=structure.map(title=>({key:sectionKey(title),title,text:existing.get(sectionKey(title))?.text||''}));for(const section of saved)if(section.text.trim()&&!next.some(n=>n.key===section.key))next.push(section);renderSections(next);}updateCapsulePreview();persistRecovery();}
+        if(el.id.startsWith('il-pref-')){const key=el.id.slice(8);preferences[key]=key==='dock'?el.value:Number(el.value);applyPreferences();persistRecovery();if(ready)await mutate('extension-state',{id:'__hub_preferences',preferences});}
+        if(el.id==='il-capture-destination')$('il-capture-pin-label').hidden=el.value!=='pin';
+        if(el.dataset.capsulePin)renderTrace();
+      }));
+      panel.addEventListener('click',event=>run(async()=>{
+        const button=event.target.closest('button');if(!button)return;
+        if(button.dataset.extensionPanel){extensionAPI.openPanel(button.dataset.extensionPanel);return;}
+        if(button.dataset.extensionCommand){const command=commands.get(button.dataset.extensionCommand);if(command)await executeCommand(command);return;}
+        if(button.dataset.extensionContext){const provider=contextProviders.get(button.dataset.extensionContext);if(provider){const value=await(provider.provide||provider.get)({host});appendContext({id:provider.id,title:provider.title||provider.id,text:typeof value==='string'?value:JSON.stringify(value,null,2)});showPage('capsule');updateCapsulePreview();persistRecovery();}return;}
+        if(button.dataset.conversationHref){if(!host.conversation.open(button.dataset.conversationHref))throw new Error(t('Conversation is no longer listed. Open conversations again.'));return;}
+        if(button.dataset.messagePin||button.dataset.messageCapsule){
+          const message=host.conversation.messages().find(m=>m.id===(button.dataset.messagePin||button.dataset.messageCapsule));
+          const pin=await pinMessage(message);if(button.dataset.messageCapsule&&pin){capsulePins.add(pin.id);renderCapsulePins();showPage('capsule');updateCapsulePreview();persistRecovery();}return;
+        }
+        if(button.dataset.messageAction){const message=host.conversation.messages().find(m=>m.id===button.dataset.actionMessage),action=messageActions.get(button.dataset.messageAction);if(!message)throw new Error(t('Message is no longer loaded. Refresh Lens.'));if(action)await (action.run||action.action)({...message});return;}
+        if(button.dataset.lensFilter){timelineFilter=button.dataset.lensFilter;renderFilters();renderOutline();return;}
+        if(button.dataset.snippetRename){const item=workspace.snippets.find(s=>s.id===button.dataset.snippetRename);$('il-snippet-category').value=item?.category||'';}
+        if(button.dataset.snippetFavorite){const item=workspace.snippets.find(s=>s.id===button.dataset.snippetFavorite);await mutate('snippets',{...item,favorite:!item.favorite});return;}
+        if(button.dataset.libraryOpen){const item=workspace.capsules.find(c=>c.id===button.dataset.libraryOpen);fillCapsule(item);showPage('capsule');$('il-capsule-title').focus();return;}
+        if(button.dataset.libraryFavorite){const item=workspace.capsules.find(c=>c.id===button.dataset.libraryFavorite);const saved=await mutate('capsules',{...item,favorite:!item.favorite});if(capsuleID===saved.id){capsuleFavorite=saved.favorite;persistRecovery();}return;}
+        if(button.dataset.libraryDelete){await mutate('capsules',null,'delete',button.dataset.libraryDelete);if(capsuleID===button.dataset.libraryDelete)fillCapsule(null);return;}
+        if(button.dataset.libraryDuplicate){const item=workspace.capsules.find(c=>c.id===button.dataset.libraryDuplicate),title=item.title+' (copy)';const saved=await mutate('capsules',{...item,id:uid('capsule'),title,markdown:item.markdown.replace(/^#\s+[^\n]*/,'# '+title),favorite:false});record('capsule',saved.id,saved.title);return;}
+        if(button.dataset.libraryRename){const item=workspace.capsules.find(c=>c.id===button.dataset.libraryRename);$('il-library-rename').dataset.item=item.id;$('il-library-title').value=item.title;$('il-library-rename').hidden=false;$('il-library-title').focus();return;}
+        if(button.dataset.extensionToggle){const entry=extensionRecords.get(button.dataset.extensionToggle),enabled=!entry.enabled;await mutate('extension-state',{id:entry.id,enabled});entry.enabled=enabled;if(entry.enabled)await startExtension(entry);else stopExtension(entry);renderExtensions();return;}
+        if(button.dataset.extensionReload){const entry=extensionRecords.get(button.dataset.extensionReload);if(!entry.enabled){showToast('[2Ag] '+t('Enable the extension before reload'));return;}if(entry.origin==='catalog'&&!entry.bundled){const catalog=await(await request('/api/v1/extensions/local')).json();const updated=catalog.find(item=>item.id===entry.id);if(!updated)throw new Error(t('Local extension is no longer present'));if(updated.error)throw new Error(updated.error);entry.source=updated.source;entry.title=updated.title;entry.version=updated.version;entry.definition=null;}await startExtension(entry);return;}
+        if(button.dataset.recent){const recent=workspace.recent.find(r=>r.id===button.dataset.recent);if(recent.kind==='draft')await changeDraft(workspace.drafts.find(d=>d.id===recent.target_id));if(recent.kind==='capsule'){fillCapsule(workspace.capsules.find(c=>c.id===recent.target_id));showPage('capsule');}if(recent.kind==='pin'){showPage('lens');openPin(workspace.pins.find(p=>p.id===recent.target_id));}if(recent.kind==='command'){const command=commands.get(recent.target_id);if(command)await executeCommand(command);}return;}
+        switch(button.id){
+          case 'il-home-lens':showPage('lens');break;
+          case 'il-lens-history':if(!host.conversation.history())throw new Error(t('The host conversation history is unavailable.'));showPage('lens');break;
+          case 'il-structure-prompt':{const action=promptActions.get('prompt-toolkit.structure');if(action)await action.run(promptContext());else throw new Error(t('Enable Prompt Toolkit in Extensions first.'));break;}
+          case 'il-draft-rename':$('il-draft-title').focus();$('il-draft-title').select();break;
+          case 'il-draft-favorite':if(!activeDraft)activeDraft={id:uid('draft')};activeDraft.favorite=!activeDraft.favorite;await saveDraft();renderLibraries();break;
+          case 'il-draft-duplicate':{await saveDraft();const source=activeDraft;await changeDraft(null);$('il-draft-title').value=source.title+' (copy)';$('il-prompt').value=source.text;await saveDraft();break;}
+          case 'il-snippet-add':$('il-snippet-category').value='';break;
+          case 'il-pins-copy':{const pins=extensionAPI.getSelectedPins();if(!pins.length)throw new Error(t('Select Pins first.'));await copyText(pins.map(p=>`## ${p.title}\n\n${p.text}${p.note?'\n\nNote: '+p.note:''}`).join('\n\n---\n\n'));showToast('[2Ag] '+t('Selected Pins copied'));break;}
+          case 'il-pin-title-auto':if(detailPin)$('il-pin-edit-title').value=detailPin.text.trim().split('\n')[0].slice(0,96)||'Untitled message';break;
+          case 'il-pin-metadata-save':{if(!detailPin)break;const saved=await mutate('pins',{...detailPin,title:$('il-pin-edit-title').value.trim()||detailPin.title,note:$('il-pin-note').value.trim(),tags:[...new Set($('il-pin-tags').value.split(/[,，]/).map(tag=>tag.trim()).filter(Boolean))]});openPin(saved);renderLibraries();break;}
+          case 'il-capsule-merge':mergeCapsules();break;
+          case 'il-library-title-cancel':$('il-library-rename').hidden=true;break;
+          case 'il-library-title-save':{const item=workspace.capsules.find(c=>c.id===$('il-library-rename').dataset.item),title=$('il-library-title').value.trim();if(!item||!title)throw new Error(t('Enter a name.'));const saved=await mutate('capsules',{...item,title,markdown:item.markdown.replace(/^#\s+[^\n]*/, '# '+title)});if(capsuleID===saved.id)$('il-capsule-title').value=title;$('il-library-rename').hidden=true;persistRecovery();break;}
+          case 'il-capture-open':captureReturnFocus=shadow.activeElement||document.activeElement;$('il-capture').hidden=false;optionList($('il-capture-pin'),workspace.pins,detailPin?.id,'Choose a saved Pin');$('il-capture-text').focus();break;
+          case 'il-capture-close':closeCapture();break;
+          case 'il-capture-save':await saveCapture();break;
+          case 'il-extension-refresh':await loadExtensions(true);break;
+        }
+      }));
+      for(const label of ['Goal','Context','Constraints','Output'])register(promptActions,{id:'builtin.wrap.'+label.toLowerCase(),title:'Wrap as '+label,run(context){const wrapped=`## ${label}\n${context.selection||context.text}`;if(context.selection)context.insert(wrapped);else context.replace(wrapped);}},'builtin');
+      register(promptActions,{id:'builtin.spacing',title:'Normalize spacing',run(context){context.replace(context.text.replace(/\r\n?/g,'\n').split('\n').map(line=>line.replace(/[\t ]+$/g,'')).join('\n').replace(/\n{3,}/g,'\n\n').trim());}},'builtin');
+      register(promptActions,{id:'builtin.copy',title:'Copy final prompt',run:context=>context.copy(context.text)},'builtin');
+      register(lensFilters,{id:'progress',title:'TOOLS',match:message=>message.kind==='progress'},'builtin');
+      register(lensFilters,{id:'error',title:'ERRORS',match:message=>message.kind==='error'},'builtin');
+      renderFilters();applyPreferences();fillCapsuleExtras(null);
+      return {
+        renderLibraries,renderOutline,editPin,pinCreated,capsuleExtras,fillCapsuleExtras,markdown,record,pageChanged,registryChanged,renderPanelTabs,extensionError,registerExtension,dismiss,
+        languageChanged(){renderFilters();renderPanelTabs();renderExtensions();renderQuickActions();renderSections(currentSections());renderTrace();refreshProject();if(detailPin)$('il-pin-location').textContent=t($('il-pin-location').dataset.located==='true'?'Located the original message · saved text below':'The original message is not loaded · saved text remains available');},
+        async loaded(){const saved=workspace['extension-state'].find(item=>item.id==='__hub_preferences');if(saved?.preferences)preferences={...preferences,...saved.preferences};applyPreferences();renderLibraries();await loadExtensions();},
+        preferences:()=>({...preferences}),
+        dispose(){for(const record of extensionRecords.values()){record.enabled=false;stopExtension(record);}}
+      };
+    }
+    const oldAPI = window.__2AG__ || {};
+    const ipcPending = new Map();
+    const oldDeliver = window.__2AG_IPC_DELIVER__;
+    function ipc(method, params = {}) {
+      if (typeof oldAPI.ipc === 'function') return oldAPI.ipc(method, params);
+      if (typeof window.__2AG_IPC__ !== 'function') return Promise.reject(new Error(t('Plugin IPC is not connected in the current host')));
+      const id = uid('ipc');
+      return new Promise((resolve,reject) => {
+        const timer = setTimeout(() => { ipcPending.delete(id); reject(new Error('IPC request timed out')); }, 15000);
+        ipcPending.set(id, { resolve, reject, timer });
+        try { window.__2AG_IPC__(JSON.stringify({ id, method, params })); } catch (error) { clearTimeout(timer); ipcPending.delete(id); reject(error); }
+      });
+    }
+    const deliver = raw => {
+      let response; try { response = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (_) { return; }
+      const pending = ipcPending.get(response.id);
+      if (!pending) { if (typeof oldDeliver === 'function') oldDeliver(raw); return; }
+      clearTimeout(pending.timer); ipcPending.delete(response.id);
+      if (response.error) pending.reject(new Error(response.error)); else pending.resolve(response.result);
+    };
+    window.__2AG_IPC_DELIVER__ = deliver;
+    const extensionAPI = Object.assign({}, oldAPI, {
+      apiVersion: '1.2',
+      i18n: { get language(){return uiLanguage;},t: (zh,en) => en===undefined?t(zh):uiLanguage==='zh-CN'?zh:en,onChange(callback){if(typeof callback!=='function')throw new Error('onChange requires a function');languageListeners.add(callback);return()=>languageListeners.delete(callback);} },
+      registerCommand: item => register(commands, item, 'registerCommand'),
+      registerPanel: item => register(panels, item, 'registerPanel'),
+      registerTab: item => register(panels, item, 'registerTab'),
+      registerPromptAction: item => register(promptActions, item, 'registerPromptAction'),
+      registerMessageAction: item => register(messageActions, item, 'registerMessageAction'),
+      registerContextProvider: item => register(contextProviders, item, 'registerContextProvider'),
+      registerQuickAction: item => register(quickActions, item, 'registerQuickAction'),
+      registerLensFilter: item => register(lensFilters, item, 'registerLensFilter'),
+      registerExtension: definition => showcase.registerExtension(definition),
+      getSelectedPins: () => workspace.pins.filter(pin => selectedPins.has(pin.id)).map(pin => ({ ...pin })),
+      context: { add(value) { showPage('capsule'); appendContext(value); updateCapsulePreview(); persistRecovery(); } },
+      compose: { open: () => showPage('compose'), current: promptContext },
+      openPanel(id) { const entry = panels.get(id); if (!entry) throw new Error('Panel not registered: ' + id); showPage('extensions'); openPanel(entry); },
+      call: (method, params) => ipc(method, params), ipc,
+      toast: message => showToast('[2Ag] ' + message),
+      onCleanup(fn) { if (typeof fn !== 'function') throw new Error('onCleanup requires a function'); cleanups.push(fn); return () => { const index = cleanups.indexOf(fn); if (index >= 0) cleanups.splice(index, 1); }; },
+      host
+    });
+    window.__2AG__ = extensionAPI;
+
+    async function flushDraft() {
+      if ($('il-prompt').value || activeDraft || $('il-draft-title').value) await saveDraft();
+      persistRecovery();
+    }
+    async function restart() {
+      await flushDraft();
+      await request('/api/v1/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'HOST_CTRL', payload: { cmd: 'restart' } }) });
+      showToast('[2Ag] '+t('Host restart requested'));
+    }
+    function openSettings(name) { showPage('home'); $('il-settings-' + name).open = true; layout(); $('il-settings-' + name).scrollIntoView({ block: 'nearest' }); }
+    const builtins = [
+      ['draft.new','Compose: New Draft',['compose'], () => changeDraft(null)],
+      ['draft.last','Compose: Open Last Draft',['compose'], () => changeDraft([...workspace.drafts].sort((a,b)=>String(lastUsed(b)).localeCompare(String(lastUsed(a))))[0] || null)],
+      ['lens.open','Lens: Open',['conversation'], () => showPage('lens')],
+      ['message.pin','Lens: Pin Current',['lens'], () => pinMessage(host.conversation.messages().at(-1))],
+      ['capsule.new','Capsule: Create',['context'], () => { fillCapsule(null); showPage('capsule'); }],
+      ['capsule.open','Capsule: Open',['library'], () => showPage('capsule')],
+      ['accounts.switch','Account: Switch',['account'], () => { open(true); accounts(); }],
+      ['host.restart','Restart Host',['runtime'], restart],
+      ['appearance.open','Open Appearance',['theme'], () => { openSettings('appearance'); appearance(); }],
+      ['runtime.open','Open Runtime',['host'], () => openSettings('runtime')]
+    ];
+    builtins.forEach(([id,title,keywords,fn]) => register(commands, { id,title,keywords,run:fn }, 'builtin'));
+
+    $('il-pages').addEventListener('input', event => {
+      if (event.target.id === 'il-prompt' || event.target.id === 'il-draft-title') draftChanged();
+      else if (event.target.closest('#il-capsule')) { updateCapsulePreview(); persistRecovery(); }
+    });
+    $('il-pages').addEventListener('change', event => run(async () => {
+      const el = event.target;
+      if (el.id === 'il-drafts') { const chosen = workspace.drafts.find(d => d.id === el.value); await changeDraft(chosen); }
+      if (el.id === 'il-history') { const version = activeDraft?.versions?.find(v => String(v.version) === el.value); if (version) { $('il-prompt-preview').hidden = false; $('il-prompt-preview').textContent = version.text; } }
+      if (el.dataset.pinSelect) { if (el.checked) selectedPins.add(el.dataset.pinSelect); else selectedPins.delete(el.dataset.pinSelect); renderPins(); }
+      if (el.dataset.capsulePin) { if (el.checked) capsulePins.add(el.dataset.capsulePin); else capsulePins.delete(el.dataset.capsulePin); updateCapsulePreview(); persistRecovery(); }
+      if (el.id === 'il-capsules') { const chosen = workspace.capsules.find(c => c.id === el.value); fillCapsule(chosen); }
+      if (el.id === 'il-project-include') { refreshProject(); updateCapsulePreview(); persistRecovery(); }
+    }));
+    panel.addEventListener('click', event => run(async () => {
+      const button = event.target.closest('button'); if (!button) return;
+      if (button.dataset.page) { showPage(button.dataset.page); return; }
+      if (button.dataset.block) { insertAtCursor(`\n\n## ${button.dataset.block}\n`); return; }
+      if (button.dataset.snippet) { const snippet = workspace.snippets.find(s => s.id === button.dataset.snippet); if (snippet) insertAtCursor(snippet.text); return; }
+      if (button.dataset.snippetRename) { const snippet = workspace.snippets.find(s => s.id === button.dataset.snippetRename); $('il-snippet-form').hidden = false; $('il-snippet-form').dataset.edit = snippet.id; $('il-snippet-title').value = snippet.title; $('il-snippet-text').value = snippet.text; return; }
+      if (button.dataset.snippetDelete) { await mutate('snippets', null, 'delete', button.dataset.snippetDelete); return; }
+      if (button.dataset.message) { if (!host.conversation.jump(button.dataset.message)) showToast('[2Ag] '+t('Message is no longer loaded. Refresh Lens.')); return; }
+      if (button.dataset.pin) { const pin = workspace.pins.find(p => p.id === button.dataset.pin); if (pin) openPin(pin); return; }
+      if (button.dataset.pinDelete) { await mutate('pins', null, 'delete', button.dataset.pinDelete); refreshOutline(); return; }
+      switch (button.id) {
+        case 'il-command-open': palette(); break;
+        case 'il-switch-account': open(true); accounts(); break;
+        case 'il-new-draft': case 'il-draft-new': await changeDraft(null); break;
+        case 'il-draft-save': await saveDraft(); break;
+        case 'il-draft-delete': if (activeDraft) { clearTimeout(saveTimer); await saveQueue.catch(() => {}); await mutate('drafts', null, 'delete', activeDraft.id); activeDraft = null; $('il-prompt').value = ''; $('il-draft-title').value = ''; draftMeta(); renderHistory(); renderLists(); persistRecovery(); } break;
+        case 'il-draft-restore': { const version = activeDraft?.versions?.find(v => String(v.version) === $('il-history').value); if (!version) throw new Error(t('Select a historical version first.')); $('il-prompt').value = version.text; draftChanged(); await saveDraft(); break; }
+        case 'il-preview-toggle': $('il-prompt-preview').hidden = !$('il-prompt-preview').hidden; $('il-prompt-preview').textContent = $('il-prompt').value; break;
+        case 'il-insert-prompt': host.prompt.set($('il-prompt').value, { mode: $('il-insert-mode')?.value }); showToast('[2Ag] '+t('Prompt inserted. Send it when ready.')); break;
+        case 'il-snippet-add': $('il-snippet-form').hidden = false; $('il-snippet-form').dataset.edit = ''; $('il-snippet-title').value = ''; $('il-snippet-text').value = $('il-prompt').value.slice($('il-prompt').selectionStart, $('il-prompt').selectionEnd); $('il-snippet-title').focus(); break;
+        case 'il-snippet-cancel': $('il-snippet-form').hidden = true; break;
+        case 'il-snippet-save': { const title = $('il-snippet-title').value.trim(), text = $('il-snippet-text').value; if (!title || !text.trim()) throw new Error(t('Enter a snippet name and text.')); const existing = workspace.snippets.find(item => item.id === $('il-snippet-form').dataset.edit); await mutate('snippets', { ...existing, id: existing?.id || uid('snippet'), title, text, category: $('il-snippet-category')?.value.trim() || '' }); $('il-snippet-form').hidden = true; break; }
+        case 'il-lens-refresh': refreshOutline(); break;
+        case 'il-pin-current': await pinMessage(host.conversation.messages().at(-1)); break;
+        case 'il-compare': compare(); break;
+        case 'il-compare-close': $('il-comparison').hidden = true; break;
+        case 'il-pin-detail-close': $('il-pin-detail').hidden = true; break;
+        case 'il-create-capsule': case 'il-capsule-new': fillCapsule(null); showPage('capsule'); break;
+        case 'il-pins-capsule': capsulePins = new Set([...capsulePins, ...selectedPins]); renderCapsulePins(); showPage('capsule'); break;
+        case 'il-capsule-copy': await copyText(capsuleMarkdown()); showToast('[2Ag] '+t('Capsule copied')); break;
+        case 'il-capsule-insert': host.prompt.set(capsuleMarkdown()); showToast('[2Ag] '+t('Capsule inserted. Send it when ready.')); break;
+        case 'il-capsule-save': { const form = capsuleForm(); form.id = capsuleID || uid('capsule'); capsuleID = form.id; form.title = form.title.trim() || 'Context Capsule'; form.pin_snapshots = selectedCapsuleMessages().map(p => ({ ...p })); form.markdown = capsuleMarkdown(form); const saved = await mutate('capsules', form); if (alive) { capsuleID = saved.id; capsuleSnapshots = saved.pin_snapshots; $('il-capsules').value = saved.id; persistRecovery(); showcase?.record('capsule',saved.id,saved.title); showToast('[2Ag] '+t('Capsule saved')); } break; }
+        case 'il-capsule-delete': if (capsuleID) { await mutate('capsules', null, 'delete', capsuleID); fillCapsule(null); } break;
+        case 'il-restart': await restart(); break;
+      }
+    }));
+    $('il-command-search').addEventListener('input', renderCommands);
+    const commandKey = event => {
+      // Keep Ctrl+Shift+K: Ctrl+Shift+P belongs to the host's own palette.
+      if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'k') { event.preventDefault(); event.stopImmediatePropagation(); palette(); return; }
+      if (!$('il-command-palette').hidden && ['ArrowDown','ArrowUp','Enter','Escape'].includes(event.key)) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        if (event.key === 'Escape') closePalette();
+        else if (event.key === 'Enter') { const command = commandMatches[commandIndex]; if (command) run(() => executeCommand(command)); }
+        else { commandIndex = (commandIndex + (event.key === 'ArrowDown' ? 1 : -1) + Math.max(1,commandMatches.length)) % Math.max(1,commandMatches.length); paintCommandSelection(); $('il-command-results').children[commandIndex]?.scrollIntoView({ block:'nearest' }); }
+      }
+    };
+    window.addEventListener('keydown', commandKey, true); cleanups.push(() => window.removeEventListener('keydown', commandKey, true));
+    async function copyText(text) {
+      try { await navigator.clipboard.writeText(text); return; } catch (_) {}
+      const temporary = document.createElement('textarea'); temporary.value = text; temporary.style.cssText = 'position:fixed;left:-9999px;'; shadow.append(temporary); temporary.select();
+      const copied = document.execCommand('copy'); temporary.remove(); if (!copied) throw new Error(t('Clipboard unavailable. Copy from Markdown preview.'));
+    }
+
+    // One unobtrusive hover control; the real message DOM is never rewritten.
+    const pinHover = document.createElement('button'); pinHover.type = 'button'; pinHover.id = 'il-pin-hover'; pinHover.hidden = true;
+    pinHover.style.cssText = 'position:fixed;z-index:2147483645;background:#202124;color:#8ab4f8;border:1px solid #3c4043;border-radius:8px;padding:6px 10px;pointer-events:auto;cursor:pointer;font:12px system-ui;';
+    shadow.append(pinHover);
+    let hoveredMessage = null, hoverTimer = null;
+    function paintPinHover() { if (hoveredMessage) pinHover.textContent = workspace.pins.some(p => p.conversation_key === hoveredMessage.conversation_key && p.locator === hoveredMessage.locator) ? '★ '+t('Pinned') : '☆ '+t('Pin'); }
+    function positionHover() {
+      const node = hoveredMessage && host.conversation.node(hoveredMessage.id);
+      if (!node || !node.isConnected) { pinHover.hidden = true; return; }
+      const rect = node.getBoundingClientRect();
+      if (rect.bottom < 0 || rect.top > innerHeight) { pinHover.hidden = true; return; }
+      pinHover.style.left = Math.max(8, Math.min(innerWidth - 100, rect.right - 90)) + 'px';
+      pinHover.style.top = Math.max(8, Math.min(innerHeight - 36, rect.top + 6)) + 'px';
+    }
+    const pointer = event => {
+      const path = event.composedPath();
+      if (path.includes(pinHover)) { clearTimeout(hoverTimer); return; }
+      if (path.includes(panel)) { pinHover.hidden = true; return; }
+      const messages = host.conversation.messages();
+      const message = messages.find(m => host.conversation.node(m.id)?.contains(event.target));
+      if (message) { clearTimeout(hoverTimer); hoveredMessage = message; paintPinHover(); pinHover.hidden = false; positionHover(); }
+      else { clearTimeout(hoverTimer); hoverTimer = setTimeout(() => { pinHover.hidden = true; }, 250); }
+    };
+    document.addEventListener('pointerover', pointer, true);
+    window.addEventListener('scroll', positionHover, true); window.addEventListener('resize', positionHover);
+    pinHover.addEventListener('click', () => run(() => pinMessage(hoveredMessage)));
+    cleanups.push(() => { document.removeEventListener('pointerover', pointer, true); window.removeEventListener('scroll', positionHover, true); window.removeEventListener('resize', positionHover); clearTimeout(hoverTimer); pinHover.remove(); });
+    cleanups.push(host.conversation.observe(() => { if (page === 'lens') refreshOutline(); if (hoveredMessage && !host.conversation.node(hoveredMessage.id)) pinHover.hidden = true; }));
+
+    function paintHostStatus(data) {
+      lastHostStatus=data;
+      const connected = !!data?.is_live;
+      $('interaction-status').textContent = t(connected ? 'Connected' : 'Disconnected');
+      header.querySelector('.pulse-dot').style.background = connected ? 'var(--2ag-green,#81c995)' : 'var(--2ag-text-secondary)';
+      const email = data?.identity_verified && data?.active_account?.email ? maskEmail(data.active_account.email) : t('Account unverified');
+      $('interaction-account').textContent = email; $('il-home-account').textContent = email;
+      const percent = (pool, window) => {
+        const value = pool?.[window + '_percent'], known = pool?.[window + '_known'];
+        return pool?.available && known !== false && value !== undefined && value !== null && Number.isFinite(Number(value)) ? `${Number(value)}%${pool.stale ? ' '+t('(cache)') : ''}` : '—';
+      };
+      const gp = data?.active_account?.gemini_pool, cp = data?.active_account?.claude_pool;
+      $('il-home-gemini').textContent = `5h ${percent(gp,'five_hour')} · ${t('Weekly quota')} ${percent(gp,'weekly')}`;
+      $('il-home-claude').textContent = `5h ${percent(cp,'five_hour')} · ${t('Weekly quota')} ${percent(cp,'weekly')}`;
+    }
+    async function load() {
+      status('正在载入本地工作区…');
+      try {
+        const response = await request('/api/v1/workspace'); const data = await response.json(); if (!alive) return;
+        workspace = { drafts: [], snippets: [], pins: [], capsules: [], recent: [], 'extension-state': [], ...data }; ready = true;
+        const draft = activeDraft?.id ? workspace.drafts.find(d => d.id === activeDraft.id) : !hadRecoveryDraft && !$('il-prompt').value && !$('il-draft-title').value ? sorted(workspace.drafts)[0] : null;
+        if (draft) {
+          activeDraft = draft;
+          if (!hadRecoveryDraft && !$('il-prompt').value && !$('il-draft-title').value) { $('il-prompt').value = draft.text; $('il-draft-title').value = draft.title; }
+        }
+        renderHistory(); renderLists(); draftMeta(); status('');
+        if (($('il-prompt').value !== draft?.text || ($('il-draft-title').value.trim() || 'Untitled draft') !== draft?.title) && ($('il-prompt').value || $('il-draft-title').value)) draftChanged();
+        persistRecovery();
+        await showcase?.loaded();
+      } catch (error) {
+        if (!alive) return;
+        status('Local workspace could not load: {error}',{error:error.message});
+        const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = t('Retry'); retry.onclick = load; $('il-workspace-status').append(retry);
+      }
+    }
+    const pageExit = () => persistRecovery();
+    window.addEventListener('pagehide', pageExit); cleanups.push(() => window.removeEventListener('pagehide', pageExit));
+    interactionCleanup = () => {
+      if (!alive) return;
+      persistRecovery(); showcase?.dispose(); alive = false; clearTimeout(saveTimer);
+      if (typeof panelCleanup === 'function') { try { panelCleanup(); } catch (_) {} }
+      for (const fn of cleanups.splice(0).reverse()) { try { fn(); } catch (_) {} }
+      languageListeners.clear();
+      if(interactionLanguageChanged===applyLanguage)interactionLanguageChanged=null;
+      for (const pending of ipcPending.values()) { clearTimeout(pending.timer); pending.reject(new Error('G-Hub disposed')); } ipcPending.clear();
+      if (window.__2AG__ === extensionAPI) delete window.__2AG__;
+      if (window.__2AG_IPC_DELIVER__ === deliver) { if (oldDeliver) window.__2AG_IPC_DELIVER__ = oldDeliver; else delete window.__2AG_IPC_DELIVER__; }
+    };
+    showcase = installShowcase();
+    rememberLabels(shadow);
+    interactionLanguageChanged=applyLanguage;
+    applyLanguage(uiLanguage);
+    cleanups.push(host.prompt.observeSelection());
+    activeDraft = recovery.draft?.id ? { id: recovery.draft.id } : null;
+    $('il-prompt').value = recovery.draft?.text || ''; $('il-draft-title').value = recovery.draft?.title || '';
+    fillCapsule(recovery.capsule || null);
+    restored = true;
+    showPage(['home','compose','lens','capsule'].includes(recovery.page) ? recovery.page : 'home'); load();
+    return { paintHostStatus, flushDraft, dismiss: event => showcase.dismiss(event) };
+  }
+
   function mountShadowUI() {
     if (!document.body && !document.documentElement) return;
     let rootHost = document.getElementById(SHADOW_HOST_ID);
@@ -3526,8 +4905,8 @@
               </div>
             </div>
           </div>
-          <!-- 出处与新鲜度：数据来自本机授权缓存，本工程只读、从不主动向官方端点握手。
-               不写这一行，用户会把 9 小时前的旧快照当成实时读数 —— 两者在界面上完全一样。 -->
+          <!-- 出处与新鲜度：优先 live 探测；只有失败时才回落到本机缓存并标成 cockpit-cache。
+               不写这一行，用户会把旧快照当成实时读数 —— 两者在界面上完全一样。 -->
           <div class="quota-source" id="quota-source" data-stale="false">配额出处：读取中…</div>
 
           <!-- GRAVITY BOOST SUBSYSTEMS 分组 -->
@@ -3675,7 +5054,9 @@
       // 用假定尺寸兜底，避免"面板被算到视口外"。
       // 高度还必须按视口再钳一次：CSS 的 max-height 已经压住了真实高度，但这里
       // 用于定位的 panelH 若取到未钳制的值，top 就会被算成一个把面板推出屏外的数。
-      const panelW = cockpitEl.offsetWidth || PANEL_EST_W;
+      const workspaceMode = cockpitEl.dataset.mode === 'workspace';
+      const preferredWidth = workspaceMode ? Number(cockpitEl.dataset.workspaceWidth)||640 : Number(cockpitEl.dataset.compactWidth)||380;
+      const panelW = Math.min(preferredWidth, Math.max(1, winW - 2 * VIEW_MARGIN));
       const rawPanelH = cockpitEl.offsetHeight || PANEL_EST_H;
       const panelH = Math.min(rawPanelH, Math.max(VIEW_MARGIN, winH - 2 * VIEW_MARGIN));
 
@@ -3684,7 +5065,9 @@
       const spaceRight = winW - (ghubRect.left + HUB_SIZE);
       const spaceLeft = ghubRect.left;
       let left;
-      if (spaceRight >= panelW + COCKPIT_GAP + VIEW_MARGIN) {
+      if (workspaceMode) {
+        left = cockpitEl.dataset.dock === 'left' ? VIEW_MARGIN : winW - panelW - VIEW_MARGIN;
+      } else if (spaceRight >= panelW + COCKPIT_GAP + VIEW_MARGIN) {
         left = ghubRect.left + HUB_SIZE + COCKPIT_GAP;            // 向右展开
       } else if (spaceLeft >= panelW + COCKPIT_GAP + VIEW_MARGIN) {
         left = ghubRect.left - panelW - COCKPIT_GAP;              // 向左展开
@@ -3700,12 +5083,12 @@
 
       // --- 垂直：优先与浮标顶部齐平，再钳进视口 ---
       const maxTop = Math.max(VIEW_MARGIN, winH - panelH - VIEW_MARGIN);
-      const safeTop = Math.max(VIEW_MARGIN, Math.min(maxTop, ghubRect.top));
+      const safeTop = workspaceMode ? VIEW_MARGIN : Math.max(VIEW_MARGIN, Math.min(maxTop, ghubRect.top));
       cockpitEl.style.top = safeTop + 'px';
 
       // 视口比面板还窄时收缩宽度，保证横向不溢出。
       const available = winW - 2 * VIEW_MARGIN;
-      cockpitEl.style.maxWidth = available > 0 ? Math.min(330, available) + 'px' : 'none';
+      cockpitEl.style.maxWidth = available > 0 ? Math.min(preferredWidth, available) + 'px' : 'none';
     }
 
     function toggleCockpit(open) {
@@ -3839,6 +5222,7 @@
     // 并转发到本闭包（否则每次重挂载都会多叠一对窗口监听器）。
     hubPanelDismisser = (e) => {
       if (!isPanelOpen) return;
+      if (interaction.dismiss(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
       if (e.type === 'keydown') {
         // ESC 无条件关闭：不看面板是否可见、不看焦点在不在宿主输入框里，
         // 也不阻止默认行为与传播（宿主自己的 ESC 语义必须保持原样）。
@@ -4262,6 +5646,9 @@
         const subParts = [];
         if (name) subParts.push(name);
         if (acc.role) subParts.push(escapeHtml(acc.role));
+        // 后端算出的诚实提示（「缓存配额（非实时）」「未载入配额 (离线)」…）
+        // 原样透出：面板上原本只有四个百分比，读不到与读到缓存长得一样。
+        if (acc.cooldown_msg) subParts.push(escapeHtml(String(acc.cooldown_msg)));
         const btn = `<button class="acct-switch" type="button" data-email="${email}">切换</button>`;
         // 第二段：该账号自己的双池 × 双窗口共四个配额微读。
         // 键与面板顶部的四个大圆环完全同源，只是尺寸缩小到 13px；池名跟着
@@ -4324,6 +5711,7 @@
     async function switchAccount(email, btn) {
       if (accountSwitchPending) return;
       accountSwitchPending = true;
+      try { await interaction.flushDraft(); } catch (error) { accountSwitchPending = false; showToast('[2Ag] 草稿尚未保存，切号已暂缓：' + error.message); return; }
       // 锁定全部备选行的「切换」按钮（不只是被点的那个），
       // 否则用户可以在请求飞行途中从另一行再点一次，制造两次并发重启。
       const allSwitchBtns = shadow.querySelectorAll('.acct-switch');
@@ -4510,7 +5898,9 @@
         ? !!pool[knownKey]
         : !!pool && pool[percentKey] !== undefined && pool[percentKey] !== null;
       const pct = Math.max(0, Math.min(100, Number(pool ? pool[percentKey] : NaN)));
-      const known = available && bucketKnown && isFinite(pct);
+      const known = available && bucketKnown && pool[percentKey] !== undefined && pool[percentKey] !== null && isFinite(pct);
+      const labelEl=el.querySelector('.quota-bucket-label');
+      if(labelEl)labelEl.textContent=translateHub(bucketLabel);
 
       // 读不到就画空环 + 「--」：不 fallback 填充任何数值，也不拿同一个池里
       // 另一个窗口的读数顶上（那正是「5h 的百分比配周限额的倒计时」的成因）。
@@ -4629,8 +6019,13 @@
     // Gemini 的周限额，必然对不上；而 Gemini 的周限额（可能只剩 23%）
     // 在整个面板上根本不存在。一个看不见的读数会让人以为「没有限制」。
     function accountQuotaPoolHtml(pool, poolTag) {
-      return `<span class="acct-quota-pool">
-          <span class="acct-quota-pool-tag">${escapeHtml(poolTag)}</span>
+      // 回落缓存的池必须自报「非实时」：列表里的小圆环与顶部大圆环读的是
+      // 同一个字段，若只有大圆环上方那行小字说「这是缓存」，用户在列表里
+      // 扫一眼四个百分比时仍然会把缓存当实时。
+      const nonLive = !!(pool && pool.stale === true);
+      const tag = nonLive ? `${poolTag}（非实时）` : poolTag;
+      return `<span class="acct-quota-pool" data-stale="${nonLive ? 'true' : 'false'}">
+          <span class="acct-quota-pool-tag">${escapeHtml(tag)}</span>
           ${accountQuotaItemHtml(pool, 'five_hour_percent', 'five_hour_known', '5h')}
           ${accountQuotaItemHtml(pool, 'weekly_percent', 'weekly_known', '周')}
         </span>`;
@@ -4669,41 +6064,48 @@
          另一个还好的桶也调暗 —— 那会把真读数也一并伪装成没数据。 */
       if (geminiEl) geminiEl.dataset.available = (g5 || gwk) ? 'true' : 'false';
       if (claudeEl) claudeEl.dataset.available = (c5 || cwk) ? 'true' : 'false';
-
-      paintQuotaSource(g5 || gwk ? gp : (c5 || cwk ? cp : null));
+      for(const [element,pool] of [[geminiEl,gp],[claudeEl,cp]])if(element){element.dataset.stale=String(pool?.stale===true);element.querySelector('.quota-pool-hint').textContent=pool?.stale?translateHub('(cache)'):translateHub('Remaining quota');}
+      paintQuotaSource(gp?.stale&& (g5||gwk)?gp:cp?.stale&&(c5||cwk)?cp:g5||gwk?gp:c5||cwk?cp:null);
     }
 
     // 出处行：这份读数是谁给的、什么时候采的、是不是已经旧到不能当实时看。
     //
-    // 为什么必须有这一行：面板上原本只有「99%」这种赤裸的数字，而配额缓存是
-    // 第三方工具写盘的快照，本工程只读、从不主动向官方端点握手。9 小时前的
-    // 快照和 3 秒前的快照在界面上长得一模一样 —— 用户没有任何途径知道自己
-    // 看的是哪一个。这不是「增加一点信息量」，而是把「这个数字的可信度」
-    // 从不可见变成可见。
+    // 为什么必须有这一行：面板上原本只有「99%」这种赤裸的数字，而 live 失败时
+    // 显示的可能是几小时前的缓存快照，与 3 秒前的实时读数在界面上长得一模一样
+    // —— 用户没有任何途径知道自己看的是哪一个。这不是「增加一点信息量」，
+    // 而是把「这个数字的可信度」从不可见变成可见。
     function paintQuotaSource(pool) {
       const el = shadow.getElementById('quota-source');
       if (!el) return;
       const updatedAt = pool && isFinite(Number(pool.updated_at)) ? Number(pool.updated_at) : 0;
       const source = pool && typeof pool.source === 'string' ? pool.source.trim() : '';
+      // 这份读数是不是 live 探测的结果。不能只靠采样时刻判断：一份两分钟前
+      // 写入的缓存同样是缓存，按年龄判断会把它说成「配额出处：刚刚」。
+      const nonLive = !!(pool && pool.stale === true);
 
       // 时间戳为 0 = 后端没拿到采样时刻。此时只能如实说「不详」，
       // 绝不用「刚刚」顶上 —— 那是把「未知」渲染成「最新」。
       if (!updatedAt) {
-        el.dataset.stale = 'false';
-        el.textContent = source
-          ? `配额出处：${source} · 采样时刻不详（该缓存未记录时间）`
-          : '配额出处：未读取到授权缓存';
+        el.dataset.stale = nonLive ? 'true' : 'false';
+        el.textContent = translateHub(nonLive?'Cached quota · not live':source?'Quota sample time unknown':'Quota unavailable')+(source?' · '+source:'');
         return;
       }
 
-      const stale = Date.now() - updatedAt > QUOTA_STALE_MS;
+      const tooOld = Date.now() - updatedAt > QUOTA_STALE_MS;
+      const stale = tooOld || nonLive;
       el.dataset.stale = stale ? 'true' : 'false';
-      const age = formatSampledAge(updatedAt);
-      const at = formatSampledAt(updatedAt);
-      // 超过 5h ⇒ 已比一个完整的 5h 滑窗还旧，用警示色 + 明确的「不可当实时」措辞。
-      const head = stale
-        ? `⚠ 配额数据已过期：${age}（${at} 采样），超过 5h 滑窗长度，不可当作实时读数`
-        : `配额出处：${age}（${at} 采样）`;
+      const at = new Date(updatedAt).toLocaleString(state.language);
+      // 两个互相独立的理由都要求警示，且措辞必须区分开：
+      //   1. 超过 5h ⇒ 已比一个完整的 5h 滑窗还旧；
+      //   2. 非 live ⇒ 实时探测没成功，这是回落的缓存快照（可能很新，但仍不是实时）。
+      let head;
+      if (tooOld) {
+        head = translateHub('Expired quota · not live')+' · '+at;
+      } else if (nonLive) {
+        head = translateHub('Cached quota · not live')+' · '+at;
+      } else {
+        head = translateHub('Quota sampled')+' · '+at;
+      }
       el.textContent = source ? `${head} · ${source}` : head;
     }
 
@@ -4714,11 +6116,20 @@
         /* active_account 是 toAccountQuotaDTO 产出的对象；早期实现把它当字符串读，
            导致账号高亮与配额展示双双失效。这里只接受对象形态，否则如实置为未载入。 */
         updateQuotaPools(json ? json.active_account : null);
+        interaction.paintHostStatus(json);
       } catch (_) {
         // 网关不可达：与「未载入配额」同样处理 —— 空环 + 明确文案，不编造数值。
         updateQuotaPools(null);
+        interaction.paintHostStatus(null);
       }
     }
+
+    const interaction = mountInteractionLayer({
+      shadow, panel: cockpitEl, request: fetchFirstOk, layout: updateCockpitLayout,
+      open: toggleCockpit,
+      accounts: () => { const acc = shadow.getElementById('acct-acc'); if (acc?.dataset.open !== 'true') shadow.getElementById('acct-head')?.click(); refreshAccountList(); },
+      appearance: () => syncThemeChips()
+    });
 
     // 配额轮询：同样走窗口级命名槽（4s 周期只保留一份，dispose 时随 resize 一并清理）
     hubQuotaRefresher = refreshQuotas;
@@ -4743,6 +6154,7 @@
     if (runtimeFrame !== null) cancelAnimationFrame(runtimeFrame);
     if (contextTimer !== null) clearTimeout(contextTimer);
     pendingRuntimeNodes.clear();
+    if (interactionCleanup) { interactionCleanup(); interactionCleanup = null; }
     clearHubRuntimeHandles();
     if (window[TIMER_KEY]) {
       try { window.clearInterval(window[TIMER_KEY]); } catch (_) {}
@@ -4783,6 +6195,7 @@
       domProcessors.set(name, processor);
       return true;
     },
+    interactionVersion: '0.2.0',
     forceSend: (text) => executeForceDispatch(text),
     dispose: disposeHub,
     // 兼容性自检：返回当前宿主 DOM 上各寻址层各自落在哪一层。
@@ -4832,6 +6245,7 @@
     if (nextOpacity !== null) state.opacity = nextOpacity;
     if (nextModal !== null) state.modalOpacity = nextModal;
     if (typeof cfg.language === 'string' && cfg.language) state.language = cfg.language;
+    if(interactionLanguageChanged&&state.language!==document.getElementById(SHADOW_HOST_ID)?.shadowRoot?.getElementById('il-language')?.value)interactionLanguageChanged(state.language);
     // 注意：这里刻意不把 cfg.wallpaper_path 写进 state.wallpaper。
     // state.wallpaper 的取值链是「background-image 的 url(...)」，它只接受 data:
     // 或 http(s) 形态；把 D:/Pictures/x.jpg 这种本地路径写进去，在 https 的宿主页面上

@@ -62,7 +62,7 @@
       const data = await get('/api/v1/quota/history');
       const accounts = new Map(data.accounts.map(a => [a.id, a]));
       const container = document.getElementById('quota-intelligence');
-      if (!data.trends.length) { container.textContent = '尚无可靠历史。额度变化将从真实授权缓存开始记录。'; return; }
+      if (!data.trends.length) { container.textContent = '尚无可靠历史。额度变化将从真实配额采样开始记录；缓存使用原始采样时间。'; return; }
       container.innerHTML = '<table class="observation-table"><thead><tr><th>账号 / 额度池</th><th>剩余 / 重置</th><th>最近 1h 已观察</th><th>最近 24h 已观察</th><th>观察速率</th></tr></thead><tbody>' + data.trends.map(trend => {
         const account = accounts.get(trend.account_id), latest = trend.history.at(-1);
         const email = account?.email || '';

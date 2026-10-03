@@ -323,6 +323,11 @@ func startManager(configPath string, cfg config.Config) error {
 		defer syscall.CloseHandle(syscall.Handle(hMutex))
 	}
 
+	if recovered, err := supervisor.RecoverPendingLoginBroker(); err != nil {
+		return fmt.Errorf("恢复上次登录失败，启动已中止: %w", err)
+	} else if recovered {
+		log.Println("[2ag] 已恢复上次中断登录的原凭据")
+	}
 	bus := core.NewEventBus()
 	sm := core.NewStateMachine(cfg, configPath, bus)
 	apiServer := api.NewServer(sm, bus)

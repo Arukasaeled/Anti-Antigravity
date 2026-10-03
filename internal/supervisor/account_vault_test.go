@@ -3,6 +3,7 @@
 package supervisor
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -81,6 +82,12 @@ func minInt(a, b int) int {
 // 验证三件事：旧凭据被原样写回、回滚后又校验了一次、以及「原本没有账号」时是清空
 // 而不是留下一个假的旧凭据。
 func TestSwitchRollbackRestoresPreviousCredential(t *testing.T) {
+	if os.Getenv("TWOAG_LIVE_CREDENTIAL_TESTS") != "1" {
+		t.Skip("requires explicit live credential test opt-in")
+	}
+	if len(scanAntigravityProcesses()) != 0 {
+		t.Fatal("stop host before live credential tests")
+	}
 	// 先备份真机当前凭据，测试结束无论成败都恢复 —— 这条测试会真的动系统凭据。
 	original, readErr := readAntigravityCredentialRaw()
 	if readErr != nil {
@@ -128,6 +135,12 @@ func TestSwitchRollbackRestoresPreviousCredential(t *testing.T) {
 // 这种情形下正确的回滚是**清空**凭据，而不是留下任何东西：如果实现写成
 // 「凭据为空就跳过写回」，用户就会停在别人的账号上 —— 那比切换失败本身更糟。
 func TestSwitchRollbackWithoutPreviousAccount(t *testing.T) {
+	if os.Getenv("TWOAG_LIVE_CREDENTIAL_TESTS") != "1" {
+		t.Skip("requires explicit live credential test opt-in")
+	}
+	if len(scanAntigravityProcesses()) != 0 {
+		t.Fatal("stop host before live credential tests")
+	}
 	original, _ := readAntigravityCredentialRaw()
 	defer func() {
 		if len(original) > 0 {

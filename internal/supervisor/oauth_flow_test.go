@@ -12,6 +12,7 @@ import (
 // 这条负例比前三条正例更要紧 —— 它守住的是「2Ag 不接受、不持有 Google OAuth
 // 客户端凭据」这条发布契约。
 func TestImportAccountsJSON(t *testing.T) {
+	isolateHome(t)
 	// Test 1: cockpit-tools format
 	cockpitJSON := []byte(`{
 		"version": "2.0",
@@ -88,12 +89,12 @@ func TestCredentialUsableEmail(t *testing.T) {
 		t.Fatal("缺少 id_token 时不得被判为可用登录")
 	}
 	// 一份带过期 exp 的 id_token：也不算可用登录。
-	expired := []byte(`{"token":{"access_token":"x"},"id_token":"eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImFAYi5jIiwiZXhwIjoxMDAwMDAwMDAwfQ."}`)
+	expired := []byte(`{"token":{"access_token":"x","refresh_token":"fixture-renewable"},"id_token":"eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImFAYi5jIiwiZXhwIjoxMDAwMDAwMDAwfQ."}`)
 	if _, ok := credentialUsableEmail(expired); ok {
 		t.Fatal("id_token 已过期时不得被判为可用登录")
 	}
 	// 完整凭据：必须能解析出邮箱。
-	good := []byte(`{"token":{"access_token":"x","token_type":"Bearer"},"id_token":"eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImFAYi5jIiwiZXhwIjo0MTAyNDQ0ODAwfQ."}`)
+	good := []byte(`{"token":{"access_token":"x","refresh_token":"fixture-renewable","token_type":"Bearer"},"id_token":"eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImFAYi5jIiwiZXhwIjo0MTAyNDQ0ODAwfQ."}`)
 	email, ok := credentialUsableEmail(good)
 	if !ok || email != "a@b.c" {
 		t.Fatalf("完整凭据应被判为可用并解析出邮箱，得到 ok=%v email=%q", ok, email)

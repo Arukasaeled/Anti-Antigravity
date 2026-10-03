@@ -23,6 +23,12 @@ import (
 //
 // 还原是硬约束：测试结束时用户的登录态必须与测试前逐字节相同。
 func TestCredentialSwitchRoundTripWithRestore(t *testing.T) {
+	if os.Getenv("TWOAG_LIVE_CREDENTIAL_TESTS") != "1" {
+		t.Skip("requires explicit live credential test opt-in")
+	}
+	if len(scanAntigravityProcesses()) != 0 {
+		t.Fatal("stop host before live credential tests")
+	}
 	original, err := readAntigravityCredentialRaw()
 	if err != nil || len(original) == 0 {
 		t.Skip("本机没有系统凭据，跳过")

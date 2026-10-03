@@ -87,7 +87,7 @@ func ReadDoctorReport() DoctorReport {
 		}
 		add("vault", "2Ag Vault", state, fmt.Sprintf("%d metadata entries; %d missing files; encrypted contents not inspected", len(index.Accounts), missing))
 	}
-	add("quota_api", "Quota API", "unknown", "Remote API not probed; quota readings use authorized local cache")
+	add("quota_api", "Quota API", "unknown", "Doctor does not probe the remote API; account quota flow handles live reads and cache fallback")
 	if entries, err := os.ReadDir(cockpitCacheDir()); err == nil {
 		add("quota_cache", "Quota Cache", "ok", fmt.Sprintf("Readable; %d directory entries", len(entries)))
 	} else {

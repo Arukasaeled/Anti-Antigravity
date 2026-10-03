@@ -105,7 +105,9 @@ func displayNameFromCredentialPayload(raw []byte) string {
 //
 // 这是 Login Broker 的关键判定，也是 E 项验收（中间态不得入库）的实现：
 // 官方 Antigravity 在 OAuth 过程中会先写一个中间态
-//     {"token": null}
+//
+//	{"token": null}
+//
 // 如果只看「凭据存在了」，就会把中间态当成登录成功入库 —— 库里于是多出一个
 // 没有 refresh_token 的空账号。因此必须三项同时成立：
 //  1. token 结构有效（access_token 非空）
@@ -116,7 +118,7 @@ func credentialUsableEmail(raw []byte) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	if v.Token == nil || strings.TrimSpace(v.Token.AccessToken) == "" {
+	if v.Token == nil || strings.TrimSpace(v.Token.AccessToken) == "" || strings.TrimSpace(v.Token.RefreshToken) == "" {
 		return "", false
 	}
 	if strings.TrimSpace(v.IDToken) == "" {
@@ -128,7 +130,7 @@ func credentialUsableEmail(raw []byte) (string, bool) {
 	}
 	email, _ := m["email"].(string)
 	email = strings.TrimSpace(email)
-	if email == "" {
+	if email == "" || !strings.Contains(email, "@") {
 		return "", false
 	}
 	if exp, ok := m["exp"].(float64); ok && exp > 0 {

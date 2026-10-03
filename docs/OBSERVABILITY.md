@@ -47,9 +47,9 @@ body 上的 portal 移除只触发状态读取与挂载检查，不转换成全�
 
 ## Quota、Doctor 与 Environment
 
-额度历史从现有授权缓存采集，使用缓存本身的 `updatedAt`，重复读取不会生成新样本。历史按账号、额度池、窗口隔离，保存到 2Ag 自己的 `quota-history.json`，保留七天、每个序列最多 2048 点。消费显示已观察到的下降百分点与采样覆盖时间。重置周期变化分段处理，不预测还能使用多久。原生 reset timestamp 支持动态倒计时。
+额度历史接入现有实时配额探测与授权缓存 fallback。实时请求成功时记录真实采样时间；缓存使用自身的 `updatedAt`，重复读取不会生成新样本。历史按账号、额度池、窗口隔离，保存到 2Ag 自己的 `quota-history.json`，保留七天、每个序列最多 2048 点。消费显示已观察到的下降百分点与采样覆盖时间。重置周期变化分段处理，不预测还能使用多久。原生 reset timestamp 支持动态倒计时。
 
-Doctor 复用已有宿主与身份探针，只检查进程、CDP targets、注入、身份元数据、Vault 索引/文件、授权缓存、会话 DOM 与存储路径。未探测远端 Quota API 时如实显示未知；Vault 可读索引不等于已解密验证凭据。
+Doctor 复用已有宿主与身份探针，只检查进程、CDP targets、注入、身份元数据、Vault 索引/文件、授权缓存、会话 DOM 与存储路径。Doctor 不主动请求远端 Quota API，该项显示未知；账号模块保留已有实时探测流程。Vault 可读索引不等于已解密验证凭据。
 
 Doctor 导出是固定结构的状态与计数，不包含账号身份、路径、页面标题、模型 prompt、工具正文、cookie、OAuth secret 或 credential payload。Runtime 的 target 详情仅在 Developer 区域展示。
 
@@ -80,13 +80,13 @@ Skills Hub 只读扫描原生 Global 与已发现 Workspace 的 Skill 目录。�
 - `internal/supervisor/session_scanner.go`、`session_providers.go`、`skills_hub.go`：元数据列表与延迟内容读取。
 - `internal/api/observability.go`、`server.go`：本机 API。
 - `web/dist/index.html`、`observability.js`：Manager 导航、页面与交互。
-- `scripts/pack.ps1`：发布时携带 Context companion modules；本轮没有执行脚本。
+- `scripts/pack.ps1`：发布时携带 Context companion modules 与双语资源。
 
 ## 本轮验证边界
 
-只做了静态阅读、源码格式整理，以及对当前一个真实 target 的必要只读侦查/计数采集。没有运行 build、test、lint、typecheck、smoke、E2E 或截图矩阵，没有构造测试账号、额度或存档。
+开发阶段只做了静态阅读、源码格式整理，以及对当前一个真实 target 的必要只读侦查/计数采集。随后按用户要求编译自测包并打包发布 0.2.1。没有运行 test、lint、typecheck、smoke、E2E 或截图矩阵，没有构造测试账号、额度或存档。编译与打包成功不代表新 UI 已完成运行验证。
 
-新 Manager/API/G-Hub 尚未运行验证；多 target、断线恢复、reload/reinject、持久额度历史和 Skills/Sessions 交互均未进行真实运行验证。当前 2Ag 进程不会因源码修改自动拥有新 API。等待用户以后构建并加载新版 2Ag；若需要重启宿主观察，等待用户手动重启后验证。禁止为验证中断正在执行的任务。
+新 Manager/API/G-Hub 尚未运行验证；多 target、断线恢复、reload/reinject、持久额度历史和 Skills/Sessions 交互均未进行真实运行验证。当前 2Ag 进程不会因源码修改自动拥有新 API。用户可手动加载新版 2Ag；若需要重启宿主观察，等待用户手动重启后验证。禁止为验证中断正在执行的任务。
 
 ## 后续值得继续的工作
 

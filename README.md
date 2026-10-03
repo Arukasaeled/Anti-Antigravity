@@ -4,13 +4,15 @@
 
 **给 Google Antigravity 加一层控制台。**
 
-一个窗口管住宿主、账号、配额、皮肤和运行时开关 —— 不改官方一个字节。
+账号与圆环配额常驻顶部；在宿主内编写提示词、固定消息、收集上下文、使用本地扩展，不修改官方安装。
 
 [![Release](https://img.shields.io/github/v/release/arukas0623-ai/Anti-Antigravity?style=flat-square&color=4285f4)](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078d4?style=flat-square)
 
-**[⬇ Download v0.1.1](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)** · [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
+**[⬇ Download v0.2.1](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.1)** · [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.1)
+
+**v0.2.1** 加入 Context Inspector、Runtime 可观察性、额度历史、Doctor，以及 Sessions / Skills 基础浏览。更新说明统一放在 [GitHub Release](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.1)，可按 [构建指南](docs/BUILD.md) 打包源码。
 
 <img src="docs/screenshots/01-overview-light.png" alt="2Ag Manager 概览" width="880">
 
@@ -37,14 +39,25 @@ Google Antigravity 是一个很强的 AI 工作台，但它没有给你一个"�
 
 一个 WebView2 原生窗口，也是控制中枢。
 
-**概览** 宿主状态与真·模型配额 · **账号** 账号矩阵与保险库 · **会话** 本地会话索引与导出 ·
+**概览** 宿主状态与模型配额 · **账号** 账号矩阵与保险库 · **会话** 本地会话索引与导出 ·
 **视觉工坊** 壁纸/模糊/主题 · **重力加倍** 运行时开关 · **环境诊断** 探针与兼容性报告。
+
+**Context** 展示最近请求的原生 token 字段、明确标记的估算、已加载组成与变化时间线；上限不可得时显示未知。**Skills** 区分 Global / Workspace，并按需查看 SKILL.md。数据边界见 [OBSERVABILITY.md](docs/OBSERVABILITY.md)。
 
 ### 🪟 G-Hub
 
 注入到宿主里的**浮标 + 战术面板**（Shadow DOM，与宿主 DOM 完全隔离）。
 
 不切窗口就能看状态、换账号、重启宿主沙箱。
+
+v0.2.0 提供中英文界面，顶部始终保留账号选择器和 Gemini / Claude+GPT 的 5h、周配额四个圆环。常用入口直接可见，管理工具按需展开：
+
+- **编写**：编辑草稿、插入片段、一键结构化文本、填写原生输入框；
+- **会话**：选择宿主历史会话、搜索/筛选已加载消息，直接固定或加入胶囊；
+- **胶囊**：用消息与笔记整理可编辑上下文，保存、复制、插入；
+- **扩展**：直接打开面板、执行命令、添加上下文，管理本地插件的启用与重载。
+
+**2Ag Interaction Layer = Prompt · Conversation · Context · Command · Extension**。随附提示词工具箱、会话地图、项目上下文三个纯本地示例；插件开发入口见 [plugins/README.md](plugins/README.md)。
 
 <img src="docs/screenshots/02-g-hub.png" alt="G-Hub 战术面板" width="880">
 
@@ -57,9 +70,12 @@ Google Antigravity 是一个很强的 AI 工作台，但它没有给你一个"�
 
 ### 📊 Model Quota
 
-如实读取 Gemini / Claude / GPT 三个池的 5 小时滑窗与周限额。
+按账号读取 Gemini / Claude / GPT 的 5 小时滑窗与周限额。
 
-**读不到就显示 `--`，过期就明说过期。** 不会拿缓存数字冒充实时读数。
+- **优先实时探测**：2Ag 自己带凭据向 Antigravity 配额接口查询，不依赖任何第三方工具；
+- **本地 Cockpit Tools 缓存只作兜底**，且会明确标成「非实时读数」，绝不冒充实时读数；
+- 多账号并发探测，单个账号超时不影响其他账号；
+- 读不到显示 `--`，过期就明说过期。
 
 <img src="docs/screenshots/05-accounts.png" alt="账号矩阵与配额" width="880">
 
@@ -109,7 +125,7 @@ Google Antigravity 是一个很强的 AI 工作台，但它没有给你一个"�
 3. **安装并启动** —— 开始菜单或桌面快捷方式里的 `2Ag`。
 4. **挑一个形态** —— 首次用**增强形态**时，2Ag 会从你的官方安装复制一份冻结宿主（约 570 MB，需要数十秒）；之后一直用它。
 
-> 便携版：`Anti-Antigravity-Setup-x64.exe` 装到本机；想要绿色版就在 Release 的源码包里自行 `go build`，或者直接找 `2ag.exe` 同级放 `assets/` `themes/` `plugins/` 即可运行。
+> 便携版：下载 Release 中的 `2Ag-v0.2.1-windows-x64-portable.zip`，解压整个目录后运行 `2ag.exe`，保留同级 `assets/`、`themes/`、`plugins/`。
 
 系统要求：**Windows 10/11 x64** · WebView2 运行时（Win11 自带；Win10 若缺，微软官网可单独装）。
 
@@ -117,17 +133,20 @@ Google Antigravity 是一个很强的 AI 工作台，但它没有给你一个"�
 
 ## 添加账号
 
-2Ag **不是** Google OAuth 客户端，所以没有"授权登录"按钮。
+官方已经登录时，可以在 Manager 的添加账号窗口点击 **「导入当前官方账号」**，直接存入保险库并刷新账号列表。
 
 添加账号由**你本机的官方 Antigravity** 完成原生 Google 登录：
 
-1. 2Ag 先把你当前的凭据加密归档进保险库；
-2. 以**零参数**启动本机官方 Antigravity —— 它会显示自己的登录页；
+1. 2Ag 先把你当前的凭据加密归档进保险库，并同步保存 DPAPI 恢复记录；
+2. 停止宿主、临时清除当前凭据，以本次选择的 **AUTO / DIRECT / PROXY** 模式启动官方登录窗口；仅调整子进程网络环境和诊断端口，不永久修改系统代理、不注入；
 3. 你在官方窗口里点 **Continue with Google**，授权完全由官方与系统浏览器完成；
 4. 2Ag 等官方把新凭据写进 Windows 凭据管理器后**捕获**它、加密入库；
-5. 自动恢复你原来的账号。
+5. 自动恢复你原来的账号，经回读验证后清除恢复记录；流程中断时，下次启动 2Ag 会先恢复未完成的事务。
 
 **2Ag 全程不接触你的 Google 密码、授权码或 OAuth 客户端配置。**
+
+登录完成后，凭据存进 **2Ag 自己的账号库**（`~/.2ag/`，DPAPI 加密 + 一份不含 token 的账号清单）。
+添加账号**不需要**你本机装过任何第三方工具。
 
 ---
 
@@ -151,9 +170,7 @@ Google Antigravity 是一个很强的 AI 工作台，但它没有给你一个"�
 
 界面以 Shadow DOM 挂载，与宿主自己的 DOM 完全隔离。宿主一关，注入即刻消失。
 
-宿主、代理、侧车进程挂在同一条 Windows Job Object 下，2Ag 退出时连带清干净，不留孤儿进程。
-
-详见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+宿主、代理、侧车进程的生命周期分两条链：`2ag run` 把它们挂在同一条 Windows Job Object 下，退出时连带清干净；Manager 默认走 `LaunchEnhancedHost` 直接拉宿主，**关掉 Manager 不会带走宿主**。详见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ---
 
@@ -177,6 +194,7 @@ Google Antigravity 是一个很强的 AI 工作台，但它没有给你一个"�
 - **Windows x64 only** —— 依赖 Windows 凭据管理器与 Job Object。
 - **必须自备官方 Antigravity** —— 2Ag 不包含、不分发它。
 - **冻结宿主会落后** —— 官方 updater 更新的是你的官方安装，2Ag 的副本不会自动跟。落后多少由更新守护如实报出，要不要同步你决定。
+- **非活跃账号的凭据会过期** —— 配额探测用的是账号自己的 access_token，只有官方 Antigravity 会续期它。当前正在用的账号总是新鲜的；长期没用的账号会读不到配额，显示过期而**不是**假数字。想让它重新可用，用官方 Antigravity 登录一次该账号即可（2Ag 不内置、也不需要 OAuth 客户端密钥）。
 - **登录凭据是机器级共享的** —— 官方 Antigravity 与 2Ag 沙箱读同一条系统凭据记录，这是 Windows 凭据模型决定的，2Ag 只能做到 profile 隔离。环境诊断会把这一条标成共享。
 - **部分运行时开关受宿主版本限制** —— 面板会标「实验性 / 开发中」并在宿主侧容器未挂钩时明说「切换不会生效」。
 
@@ -184,16 +202,12 @@ Google Antigravity 是一个很强的 AI 工作台，但它没有给你一个"�
 
 ## 最新版本
 
-**v0.1.1** —— 首次公开发布。
+**v0.2.1** —— Context Inspector 与运行态可观察性，保留现有 Interaction Layer。
 
 **[下载](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)** ·
 [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
 
-发布页附带 `Anti-Antigravity-Setup-x64.exe.sha256`，下载后自行校验：
-
-```powershell
-Get-FileHash .\Anti-Antigravity-Setup-x64.exe -Algorithm SHA256
-```
+发布页提供 Windows x64 安装包和便携 ZIP，更新内容及已知限制直接列在 Release 页面。
 
 ---
 

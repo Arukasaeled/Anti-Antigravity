@@ -286,7 +286,7 @@ func findProcessInsensitive(targetExe string) (int, float64) {
 		}
 	}
 
-	// 4. 统计 2Ag 托管的宿主（便携版或显式托管 PID）
+	// 4. 统计 2Ag 托管的宿主（冻结副本或显式托管 PID）
 	mainPID := 0
 	var totalWorkingSet uintptr = 0
 

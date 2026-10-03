@@ -1,7 +1,7 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot '..\dist'),
-    [string]$Version = '0.1.1',
+    [string]$Version = '0.2.1',
     [string]$Go = 'go',
     [string]$ISCC = 'ISCC.exe',
     [switch]$SkipInstaller
@@ -29,6 +29,17 @@ $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $Staging = Join-Path $OutputRoot 'staging'
 $Binary = Join-Path $Staging '2ag.exe'
 
+# Only the staging child may be replaced, never the output root or a reparse target.
+$stagingAbsolute = [IO.Path]::GetFullPath($Staging)
+$outputPrefix = $OutputRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+if (-not $stagingAbsolute.StartsWith($outputPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Staging path is outside OutputRoot"
+}
+if (Test-Path -LiteralPath $Staging) {
+    $stagingEntry = Get-Item -LiteralPath $Staging -Force
+    if ($stagingEntry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Staging must not be a junction or symlink" }
+}
+
 # ★ 打包边界：这个脚本**不再携带任何 Google Antigravity 字节**。
 #
 # 0.1.0 / 0.1.1 的安装包里那份 app\ 冻结运行时，是构建机从**本机**官方安装目录
@@ -52,8 +63,9 @@ Copy-Item -Path (Join-Path $ProjectRoot 'assets\*') -Destination (Join-Path $Sta
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\injected_hub.js') -Destination (Join-Path $Staging 'assets\injected_hub.js') -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\context_reader.js') -Destination (Join-Path $Staging 'assets\context_reader.js') -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\context_view.js') -Destination (Join-Path $Staging 'assets\context_view.js') -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\hub_i18n.js') -Destination (Join-Path $Staging 'assets\hub_i18n.js') -Force
 Copy-Item -Path (Join-Path $ProjectRoot 'themes\*') -Destination (Join-Path $Staging 'themes') -Recurse -Force
-Copy-Item -Path (Join-Path $ProjectRoot 'plugins\*') -Destination (Join-Path $Staging 'plugins') -Recurse -Force
+Copy-Item -Path (Join-Path $ProjectRoot 'plugins\*') -Destination (Join-Path $Staging 'plugins') -Recurse -Force -Exclude '*.go'
 
 # ★ 中性初始配置。
 #   wallpaper_path 留空 = Native（使用 Antigravity 自己的原生背景）。
@@ -70,7 +82,7 @@ $config = @'
   "language": "zh-CN",
   "runtime_mode": "enhanced",
   "network": { "enabled": true, "endpoint_overrides": [], "rule_targets": [] },
-  "privacy": { "blocked_hosts": ["google-analytics.com", "www.google-analytics.com", "analytics.google.com", "www.googletagmanager.com", "crashlyticsreports-pa.googleapis.com"], "block_beacons": true },
+  "privacy": { "blocked_hosts": ["google-analytics.com", "www.google-analytics.com", "analytics.google.com", "www.googletagmanager.com", "crashlyticsreports-pa.googleapis.com"] },
   "global_rules": "",
   "env_overrides": {},
   "plugins": []
@@ -197,10 +209,11 @@ $stagedFiles = @(Get-ChildItem -LiteralPath $Staging -Recurse -File -ErrorAction
     Where-Object { $_.FullName.Substring($Staging.Length).TrimStart('\') -notlike 'app\*' })
 
 $ownedSourceFiles = @()
-foreach ($rel in @('README.md', 'RELEASE-NOTES-v0.1.1.md', 'installer.iss', '.gitignore', 'go.mod', 'LICENSE')) {
+foreach ($rel in @('README.md', 'installer.iss', '.gitignore', 'go.mod', 'LICENSE')) {
     $p = Join-Path $ProjectRoot $rel
     if (Test-Path -LiteralPath $p -PathType Leaf) { $ownedSourceFiles += (Get-Item -LiteralPath $p) }
 }
+# 更新说明放在 GitHub Release 页面；仓库不要求独立版本说明文件。
 foreach ($dir in @('assets', 'cmd', 'docs', 'internal', 'themes', 'plugins', 'web')) {
     $ownedSourceFiles += @(Get-ChildItem -LiteralPath (Join-Path $ProjectRoot $dir) -Recurse -File -ErrorAction SilentlyContinue)
 }

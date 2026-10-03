@@ -19,10 +19,10 @@ go build -o 2ag.exe .\cmd\2ag
 
 ```powershell
 # release 二进制 + staging + 安装包
-.\scripts\pack.ps1 -Version 0.1.1
+.\scripts\pack.ps1 -Version 0.2.1
 
-# 只出 staging（不调 Inno Setup，用于验证产物内容）
-.\scripts\pack.ps1 -Version 0.1.1 -SkipInstaller
+# 只出 staging（不生成安装包）
+.\scripts\pack.ps1 -Version 0.2.1 -SkipInstaller
 ```
 
 ## `pack.ps1` 做什么
@@ -51,11 +51,11 @@ dist\Anti-Antigravity-Setup-x64.exe
 
 `dist\staging\` **本身就是便携形态** —— 自包含，双击 `2ag.exe` 即跑。安装包与它同源同一份 `2ag.exe`，区别只是多写注册表 + 开始菜单快捷方式。
 
+GitHub Release 提供安装包 `Anti-Antigravity-Setup-x64.exe` 与 `2Ag-v0.2.1-windows-x64-portable.zip`。便携包由完整 staging 目录生成，不能只复制 exe 后删除 companion modules。
+
 ## 可复现性
 
-`2ag.exe` 是**字节可复现**的：同一份源码连续构建得到完全相同的字节。
-
-安装包**不是**：内部载荷经压缩 + LZMA 编码，Inno Setup 每次编译都会重新压缩并把编译时刻写进头部。因此发布页随附 `Anti-Antigravity-Setup-x64.exe.sha256` 而不是把哈希写死在文档里。
+发布使用固定源码提交、`-trimpath` 和版本参数构建。Inno Setup 安装包会包含压缩与构建时刻信息，不能假定两次打包字节相同。
 
 ## 仓库边界
 
@@ -64,26 +64,13 @@ dist\Anti-Antigravity-Setup-x64.exe
 - `dist\` 是构建产物；
 - `app\` 是运行时在用户本机生成的派生物 —— 仓库里既没有上游字节，也没有指向某台机器的链接。
 
-## 发布检查清单
+## 发布
 
 ```powershell
-# 1) 从干净工作树构建
-git status --porcelain          # 应当为空
-.\scripts\pack.ps1 -Version 0.1.1
-
-# 2) 记录哈希
-Get-FileHash dist\staging\2ag.exe -Algorithm SHA256
-Get-FileHash dist\Anti-Antigravity-Setup-x64.exe -Algorithm SHA256
-
-# 3) 生成 .sha256 asset
-$h = (Get-FileHash dist\Anti-Antigravity-Setup-x64.exe -Algorithm SHA256).Hash
-"$h  Anti-Antigravity-Setup-x64.exe" | Set-Content -NoNewline -Encoding ascii dist\Anti-Antigravity-Setup-x64.exe.sha256
-
-# 4) 负面检查：产物里不该出现的东西
-#    注意：needle 必须拼接，否则本文件自己会被泄漏闸门扫中
-$needles = @('GOC' + 'SPX-', 'apps.googleusercontent.com', 'Antigravity.exe' + '', 'app' + '.asar', 'refresh' + '_token')
-$t = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes('dist\Anti-Antigravity-Setup-x64.exe'))
-foreach ($n in $needles) { "$n => $($t.Contains($n))" }
+.\scripts\pack.ps1 -Version 0.2.1
+Compress-Archive -LiteralPath dist\staging -DestinationPath dist\2Ag-v0.2.1-windows-x64-portable.zip
 ```
 
-全部应为 `False`。
+提交源码并推送对应 tag，再把安装包和 ZIP 上传到 GitHub Release。更新说明直接写在 Release 页面，使用临时正文文件传给 `gh release create --notes-file`，仓库不保留逐版本 release notes。
+
+打包不启动 2Ag 或 Antigravity。用户手动检查应与编译结果分开记录；切换运行形态或账号可能重启宿主，应等待当前任务结束。

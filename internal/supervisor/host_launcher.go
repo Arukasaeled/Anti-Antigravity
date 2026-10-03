@@ -110,14 +110,14 @@ func Get2agRootDir() string {
 }
 
 func detectDefaultAntigravityPath() string {
-	// 1. 最高优先级（同级便携版）：检测当前 2ag.exe 所在目录下的 app/Antigravity.exe
+	// 1. 最高优先级（2Ag 同级冻结副本）：检测当前 2ag.exe 所在目录下的 app/Antigravity.exe
 	execDir := Get2agRootDir()
 	if execDir != "" {
 		for _, name := range []string{"Antigravity.exe", "antigravity.exe"} {
-			portablePath := filepath.Join(execDir, "app", name)
-			if fi, err := os.Stat(portablePath); err == nil && !fi.IsDir() {
-				log.Printf("[2ag] 命中最高优先级同级便携版宿主: %s", portablePath)
-				return portablePath
+			frozenPath := filepath.Join(execDir, "app", name)
+			if fi, err := os.Stat(frozenPath); err == nil && !fi.IsDir() {
+				log.Printf("[2ag] 命中最高优先级同级冻结副本宿主: %s", frozenPath)
+				return frozenPath
 			}
 		}
 	}
@@ -316,4 +316,3 @@ func TakeoverHost(customPath string, activeAccountEmail string) error {
 	}
 	return LaunchEnhancedHost(customPath, activeAccountEmail)
 }
-

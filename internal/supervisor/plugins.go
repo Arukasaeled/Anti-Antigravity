@@ -80,7 +80,7 @@ func DiscoverPlugins(root string) ([]PluginManifest, error) {
 			}
 			manifest.Entrypoint.Command = filepath.Join(manifest.Directory, filepath.FromSlash(manifest.Entrypoint.Command))
 		}
-		if manifest.UI != nil && manifest.UI.Type == "iframe" && (manifest.UI.Entry == "" || filepath.IsAbs(manifest.UI.Entry) || strings.ContainsAny(manifest.UI.Entry, "\\\r\n") || strings.Contains(manifest.UI.Entry, "..")) {
+		if manifest.UI != nil && (manifest.UI.Type == "iframe" || manifest.UI.Entry != "") && (manifest.UI.Entry == "" || filepath.IsAbs(manifest.UI.Entry) || strings.ContainsAny(manifest.UI.Entry, "\\\r\n") || strings.Contains(manifest.UI.Entry, "..")) {
 			return nil, fmt.Errorf("invalid UI entry in %s", path)
 		}
 		manifests = append(manifests, manifest)
@@ -104,7 +104,7 @@ func MergePluginConfig(manifests []PluginManifest, configured []config.Plugin) [
 			plugin.Executable = manifest.Entrypoint.Command
 			plugin.Args = append([]string(nil), manifest.Entrypoint.Args...)
 		}
-		if manifest.UI != nil && manifest.UI.Type == "iframe" {
+		if manifest.UI != nil && manifest.UI.Entry != "" {
 			plugin.UIEntry = filepath.Join(manifest.Directory, filepath.FromSlash(manifest.UI.Entry))
 		}
 		if plugin.Executable == "" {

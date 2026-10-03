@@ -40,6 +40,16 @@ type QuotaWindow struct {
 	// 因为一旦后端开始说「几分钟前」，就会把「采样时刻」悄悄变成「生成时刻」。
 	UpdatedAt int64  `json:"updated_at"` // 授权缓存 updatedAt（Unix 毫秒）；0 = 未知
 	Source    string `json:"source"`     // 例 "authorized · desktop"；空 = 未知
+	// Stale 表示这份数字**不是** 2Ag live 探测的结果，而是 live 失败后回落的
+	// 本机 Cockpit 缓存快照。
+	//
+	// 为什么必须放在池上而不是只放在 QuotaProbeStatus 上：Status 不出现在
+	// /api/v1/dashboard 与 /api/v1/host/status 的响应里（那两个响应走
+	// AccountQuotaDTO，只有池与百分比），所以「这是缓存」这一事实一旦只写在
+	// Status 上，前端就永远拿不到。而仅靠 updated_at 的年龄判断是不够的 ——
+	// 一份两分钟前写入的缓存同样是缓存，用「配额出处：刚刚」呈现，等于把
+	// 非实时读数说成实时读数。
+	Stale bool `json:"stale,omitempty"`
 }
 
 // AccountInstance defines account entity with dual quota pools
@@ -192,7 +202,8 @@ func cockpitCacheDir() string {
 	return filepath.Join(dir, "cache", "quota_api_v1_desktop", "authorized")
 }
 
-// queryCacheFor 扫描本地授权配额缓存，一次性取出该账号的真实双配额池与模型清单。
+// queryCacheFor 只在 live 探测失败时作为**明确标注的** Cockpit Tools 缓存 fallback。
+// 它不是主数据源，返回的 source 一定是 cockpit-cache，绝不能被当成实时读数。
 //
 // 返回 ok=false 表示「本地根本没有这个账号的授权缓存」——调用方必须如实呈现
 // 「未载入」，绝不能回填任何看起来合理的数字。
@@ -289,10 +300,12 @@ func queryCacheFor(email string) (geminiPool QuotaWindow, claudePool QuotaWindow
 					if geminiPool.Available {
 						geminiPool.UpdatedAt = qcf.UpdatedAt
 						geminiPool.Source = source
+						geminiPool.Stale = true
 					}
 					if claudePool.Available {
 						claudePool.UpdatedAt = qcf.UpdatedAt
 						claudePool.Source = source
+						claudePool.Stale = true
 					}
 					recordQuotaHistory(email, geminiPool, claudePool)
 					return geminiPool, claudePool, models, true
@@ -311,114 +324,116 @@ func queryCacheFor(email string) (geminiPool QuotaWindow, claudePool QuotaWindow
 
 // QueryDualPools 返回指定账号的真实双配额池（薄封装，兼容既有调用方）。
 func QueryDualPools(email string) (geminiPool QuotaWindow, claudePool QuotaWindow) {
-	geminiPool, claudePool, _, _ = queryCacheFor(email)
+	geminiPool, claudePool, _, _ = probeQuotaForAccount(email)
 	return geminiPool, claudePool
 }
 
-// ScanLocalAccounts scans cockpit-tools and Antigravity profiles for real local accounts
+// ScanLocalAccounts 列出本机真实存在的账号（含双配额池），按已登记来源汇总。
+//
+// 账号清单来源见 collectAccountEntries()：2Ag 自己的 DPAPI 保险库是第一来源，
+// 自有登记表第二，第三方 cockpit 账号库只是可选的历史来源。
+// 「装了 2Ag 就能加账号」这件事不依赖用户是否装过别的工具。
 func ScanLocalAccounts() []AccountInstance {
-	// 同样走 cockpitDataDir()/cockpitCacheDir() 的统一解析：
-	// 历史实现写死了开发机的第三方工具路径，别的用户拿不到账号清单。
-	paths := []string{}
-	if dir := cockpitDataDir(); dir != "" {
-		paths = append(paths, filepath.Join(dir, "accounts.json"))
-	}
-	if appData := os.Getenv("APPDATA"); appData != "" {
-		paths = append(paths, filepath.Join(appData, "antigravity_cockpit", "accounts.json"))
+	entries := collectAccountEntries()
+	if len(entries) == 0 {
+		// 本机确实一个账号都没有（新装用户）。
+		// 正确行为是空列表 —— 界面显示「未检测到账号」，
+		// 绝不能凭空造出账号来让界面看起来"检测到了账号矩阵"。
+		return []AccountInstance{}
 	}
 
-	for _, p := range paths {
-		data, err := os.ReadFile(p)
-		if err == nil {
-			var caf cockpitAccountsFile
-			if err := json.Unmarshal(data, &caf); err == nil && len(caf.Accounts) > 0 {
-				var result []AccountInstance
-				for _, a := range caf.Accounts {
-					isPrimary := (a.ID == caf.CurrentAccountID && caf.CurrentAccountID != "")
-					role := "BACKUP"
-					status := "STANDBY"
-					weight := 5
-					cooldown := ""
+	// 先并发把 N 个账号的配额一次性探完，再组装结果。
+	//
+	// 历史实现在循环里逐账号 probeQuotaForAccount：正常网络下
+	// N×1.2 s，断网时 N×12 s，Accounts 页面直接卡死。
+	// 并发 + 总超时后，整批耗时 ≈ 单账号耗时。
+	emails := make([]string, 0, len(entries))
+	for _, e := range entries {
+		emails = append(emails, e.Email)
+	}
+	probes := probeQuotaBatch(emails)
 
-					if isPrimary {
-						role = "PRIMARY"
-						status = "ACTIVE"
-						weight = 10
-					} else {
-						// 历史实现在此把每个非主账号无条件标记为「429 冷却中」，
-						// 而这里从未向任何接口发起过握手 —— 纯属凭空判定。
-						// 未握手的账号就是「离线 / 未载入」，不是限流。
-						status = "OFFLINE"
-						cooldown = "未载入配额 (离线)"
-					}
+	// 主控身份的权威来源：宿主 CDP 探针读到的真实登录邮箱，或用户在界面上的显式选择。
+	// 2Ag 自己没有任何记录时，才回落到第三方账号库自报的 current_account_id ——
+	// 纯粹为了不让老用户的「主控」标记在升级后凭空消失。
+	active := strings.TrimSpace(GetActiveAccountEmail())
+	if active == "" {
+		active = legacyCockpitPrimaryEmail()
+	}
 
-					gemPool, claudePool, models, cacheOK := queryCacheFor(a.Email)
-					if !cacheOK && cooldown == "" {
-						// 主账号也一样：读不到授权缓存就是读不到，不能因为它是主控
-						// 就假装额度正常。文案交由前端按 available 标记渲染。
-						cooldown = "未载入配额"
-					}
+	result := make([]AccountInstance, 0, len(entries))
+	for _, e := range entries {
+		isPrimary := active != "" && strings.EqualFold(e.Email, active)
+		role := "BACKUP"
+		status := "OFFLINE"
+		weight := 5
+		cooldown := "未载入配额 (离线)"
 
-					result = append(result, AccountInstance{
-						ID:          a.ID,
-						Email:       a.Email,
-						Name:        a.Name,
-						Role:        role,
-						IsPrimary:   isPrimary,
-						IsActive:    isPrimary,
-						Weight:      weight,
-						Status:      status,
-						GeminiPool:  gemPool,
-						ClaudePool:  claudePool,
-						Models:      models,
-						CooldownMsg: cooldown,
-					})
-				}
-				// 门禁必须是 >= 1，不能是 >= 2。
-				// 历史实现写成 len(result) >= 2，于是账号文件里只有一个账号时
-				// 整个重排与 return 都被跳过，函数一路落到末尾的 return []AccountInstance{} ——
-				// 唯一真实存在的账号被「过滤」成空列表，界面显示「未检测到账号」。
-				// 这里 result 至少有一个元素（外层已判 len(caf.Accounts) > 0），门禁恒真，
-				// 保留它只是为了让「非空即继续」这一意图显式化。
-				if len(result) >= 1 {
-					active := GetActiveAccountEmail()
-					if active != "" {
-						for i := range result {
-							if strings.EqualFold(result[i].Email, active) {
-								result[i].IsPrimary = true
-								result[i].IsActive = true
-								result[i].Role = "PRIMARY"
-								result[i].Status = "ACTIVE"
-								// 只有真的读到了配额才清空提示。主控身份不改变
-								// 「本地授权缓存里有没有这个账号的额度」这一事实。
-								if result[i].GeminiPool.Available || result[i].ClaudePool.Available {
-									result[i].CooldownMsg = ""
-								} else if result[i].CooldownMsg == "" {
-									result[i].CooldownMsg = "未载入配额"
-								}
-							} else {
-								result[i].IsPrimary = false
-								result[i].IsActive = false
-								result[i].Role = "BACKUP"
-								result[i].Status = "OFFLINE"
-								if result[i].CooldownMsg == "" {
-									result[i].CooldownMsg = "未载入配额 (离线)"
-								}
-							}
-						}
-					}
-					return result
-				}
+		if isPrimary {
+			role = "PRIMARY"
+			status = "ACTIVE"
+			weight = 10
+			cooldown = "未载入配额"
+		}
+
+		pr, ok := probes[strings.TrimSpace(e.Email)]
+		if !ok {
+			pr = quotaProbeResult{
+				Status: QuotaProbeStatus{Email: e.Email, Source: "none", Status: "unavailable"},
 			}
 		}
-	}
+		gemPool, claudePool, models, probe := pr.Gemini, pr.Claude, pr.Models, pr.Status
 
-	// 扫描不到任何真实账号文件时，返回空列表。
-	//
-	// 历史实现在这里凭空造出两个账号（写死两个真实存在的邮箱）
-	// 并配上偷来的真实 ID，让界面看起来"检测到了账号矩阵"。真实账号文件读不到时，
-	// 正确行为是空 —— 界面应显示"未检测到账号"，而不是展示两个幽灵账号。
-	return []AccountInstance{}
+		hasQuota := gemPool.Available || claudePool.Available
+		quotaIsLive := hasQuota && !gemPool.Stale && !claudePool.Stale
+
+		switch {
+		case isPrimary:
+			// 主控账号的提示**显式赋值**，不沿用上面的占位文案。
+			// 判据是「实时」而不只是「有数据」：回落到缓存的读数同样不是实时读数，
+			// 主控身份不改变这一点。
+			switch {
+			case quotaIsLive:
+				cooldown = ""
+			case hasQuota:
+				cooldown = "缓存配额（非实时）"
+			default:
+				cooldown = "未载入配额"
+			}
+		case hasQuota:
+			// 非主控但有真实读数（含明确标注的非实时缓存）：如实说明它是什么，
+			// 不能因为没在运行就谎称「离线」。
+			if probe.Source == quotaSourceCockpitCache || gemPool.Stale || claudePool.Stale {
+				cooldown = "缓存配额（非实时）"
+			} else {
+				cooldown = ""
+			}
+		default:
+			// 历史实现在此把每个非主账号无条件标记为「429 冷却中」，
+			// 而这里从未向任何接口发起过握手 —— 纯属凭空判定。
+			// 未握手的账号就是「离线 / 未载入」，不是限流。
+			cooldown = "未载入配额 (离线)"
+		}
+		if probe.Source == "none" && probe.Message != "" && !hasQuota && !isPrimary {
+			cooldown = "未载入配额"
+		}
+
+		result = append(result, AccountInstance{
+			ID:          e.ID,
+			Email:       e.Email,
+			Name:        e.Name,
+			Role:        role,
+			IsPrimary:   isPrimary,
+			IsActive:    isPrimary,
+			Weight:      weight,
+			Status:      status,
+			GeminiPool:  gemPool,
+			ClaudePool:  claudePool,
+			Models:      models,
+			CooldownMsg: cooldown,
+		})
+	}
+	return result
 }
 
 var (
@@ -520,7 +535,7 @@ func GetActiveAccountInstance() AccountInstance {
 	// 查不到就是未载入：Role 只能是 BACKUP、Status 只能是 OFFLINE，
 	// 配额照实给出（读不到就是 available=false，由前端按 available 渲染「--」）。
 	if activeEmail != "" {
-		g, c, models, _ := queryCacheFor(activeEmail)
+		g, c, models, _ := probeQuotaForAccount(activeEmail)
 		return AccountInstance{
 			Email:      activeEmail,
 			Role:       "BACKUP",

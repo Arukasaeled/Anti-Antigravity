@@ -381,7 +381,7 @@ func MigrateLegacyVault() (int, error) {
 	}
 
 	migrated := 0
-	changed := idxErr != nil // 索引需要重写（v1 → v2 或损坏重建）
+	changed := idxErr != nil          // 索引需要重写（v1 → v2 或损坏重建）
 	fileToMeta := map[string]string{} // 文件名 → account id
 	for id, meta := range idx.Accounts {
 		if meta.File != "" {

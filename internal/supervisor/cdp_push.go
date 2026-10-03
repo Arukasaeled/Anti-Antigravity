@@ -116,7 +116,7 @@ func PushHubState(cfg config.Config) (PushHubStateResult, error) {
 	// 调用方 manager.go 的 applyHostVisibleChange 在快路径失败时会回落到整段重注入，
 	// 若在这里报错，官方形态下拖一次滑块就会触发一次「失败 → 重注入」的连锁，
 	// 而重注入同样被拒 ⇒ 用户看到一条红色的假故障。如实回执「没有消费者」才是对的。
-	if IsOfficialRuntime() {
+	if IsOfficialRuntime() || isOfficialCDPTarget(ResolveCDPAddr()) {
 		result.Consumed = "no-consumer"
 		result.Message = "当前为官方形态（OFFICIAL CLEAN）：配置已保存，但不会推送到任何宿主"
 		return result, nil

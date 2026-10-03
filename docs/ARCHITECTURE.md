@@ -8,11 +8,19 @@
 
 ```
 2ag.exe  ──┬─ 本机回环控制面 (API + 内嵌前端)
-           ├─ 本机回环 HTTP 转发代理
-           ├─ 侧车插件进程
-           └─ 官方 Antigravity 宿主 ── CDP ──> G-Hub / G-Cockpit（注入）
-                 └─ 以上全部挂在同一条 Windows Job Object 下：宿主退出，一并清干净
+           ├─ 本机回环 HTTP 转发代理      （仅 `2ag run` 启动时）
+           ├─ 侧车插件进程               （仅 `2ag run` 启动时）
+           └─ 冻结宿主副本（增强形态）── CDP ──> G-Hub / G-Cockpit（注入）
 ```
+
+### 两条启动链
+
+| 启动方式 | 代理 / 侧车 | 宿主进程归属 | Manager 关闭后 |
+|---|---|---|---|
+| `2ag run` | 启动 | 同一 Windows Job Object（`KILL_ON_JOB_CLOSE`） | 宿主被一并清掉 |
+| `2ag manager` / 无参数 | 不启动 | `exec.Command` 直接拉起，按 PID/`taskkill` 管理 | 宿主**继续运行**（设计如此，不改） |
+
+下面两张图只描述各自那条链，不能混着读。
 
 ## 模块
 
@@ -37,16 +45,25 @@
 
 注入全部走 **CDP runtime injection**：
 
-1. 2Ag 拉起官方宿主，通过 `--remote-debugging-port=<动态端口>` 打开调试通道；
+1. 2Ag 拉起增强形态的冻结宿主副本，通过 `--remote-debugging-port=<动态端口>` 打开调试通道；
 2. 用 `Runtime.evaluate` + `Page.addScriptToEvaluateOnNewDocument` 把 `injected_hub.js` 送进渲染进程；
-3. 界面以 **Shadow DOM** 挂载（`__2ag_root`），与宿主自己的 DOM 完全隔离，不污染宿主样式与选择器；
+3. G-Hub 以 **Shadow DOM** 挂载（`twoag-injected-root`）；Dream-Skin 等增强功能另有宿主样式层；
 4. 宿主进程结束，注入即刻消失 —— 不需要"卸载"，也不留残留。
+
+官方形态和登录 Broker 只使用原安装客户端，不注入。注入入口和持续巡检不仅检查形态配置，也拒绝官方 profile 的 CDP 目标，防止增强配置误捕获官方窗口。Broker 清凭据前保存 DPAPI 恢复记录，Manager/run 在 API 和宿主初始化前先恢复；恢复成功经逐字节校验后清记录。跨进程锁覆盖整个登录流程与其他凭据操作。
 
 CDP 端口**动态分配**：历史实现硬编码 28472，一旦被占用宿主会静默换随机端口，而 2Ag 仍在戳旧端口 —— 表现为"连不上"但没有报错。现在改为启动前预留空闲端口，并从 `DevToolsActivePort` 回读实际值。
 
 ## 进程生命周期
 
-宿主、代理、侧车进程全部挂在同一条 **Windows Job Object** 下，并设置 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`。2Ag 退出（包括崩溃）时，OS 会连带清掉整棵进程树 —— 不会留下孤儿宿主。
+Job Object 只在 **`2ag run`** 这条链上成立：宿主、代理、侧车进程全部挂在同一条 Windows Job Object 下并设置 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`，`2ag run` 退出时 OS 会连带清掉整棵进程树。
+
+**Manager（`2ag manager` / 无参数）默认不走 Job Object。** 它用 `LaunchEnhancedHost` → `exec.Command` 直接拉起宿主，按 PID 记账、用 `taskkill /F /T` 停止。因此：
+
+- 关掉 Manager 窗口，增强宿主**不会**被带走，会继续在后台跑；
+- 想停宿主，要在界面里点「结束进程」，或在 CLI 里用 `2ag run` 对应的托管方式。
+
+不要把两条链混成一句话写。上图的「全部挂在同一条 Job Object」只对 `2ag run` 成立。
 
 ## 运行形态
 
