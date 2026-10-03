@@ -597,7 +597,9 @@ func ApplyAntigravityCredential(email string) error {
 		return fmt.Errorf("切换凭据需要明确的目标邮箱")
 	}
 
-	if current, err := ReadHostLoginEmail(); err == nil && current != "" && strings.EqualFold(current, email) {
+	if raw, err := readAntigravityCredentialRaw(); err != nil {
+		return fmt.Errorf("读取当前凭据失败，未覆盖: %w", err)
+	} else if current, complete := credentialRestorableEmail(raw); complete && strings.EqualFold(current, email) {
 		log.Printf("[2ag] 系统凭据已是目标账号 %s，跳过写入（保留宿主刷新过的 token）", email)
 		return nil
 	}
@@ -605,6 +607,9 @@ func ApplyAntigravityCredential(email string) error {
 	payload, source, err := credentialPayloadForAccount(email)
 	if err != nil {
 		return err
+	}
+	if owner, ok := credentialRestorableEmail(payload); !ok || !strings.EqualFold(owner, email) {
+		return fmt.Errorf("目标凭据不完整或账号归属不一致，未写入")
 	}
 	if err := writeAntigravityCredentialRaw(payload); err != nil {
 		return err

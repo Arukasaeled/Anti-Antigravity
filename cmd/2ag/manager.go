@@ -337,6 +337,9 @@ func startManager(configPath string, cfg config.Config) error {
 	// 三处闸门都只问 supervisor.IsOfficialRuntime()，它们没有耐心先去读一次磁盘。
 	// 漏掉这一行的后果是「配置写了官方形态，机器上照样注入」—— 本轮最不能出的错。
 	supervisor.SetRuntimeMode(cfg.RuntimeMode)
+	credentialStop := make(chan struct{})
+	defer close(credentialStop)
+	go supervisor.StartCredentialCheckpoint(credentialStop)
 
 	// Account Vault 的一次性兼容迁移：0.1.1 之前的 ~/.2ag/vault/*.bin 是**明文**
 	// 写的（里面是含 refresh_token 的完整凭据）。升级到本版本后第一次启动就把它们
@@ -358,9 +361,11 @@ func startManager(configPath string, cfg config.Config) error {
 	defer close(runtimeModeCh)
 	go func() {
 		for mode := range runtimeModeCh {
-			supervisor.SetRuntimeMode(mode)
-			log.Printf("[2ag] 运行形态已切换为 %s，正在把宿主重启到该形态...", mode)
-			if err := supervisor.RestartHostClient(""); err != nil {
+			if err := supervisor.RunIndependentHostOperation(func() error {
+				supervisor.SetRuntimeMode(mode)
+				log.Printf("[2ag] 运行形态已切换为 %s，正在把宿主重启到该形态...", mode)
+				return supervisor.RestartHostClient("")
+			}); err != nil {
 				log.Printf("[2ag] 形态切换后重启宿主失败: %v", err)
 			}
 		}
@@ -376,13 +381,19 @@ func startManager(configPath string, cfg config.Config) error {
 				case core.HostCtrlAction:
 					if payload, ok := action.Payload.(map[string]any); ok {
 						cmd, _ := payload["cmd"].(string)
-						switch cmd {
-						case "start":
-							_ = supervisor.LaunchEnhancedHost("", "")
-						case "restart":
-							_ = supervisor.RestartEnhancedHost("", "")
-						case "stop":
-							_ = supervisor.StopHostClient()
+						if err := supervisor.RunIndependentHostOperation(func() error {
+							switch cmd {
+							case "start":
+								return supervisor.LaunchEnhancedHost("", "")
+							case "restart":
+								return supervisor.RestartEnhancedHost("", "")
+							case "stop":
+								return supervisor.StopHostClient()
+							default:
+								return fmt.Errorf("unknown host command %q", cmd)
+							}
+						}); err != nil {
+							log.Printf("[2ag] 宿主操作 %s 失败: %v", cmd, err)
 						}
 					}
 				case core.HotReloadAction:

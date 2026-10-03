@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -38,6 +39,8 @@ const (
 	vaultBlobVersion  = 1
 	vaultBlobAlgDPAPI = "DPAPI-CurrentUser"
 )
+
+var vaultWriteMu sync.Mutex
 
 // VaultAccount 是保险库里一个账号的对外视图（**不含**任何凭据内容）。
 type VaultAccount struct {
@@ -100,15 +103,25 @@ func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
 // Windows 上 os.Rename 走 MoveFileEx(MOVEFILE_REPLACE_EXISTING)，所以它同时是
 // 「原子替换已有文件」的正确做法。
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp := fmt.Sprintf("%s.tmp-%d", path, os.Getpid())
-	if err := os.WriteFile(tmp, data, perm); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
+	defer os.Remove(f.Name())
+	if err = f.Chmod(perm); err == nil {
+		_, err = f.Write(data)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err != nil {
 		return err
 	}
-	return nil
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Rename(f.Name(), path)
 }
 
 // loadVaultIndex 读出保险库索引（v2 原样返回；v1 在内存里升级成 v2）。
@@ -212,6 +225,11 @@ func decryptVaultPayload(data []byte) (plain []byte, legacy bool, err error) {
 
 // StoreVaultCredential 把一份凭据写入保险库（DPAPI 加密），并更新 index.json。
 func StoreVaultCredential(email, displayName string, raw []byte) (VaultAccount, error) {
+	if owner, ok := credentialRestorableEmail(raw); !ok || !strings.EqualFold(owner, strings.TrimSpace(email)) {
+		return VaultAccount{}, fmt.Errorf("拒绝归档不完整或归属不一致的登录；需要 access_token、refresh_token 和含 email 的 id_token")
+	}
+	vaultWriteMu.Lock()
+	defer vaultWriteMu.Unlock()
 	email = strings.TrimSpace(email)
 	if email == "" {
 		return VaultAccount{}, fmt.Errorf("拒绝归档没有邮箱的凭据")
@@ -263,6 +281,8 @@ func StoreVaultCredential(email, displayName string, raw []byte) (VaultAccount, 
 // 读到未加密的旧文件时会就地迁移：读完 → DPAPI 加密 → 原子替换 → 更新索引。
 // 迁移失败不影响本次读取（凭据已经拿到了），但会如实记日志。
 func ReadVaultCredential(email string) ([]byte, error) {
+	vaultWriteMu.Lock()
+	defer vaultWriteMu.Unlock()
 	dir := vaultDirPath()
 	idx, err := loadVaultIndex(dir)
 	if err != nil {
@@ -296,6 +316,8 @@ func ReadVaultCredential(email string) ([]byte, error) {
 
 // DeleteVaultAccount 从保险库删除一个账号（文件 + 索引项）。
 func DeleteVaultAccount(email string) error {
+	vaultWriteMu.Lock()
+	defer vaultWriteMu.Unlock()
 	dir := vaultDirPath()
 	idx, err := loadVaultIndex(dir)
 	if err != nil {
@@ -366,6 +388,8 @@ func findVaultMeta(idx *vaultIndexV2, email string) (vaultAccountMeta, bool) {
 // 迁移是幂等的：已经加密的文件原样跳过。返回值是本次真正迁移的账号数。
 // 单个文件失败不会中断其余文件 —— 一个坏文件不该让整库停在明文状态。
 func MigrateLegacyVault() (int, error) {
+	vaultWriteMu.Lock()
+	defer vaultWriteMu.Unlock()
 	dir := vaultDirPath()
 	entries, err := os.ReadDir(dir)
 	if err != nil {

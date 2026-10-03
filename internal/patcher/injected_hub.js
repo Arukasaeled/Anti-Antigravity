@@ -3346,12 +3346,180 @@
         }); },
         open(href) { const link = [...document.querySelectorAll('a[href^="/c/"]')].find(el => el.getAttribute('href') === href); if (!link) return false; link.click(); return true; }
       },
-      project: { current: project }
+      project: { current: project },
+      task: {
+        modelControl() {
+          return [...document.querySelectorAll('[data-testid="model-selector"], [data-testid="model-select-trigger"], [aria-label^="Select model, current:"], [aria-label^="选择模型，当前："], button[aria-label*="model" i], button[aria-label*="模型"], [role="combobox"][aria-label*="model" i]')].find(isUsableInput) || null;
+        },
+        current() {
+          const input = findInputTargetTiered(null).el;
+          const scope = input?.closest('form') || input?.parentElement?.parentElement;
+          const stop = [...document.querySelectorAll('button')].find(button => {
+            if (!isUsableInput(button)) return false;
+            const testID = button.getAttribute('data-testid') || '';
+            const labels = ['aria-label','data-tooltip','title'].map(name=>button.getAttribute(name)||'').concat(button.innerText||'');
+            const near = !!(scope?.contains(button) || view()?.contains(button));
+            return /^(?:stop-button|stop-generation|stop-response|agent-stop)$/.test(testID) || near && labels.some(label=>/^(?:stop(?: generating| generation| response| agent)?|停止(?:生成|响应|任务)?|cancel (?:generation|response))$/i.test(label.trim()));
+          });
+          const control = this.modelControl();
+          const modelLabel=control?.getAttribute('aria-label')||'';
+          const selectedModel = (modelLabel.match(/^(?:Select model, current:\s*|选择模型，当前：)(.+)$/)?.[1] || control?.innerText?.trim().split('\n')[0] || '').trim().slice(0,120);
+          const model = /gemini|claude|gpt/i.test(selectedModel) ? selectedModel : '';
+          return { busy: !!stop, model, pool: /claude|gpt/i.test(model) ? 'claude' : /gemini/i.test(model) ? 'gemini' : 'auto' };
+        },
+        newConversation() {
+          const button = [...document.querySelectorAll('[data-testid="new-conversation-button"], [data-testid="new-chat-button"], button[aria-label="New conversation"], button[aria-label="New chat"], button[aria-label="新建会话"]')].find(isUsableInput);
+          if (!button) return false;
+          button.click(); return true;
+        },
+        async selectModel(model) {
+          if (!model || this.current().model === model) return;
+          const control = this.modelControl();
+          if (!control) throw new Error(translateHub('Select the original model before retrying the handoff'));
+          control.click();
+          for(let attempt=0; attempt<20; attempt++) {
+            const option = [...document.querySelectorAll('[role="option"], [role="menuitem"], [role="menuitemradio"], [data-testid="model-option"], [data-testid^="model-option-"]')].find(node => isUsableInput(node) && (node.getAttribute('aria-label')===model || node.innerText?.trim().split('\n')[0] === model));
+            if(option) { option.click(); await new Promise(resolve=>setTimeout(resolve,300)); if(this.current().model===model)return; break; }
+            await new Promise(resolve=>setTimeout(resolve,150));
+          }
+          throw new Error(translateHub('Select the original model before retrying the handoff'));
+        },
+        async send(text,onDispatch,canDispatch) {
+          if(this.current().busy)throw new Error(translateHub('A native task is already running; handoff was preserved'));
+          const existing=host.prompt.get().trim();
+          if(existing && existing!==text.trim())throw new Error(translateHub('Native Prompt contains an unsent draft; handoff was preserved'));
+          let found=findSendButtonTiered();
+          if(!found.btn || found.tier>8 || classifySendButton(found.btn)==='stop')throw new Error(translateHub('Native send control is not ready'));
+          host.prompt.set(text);
+          for(let attempt=0;attempt<30;attempt++) {
+            if(hubDisposed)throw new Error(translateHub('Task handoff needs attention'));
+            if(this.current().busy || host.prompt.get().trim()!==text.trim())throw new Error(translateHub('A native task is already running; handoff was preserved'));
+            found=findSendButtonTiered();
+            if(found.btn && found.tier<=8 && classifySendButton(found.btn)!=='stop' && !found.btn.disabled && found.btn.getAttribute('aria-disabled')!=='true') {
+              if(canDispatch && !await canDispatch())throw new Error(translateHub('Task handoff needs attention'));
+              found=findSendButtonTiered();
+              if(hubDisposed || this.current().busy || host.prompt.get().trim()!==text.trim() || !found.btn || found.tier>8 || found.btn.disabled || found.btn.getAttribute('aria-disabled')==='true' || classifySendButton(found.btn)==='stop')throw new Error(translateHub('Native send control is not ready'));
+              if(onDispatch)onDispatch();found.btn.click();return;
+            }
+            await new Promise(resolve=>setTimeout(resolve,100));
+          }
+          throw new Error(translateHub('Native send control is not ready'));
+        }
+      }
     };
   })();
 
+  const liveTrace = __2AG_LIVE_TRACE_FACTORY__(host);
+  host.trace = {observe:liveTrace.observe,snapshot:liveTrace.snapshot};
   let interactionCleanup = null;
   let interactionLanguageChanged = null;
+  let relayCleanup = null;
+
+  function mountAccountRelay({shadow, request, flushDraft}) {
+    if(relayCleanup)relayCleanup();
+    const card=document.createElement('section');card.className='il-relay';
+    card.innerHTML=`<div class="il-relay-head"><strong data-relay-title></strong><label><input type="checkbox" data-relay-enabled><span data-relay-toggle></span></label></div><div class="il-relay-rule" data-relay-rule></div><div class="il-relay-status" data-relay-status role="status" aria-live="polite"></div><details><summary data-relay-settings></summary><label><span data-relay-pool-label></span><select data-relay-pool><option value="auto">Auto</option><option value="gemini">Gemini</option><option value="claude">Claude / GPT</option></select></label><label><span data-relay-path-label></span><input data-relay-path type="text" spellcheck="false"></label><label><span data-relay-brief-label></span><textarea data-relay-brief rows="3" spellcheck="false"></textarea></label><button type="button" data-relay-save></button><div data-relay-candidates></div><div class="il-relay-actions"><button type="button" data-relay-copy></button><button type="button" data-relay-retry></button><button type="button" data-relay-dismiss></button></div><div data-relay-confirm><p data-relay-confirm-hint></p><button type="button" data-relay-accepted></button><button type="button" data-relay-not-sent></button></div><ol data-relay-history></ol></details>`;
+    const css=document.createElement('style');css.textContent='.il-relay{border:1px solid #5a6b94;border-radius:12px;padding:10px 12px;margin-top:10px;background:rgba(138,180,248,.07)}.il-relay-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.il-relay-head strong{font-size:13px}.il-relay label{display:flex;align-items:center;gap:7px;font-size:12px}.il-relay input[type=checkbox]{accent-color:#8ab4f8}.il-relay-rule,.il-relay-status{font-size:11px;margin-top:5px;line-height:1.5}.il-relay-rule{color:var(--2ag-text-secondary)}.il-relay[data-phase=blocked],.il-relay[data-phase=paused],.il-relay[data-phase=resume-failed],.il-relay[data-phase=needs-workspace]{border-color:#cba85d}.il-relay summary{font-size:11px;cursor:pointer;margin-top:7px;color:var(--2ag-text-secondary)}.il-relay details label{margin:8px 0;flex-wrap:wrap}.il-relay input[type=text],.il-relay select{min-width:0;flex:1;border:1px solid #45484f;border-radius:7px;background:#202124;color:inherit;padding:6px}.il-relay button{font:inherit;font-size:11px;border:1px solid #45484f;border-radius:7px;padding:6px 9px;background:#25272c;color:inherit;cursor:pointer}.il-relay-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.il-relay ol{font-size:10px;padding-left:18px;max-height:130px;overflow:auto;color:var(--2ag-text-secondary)}';card.append(css);
+    shadow.getElementById('interaction-quota').append(card);
+    const $=selector=>card.querySelector(selector),t=text=>translateHub(text);
+    let alive=true, polling=false, resuming=false, state=null, lastPulse=0, handledID='', timer=null, settingsDirty=false;
+    const phases={off:'Off',idle:'Waiting for a task',checking:'Checking live quota',watching:'Watching task quota',blocked:'Relay unavailable',switching:'Switching account', 'resume-ready':'Preparing task handoff',dispatching:'Waiting for native task acceptance',running:'Task relay accepted',paused:'Relay paused', 'resume-failed':'Task handoff needs attention','needs-workspace':'Set the task workspace','needs-context':'Add retained task instructions','needs-confirmation':'Native send outcome needs confirmation'};
+    function paint(data) {
+      if(!alive)return;state=data;card.dataset.phase=data.phase;
+      $('[data-relay-title]').textContent=t('Quota Relay');$('[data-relay-toggle]').textContent=t(data.enabled?'On':'Off');$('[data-relay-enabled]').checked=!!data.enabled;
+      $('[data-relay-rule]').textContent=t('During a task: 5h or weekly quota ≤5% → another account');
+      $('[data-relay-settings]').textContent=t('Relay settings & history');$('[data-relay-pool-label]').textContent=t('Quota pool');$('[data-relay-path-label]').textContent=t('Task workspace');
+      $('[data-relay-pool] option[value=auto]').textContent=t('Follow selected model');
+      if(!settingsDirty && shadow.activeElement!==$('[data-relay-pool]'))$('[data-relay-pool]').value=data.pool||'auto';
+      if(!settingsDirty && shadow.activeElement!==$('[data-relay-path]'))$('[data-relay-path]').value=data.workspace_path||'';
+      $('[data-relay-path]').placeholder=t('Detected automatically when available');
+      $('[data-relay-brief-label]').textContent=t('Task handoff note (optional)');
+      const brief=$('[data-relay-brief]');brief.style.cssText='width:100%;box-sizing:border-box;background:#202124;color:inherit;border:1px solid #45484f;border-radius:7px;padding:7px;resize:vertical';
+      brief.placeholder=t('Goal and constraints to retain across accounts');if(!settingsDirty && shadow.activeElement!==brief)brief.value=data.brief_conversation===host.conversation.current().key?data.task_brief||'':'';
+      $('[data-relay-save]').textContent=t('Save relay settings');$('[data-relay-copy]').textContent=t('Copy task handoff');$('[data-relay-retry]').textContent=t('Retry retained handoff');$('[data-relay-dismiss]').textContent=t('Discard retained handoff');
+      const busy=['switching','dispatching'].includes(data.phase);
+      $('[data-relay-retry]').disabled=busy||!data.handoff||data.handoff?.send_claimed;$('[data-relay-dismiss]').disabled=busy||!data.handoff;$('[data-relay-copy]').disabled=!data.handoff;
+      $('[data-relay-confirm]').hidden=data.phase!=='needs-confirmation';$('[data-relay-confirm-hint]').textContent=t('Inspect the native conversation before confirming whether this handoff was sent.');$('[data-relay-accepted]').textContent=t('Task was accepted');$('[data-relay-not-sent]').textContent=t('Confirmed not sent: retry');
+      $('[data-relay-status]').textContent=t(phases[data.phase]||'Relay unavailable')+(data.to?' · '+data.to:'')+(data.message?' · '+t(data.message):'');
+      $('[data-relay-candidates]').textContent=(data.candidates||[]).map(candidate=>candidate.email+' · '+candidate.remaining+'%').join(' / ');
+      const history=$('[data-relay-history]');history.replaceChildren();for(const item of (data.history||[]).slice().reverse()){const row=document.createElement('li');row.textContent=new Date(item.at).toLocaleTimeString()+' · '+t(item.message);history.append(row);}
+    }
+    async function post(path,data){return(await request(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})).json();}
+    async function settings(data){const saved=await post('/api/v1/accounts/relay',data);if(data.workspace_path!==undefined)settingsDirty=false;paint(saved);lastPulse=0;handledID='';}
+    card.addEventListener('input',event=>{if(event.target.matches('[data-relay-pool],[data-relay-path],[data-relay-brief]'))settingsDirty=true;});
+    card.addEventListener('change',event=>{if(event.target.matches('[data-relay-enabled]'))settings({enabled:event.target.checked}).catch(error=>{if(state)paint(state);showToast('[2Ag] '+error.message);});});
+    card.addEventListener('click',event=>{
+      const button=event.target.closest('button');if(!button)return;
+      const run=async()=>{
+        if(button.matches('[data-relay-save]'))await settings({pool:$('[data-relay-pool]').value,workspace_path:$('[data-relay-path]').value,task_brief:$('[data-relay-brief]').value,brief_conversation:host.conversation.current().key});
+        if(button.matches('[data-relay-copy]')){const handoff=await(await request('/api/v1/accounts/relay/handoff')).json();if(handoff)await navigator.clipboard.writeText(handoff.prompt);}
+        if(button.matches('[data-relay-retry]')){await settings({action:'retry'});await poll();}
+        if(button.matches('[data-relay-dismiss]'))await settings({action:'dismiss'});
+        if(button.matches('[data-relay-accepted]'))await settings({action:'confirm-running'});
+        if(button.matches('[data-relay-not-sent]'))await settings({action:'confirm-not-sent'});
+      };run().catch(error=>showToast('[2Ag] '+error.message));
+    });
+    async function resume(data) {
+      if(resuming||!alive||!data.enabled||data.phase!=='resume-ready'||!data.handoff||handledID===data.handoff.id)return;
+      resuming=true;let mayHaveSent=false,handoff,claimed=false;
+      const claimID=crypto.randomUUID();
+      try {
+        handoff=await(await request('/api/v1/accounts/relay/handoff')).json();if(!handoff)return;
+        const original=handoff.conversation.replace(/^(?:host|route):/,'');
+        if(host.conversation.current().key!==handoff.conversation && host.conversation.history()) {
+          for(let attempt=0;attempt<12&&alive;attempt++) {
+            const entry=host.conversation.list().find(item=>item.href.split('?')[0]==='/c/'+original);
+            if(entry){host.conversation.open(entry.href);await new Promise(resolve=>setTimeout(resolve,500));break;}
+            await new Promise(resolve=>setTimeout(resolve,200));
+          }
+        }
+        if(!alive)return;
+        const current=host.conversation.current();
+        if(current.available && current.key!==handoff.conversation) {
+          if(!host.task.newConversation())throw new Error(t('Open a new conversation before retrying the handoff'));
+          await new Promise(resolve=>setTimeout(resolve,500));
+        }
+        await host.task.selectModel(handoff.model);
+        for(let attempt=0;attempt<30&&alive;attempt++){const input=host.prompt.find();if(input&&!isLockedInput(input))break;await new Promise(resolve=>setTimeout(resolve,300));}
+        if(!alive)return;
+        await flushDraft();
+        await post('/api/v1/accounts/relay/handoff',{id:handoff.id,phase:'dispatching',claim_id:claimID,message:'交接文本已保存，等待原生发送结果'});
+        claimed=true;
+        handledID=handoff.id;
+        if(!alive)throw new Error(t('Task handoff needs attention'));
+        await host.task.send(handoff.prompt,()=>{mayHaveSent=true;},async()=>{
+          const latest=await(await request('/api/v1/accounts/relay')).json();
+          return alive && latest.enabled && latest.phase==='dispatching' && latest.handoff?.id===handoff.id && latest.handoff?.claim_id===claimID;
+        });
+        let accepted=false;
+        for(let attempt=0;attempt<40&&alive;attempt++) {
+          if(host.conversation.messages().some(message=>message.role==='user'&&message.text.includes('2Ag handoff ID: '+handoff.id))){accepted=true;break;}
+          await new Promise(resolve=>setTimeout(resolve,250));
+        }
+        if(!accepted)throw new Error(t('Native task acceptance was not observed; review before retrying'));
+        await post('/api/v1/accounts/relay/handoff',{id:handoff.id,phase:'running',claim_id:claimID,message:'已观察到原生任务接收，接力继续'});
+      } catch(error) {
+        if(handoff) { handledID=handoff.id;if(claimed)try{await post('/api/v1/accounts/relay/handoff',{id:handoff.id,claim_id:claimID,phase:mayHaveSent?'needs-confirmation':'resume-failed',not_sent:!mayHaveSent,message:error.message});}catch(_){}if(alive)showToast('[2Ag] '+error.message); }
+      } finally { resuming=false; }
+    }
+    async function poll() {
+      if(!alive||polling)return;polling=true;
+      try {
+        let data=await(await request('/api/v1/accounts/relay')).json();if(!alive)return;paint(data);
+        if(data.enabled && !data.handoff && Date.now()-lastPulse>=10000) {
+          const task=host.task.current(),current=host.conversation.current(),project=host.project.current();
+          let messages=[];
+          if(task.busy){await flushDraft();messages=host.conversation.messages().map(message=>({role:message.role,text:message.text}));}
+          if(messages.length>60 || new TextEncoder().encode(messages.map(message=>message.text).join('')).length>96000)throw new Error(t('Loaded context is too large for automatic relay'));
+          data=await post('/api/v1/accounts/relay/pulse',{...task,conversation:current.key,title:current.title,project_name:project.name||'',project_path:project.path||'',messages});lastPulse=Date.now();if(alive)paint(data);
+        }
+        await resume(data);
+      } catch(error) { if(alive)$('[data-relay-status]').textContent=t('Relay unavailable')+' · '+error.message; }
+      finally { polling=false; }
+    }
+    timer=setInterval(poll,5000);poll();
+    relayCleanup=()=>{alive=false;clearInterval(timer);card.remove();};
+  }
 
   function mountInteractionLayer({ shadow, panel, request, layout, open, accounts, appearance }) {
     if (interactionCleanup) interactionCleanup();
@@ -3462,7 +3630,7 @@
     }));
     header.insertAdjacentHTML('afterend', `
       <div id="interaction-quota" class="il-muted il-header-quota">Gemini — · Claude/GPT —</div>
-      <nav class="il-nav" aria-label="G-Hub pages">${['home','compose','lens','capsule'].map(p => `<button type="button" data-page="${p}" aria-pressed="${p === 'home'}">${p.toUpperCase()}</button>`).join('')}${b('il-command-open', '⌕', 'aria-label="Search commands" title="Commands · Ctrl+Shift+K"')}</nav>
+      <nav class="il-nav" aria-label="G-Hub pages">${['home','compose','lens','capsule','trace'].map(p => `<button type="button" data-page="${p}" aria-pressed="${p === 'home'}">${p.toUpperCase()}</button>`).join('')}${b('il-command-open', '⌕', 'aria-label="Search commands" title="Commands · Ctrl+Shift+K"')}</nav>
       <div id="il-command-palette" class="il-palette" hidden><label>Commands<input id="il-command-search" type="search" placeholder="draft, pin, capsule, account…"></label><div id="il-command-results"></div></div>
       <div id="il-workspace-status" class="il-muted" role="status">正在载入本地工作区…</div>
       <main id="il-pages">
@@ -3503,6 +3671,7 @@
           <div class="il-toolbar">${b('il-capsule-copy','Copy')}${b('il-capsule-insert','Insert into Antigravity','class="il-primary"')}${b('il-capsule-save','Save Capsule')}</div>
           <details class="il-details"><summary>Markdown preview</summary><pre id="il-capsule-preview" class="il-text"></pre></details>
         </section>
+        <section id="il-trace" class="il-page" hidden></section>
         <section id="il-extensions" class="il-page" hidden><div id="il-extension-tabs" class="il-toolbar"></div><div id="il-extension-panel"></div></section>
       </main>`);
 
@@ -3620,17 +3789,20 @@
       renderPins(); renderCapsulePins(); paintPinHover();
       showcase?.renderLibraries();
     }
+    let traceViewCleanup=null;
     function showPage(next) {
+      if(next!==page&&traceViewCleanup){traceViewCleanup();traceViewCleanup=null;}
       page = next;
-      const wide = ['compose','lens','capsule','extensions'].includes(next);
+      const wide = ['compose','lens','capsule','extensions','trace'].includes(next);
       panel.dataset.mode = wide ? 'workspace' : 'compact';
-      for (const p of ['home','compose','lens','capsule','extensions']) $('il-' + p).hidden = p !== next;
+      for (const p of ['home','compose','lens','capsule','extensions','trace']) $('il-' + p).hidden = p !== next;
       shadow.querySelectorAll('.il-nav [data-page]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.page === next)));
       layout();
       if (next === 'lens') refreshOutline();
       if (next === 'capsule') { refreshProject(); renderCapsulePins(); updateCapsulePreview(); }
       persistRecovery();
       showcase?.pageChanged(next);
+      if(next==='trace'&&!traceViewCleanup)traceViewCleanup=liveTrace.mount($('il-trace'),{i18n:extensionAPI.i18n,copy:copyText,context:extensionAPI.context,toast:extensionAPI.toast});
     }
     function insertAtCursor(text) {
       const editor = $('il-prompt');
@@ -4338,7 +4510,7 @@
     };
     window.__2AG_IPC_DELIVER__ = deliver;
     const extensionAPI = Object.assign({}, oldAPI, {
-      apiVersion: '1.2',
+      apiVersion: '1.3',
       i18n: { get language(){return uiLanguage;},t: (zh,en) => en===undefined?t(zh):uiLanguage==='zh-CN'?zh:en,onChange(callback){if(typeof callback!=='function')throw new Error('onChange requires a function');languageListeners.add(callback);return()=>languageListeners.delete(callback);} },
       registerCommand: item => register(commands, item, 'registerCommand'),
       registerPanel: item => register(panels, item, 'registerPanel'),
@@ -4374,6 +4546,7 @@
       ['draft.new','Compose: New Draft',['compose'], () => changeDraft(null)],
       ['draft.last','Compose: Open Last Draft',['compose'], () => changeDraft([...workspace.drafts].sort((a,b)=>String(lastUsed(b)).localeCompare(String(lastUsed(a))))[0] || null)],
       ['lens.open','Lens: Open',['conversation'], () => showPage('lens')],
+      ['trace.open','Live Trace',['trace','tool','file','执行','工具'], () => showPage('trace')],
       ['message.pin','Lens: Pin Current',['lens'], () => pinMessage(host.conversation.messages().at(-1))],
       ['capsule.new','Capsule: Create',['context'], () => { fillCapsule(null); showPage('capsule'); }],
       ['capsule.open','Capsule: Open',['library'], () => showPage('capsule')],
@@ -4518,6 +4691,8 @@
     const pageExit = () => persistRecovery();
     window.addEventListener('pagehide', pageExit); cleanups.push(() => window.removeEventListener('pagehide', pageExit));
     interactionCleanup = () => {
+      if(traceViewCleanup){traceViewCleanup();traceViewCleanup=null;}
+      liveTrace.dispose();
       if (!alive) return;
       persistRecovery(); showcase?.dispose(); alive = false; clearTimeout(saveTimer);
       if (typeof panelCleanup === 'function') { try { panelCleanup(); } catch (_) {} }
@@ -5378,9 +5553,13 @@
     }
 
     // 依次尝试候选端口，返回第一个成功的 Response；全失败抛出最后一个错误。
+    let resolvedAPIOrigin = '';
     async function fetchFirstOk(path, init) {
       let lastErr = null;
-      for (const url of apiUrlFor(path)) {
+      const readOnly=!init?.method || init.method.toUpperCase()==='GET';
+      const urls=apiUrlFor(path);
+      const choices=readOnly?urls:[resolvedAPIOrigin?resolvedAPIOrigin+path:urls[0]];
+      for (const url of choices) {
         try {
           const res = await fetch(url, Object.assign({ cache: 'no-store' }, init || {}));
           if (!res.ok) {
@@ -5392,8 +5571,10 @@
             try { detail = (await res.text() || '').trim(); } catch (_) {}
             if (detail.length > 300) detail = detail.slice(0, 300) + '…';
             lastErr = new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`);
+            if(!readOnly)throw lastErr;
             continue;
           }
+          resolvedAPIOrigin=new URL(url).origin;
           return res;
         } catch (err) {
           lastErr = err;
@@ -5552,7 +5733,7 @@
 
       const candidates = accounts.filter((acc) => {
         if (!acc || !acc.email) return false;
-        return !(currentEmail && acc.email === currentEmail);
+        return !(currentEmail && acc.email.toLowerCase() === currentEmail.toLowerCase());
       });
 
       if (candidates.length === 0) {
@@ -5646,16 +5827,27 @@
       setLoading(true);
       showToast(`[2Ag] 正在切换至 ${email} 并重启宿主沙箱...`);
       // 宿主被 taskkill 后本页面会随之销毁 —— 遮罩正是给这段「黑屏空窗」用的。
-      // 20s 后若页面仍存活，说明重启没有发生，必须把遮罩撤掉。
-      armLoadingGuard(20000);
+      // 后端保存异步回执，新宿主可继续读取；此页仍存活时提供有限等待。
+      armLoadingGuard(90000);
 
       try {
         const res = await fetchFirstOk('/api/v1/host/switch-and-restart', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: email })
+          body: JSON.stringify({ email: email, async: true })
         });
         const data = await res.json().catch(() => ({}));
+        if(data.running) {
+          while(accountSwitchPending && !hubDisposed) {
+            await new Promise(resolve=>setTimeout(resolve,1000));
+            const status=await(await fetchFirstOk('/api/v1/host/switch-status')).json();
+            if(status.running)continue;
+            if(!status.success)throw new Error('HTTP 409: '+status.message);
+            data.success=status.success;data.result=status.result;data.message=status.message;break;
+          }
+        }
+        if(!data.success)throw new Error('HTTP 409: '+(data.message||translateHub('Account switch was not confirmed')));
+        if(data.result?.already_active){setLoading(false);accountSwitchPending=false;if(loadingGuardTimer){clearTimeout(loadingGuardTimer);loadingGuardTimer=null;}for(const button of allSwitchBtns)button.disabled=false;}
         // 走到这里说明宿主还活着，即重启窗口尚未关闭：保持遮罩，只报状态。
         showToast(`[2Ag] ${data && data.message ? data.message : '切换指令已被接受，宿主正在重启...'}`);
       } catch (err) {
@@ -6055,12 +6247,24 @@
       accounts: () => { const acc = shadow.getElementById('acct-acc'); if (acc?.dataset.open !== 'true') shadow.getElementById('acct-head')?.click(); refreshAccountList(); },
       appearance: () => syncThemeChips()
     });
+    mountAccountRelay({shadow,request:fetchFirstOk,flushDraft:interaction.flushDraft});
 
     // 配额轮询：同样走窗口级命名槽（4s 周期只保留一份，dispose 时随 resize 一并清理）
     hubQuotaRefresher = refreshQuotas;
     ensureHubRuntimeHooks();
 
     refreshQuotas();
+
+    // A switch destroys the initiating host page. The new page reads the
+    // persisted completion instead of treating accepted/restarted as success.
+    (async()=>{
+      try {
+        let status=await(await fetchFirstOk('/api/v1/host/switch-status')).json();
+        if(!status.running&&(!status.finished_at||Date.now()-Date.parse(status.finished_at)>120000))return;
+        while(status.running&&!hubDisposed){await new Promise(resolve=>setTimeout(resolve,1000));status=await(await fetchFirstOk('/api/v1/host/switch-status')).json();}
+        if(!hubDisposed&&status.message)showToast('[2Ag] '+status.message);
+      }catch(_){} // Older local APIs do not expose asynchronous switch status.
+    })();
 
     // 关键挂载断言日志（按规范格式输出）
     console.log('[2AG_UI_MOUNTED]', { version: '2.2', root: '#' + SHADOW_HOST_ID });
@@ -6069,6 +6273,7 @@
   // 11.1 对外应急接口：快捷键被抢占/宿主假死时的编程逃生口
   function disposeHub() {
     hubDisposed = true;
+    if(relayCleanup){relayCleanup();relayCleanup=null;}
     if (interactionCleanup) { interactionCleanup(); interactionCleanup = null; }
     clearHubRuntimeHandles();
     if (window[TIMER_KEY]) {

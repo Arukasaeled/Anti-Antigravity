@@ -283,6 +283,10 @@ func officialLoginPageDiagnostic() string {
 	if err != nil || port <= 0 || !portListening(port) {
 		return ""
 	}
+	if native := readNativeAuthAt(CDPAddrForPort(port)); native.Available && native.Failure != "" {
+		brokerMutate(func(s *LoginBrokerStatus) { s.NativeAuth = &native })
+		return "原生 Antigravity 登录服务报告（" + native.Failure + "）：" + native.Message + "。来源：LanguageServer/GetAuthStatus；2Ag 未执行地区判断。"
+	}
 	client := &http.Client{Timeout: 2 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/json/list", port))
 	if err != nil {
@@ -453,8 +457,18 @@ func runLoginBroker(configuredMode string, network loginNetwork) {
 		raw, err := readAntigravityCredentialRaw()
 		if err == nil && len(raw) > 0 {
 			if email, ok := credentialUsableEmail(raw); ok {
-				addedEmail = email
-				break
+				port, _, _ := officialDevToolsActivePort()
+				native := readNativeAuthAt(CDPAddrForPort(port))
+				brokerMutate(func(s *LoginBrokerStatus) { s.NativeAuth = &native })
+				if nativeCredentialReady(raw, native, email) {
+					addedEmail = email
+					break
+				}
+				if native.Failure != "" {
+					brokerStage(brokerStageWaiting, "原生 Antigravity 拒绝登录（"+native.Failure+"）："+native.Message)
+				}
+				time.Sleep(time.Second)
+				continue
 			}
 			// 中间态（官方先写 {"token":null}）。这里**绝不入库**，
 			// 只是如实告诉用户「看到了但还不算完成」。
@@ -530,6 +544,11 @@ func runLoginBroker(configuredMode string, network loginNetwork) {
 		brokerRollbackAndFinish("identity mismatch：登录凭据归属发生变化，未归档", origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
 	}
+	port, _, _ := officialDevToolsActivePort()
+	if !nativeCredentialReady(rawNow, readNativeAuthAt(CDPAddrForPort(port)), addedEmail) {
+		brokerRollbackAndFinish("归档前原生登录身份未确认，未归档", origRaw, origEmail, prior, hadHost, wasOfficial)
+		return
+	}
 	if _, err := StoreVaultCredential(addedEmail, displayNameFromCredentialPayload(rawNow), rawNow); err != nil {
 		brokerRollbackAndFinish("写入保险库失败: "+err.Error(), origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
@@ -542,11 +561,11 @@ func runLoginBroker(configuredMode string, network loginNetwork) {
 	brokerStage(brokerStageSaving, "账号 "+addedEmail+" 已加密保存到保险库（index.json 只写元数据）")
 
 	// ⑦ 恢复原账号（原本没有账号则保留新账号）
-	restored, currentEmail := brokerRestore(origRaw, origEmail, prior, hadHost, wasOfficial)
-	if !restored && origEmail != "" && len(origRaw) > 0 {
+	restored, _, restoreErr := brokerRestore(origRaw, origEmail, prior, hadHost, wasOfficial, true)
+	if restoreErr != nil {
 		brokerFinish(brokerStageFailed,
-			"账号 "+addedEmail+" 已保存到保险库，但恢复原账号 "+origEmail+" 失败",
-			"恢复原账号失败：当前登录身份为 "+currentEmail)
+			"账号 "+addedEmail+" 已保存，但恢复未完成，请重启 2Ag",
+			restoreErr.Error())
 		return
 	}
 
@@ -570,9 +589,9 @@ func restoreRuntimeModeValue(wasOfficial bool) string {
 	return "enhanced"
 }
 
-// 返回 (restored, currentEmail)：restored 表示「原本那个账号确实回来了」；
-// 原本没有账号时 restored 为 false，currentEmail 即新账号（这是期望结果，不是失败）。
-func brokerRestore(origRaw []byte, origEmail string, prior RuntimeModeFacts, hadHost bool, wasOfficial bool) (bool, string) {
+// Only a successful first login may retain a new account when originally signed
+// out. Failure/cancellation restores signed out, including after process loss.
+func brokerRestore(origRaw []byte, origEmail string, prior RuntimeModeFacts, hadHost bool, wasOfficial bool, keepNew bool) (bool, string, error) {
 	// ★ 进入恢复阶段前先解除形态钉住。
 	//
 	// 这一步必须在**重启宿主之前**做：恢复阶段要按「流程开始前的形态」重启宿主，
@@ -584,36 +603,40 @@ func brokerRestore(origRaw []byte, origEmail string, prior RuntimeModeFacts, had
 
 	brokerStage(brokerStageRestoring, "正在恢复原账号…")
 	if stopAllAntigravityProcesses("登录结束，准备恢复原账号") != 0 {
-		return false, ""
+		return false, "", fmt.Errorf("宿主停止失败，恢复记录已保留")
 	}
 
 	restored := false
 	if origEmail != "" && len(origRaw) > 0 {
 		if err := writeAntigravityCredentialRaw(origRaw); err != nil {
-			log.Printf("[2ag] Login Broker：写回原凭据失败: %v", err)
-		} else if got, _ := ReadHostLoginEmail(); strings.EqualFold(strings.TrimSpace(got), origEmail) {
-			back, readErr := readAntigravityCredentialRaw()
-			if readErr != nil || !bytes.Equal(back, origRaw) {
-				return false, got
-			}
-			restored = true
-			if err := clearBrokerRecovery(); err != nil {
-				restored = false
-			}
-			brokerStage(brokerStageRestoring, "已恢复原账号 "+origEmail)
-		} else {
-			log.Printf("[2ag] Login Broker：原凭据写回后校验不一致（期望 %s，实际 %s）", origEmail, strings.TrimSpace(got))
+			return false, "", fmt.Errorf("写回原凭据失败，恢复记录已保留: %w", err)
+		}
+		back, err := readAntigravityCredentialRaw()
+		if err != nil || !bytes.Equal(back, origRaw) {
+			return false, "", fmt.Errorf("原凭据回读不一致，恢复记录已保留")
+		}
+		restored = true
+		SetActiveAccount(origEmail)
+		SetPersistedActiveAccount(origEmail)
+	} else if !keepNew {
+		if err := deleteAntigravityCredentialRaw(); err != nil {
+			return false, "", err
+		}
+		if err := ClearActiveAccount(); err != nil {
+			return false, "", err
+		}
+		back, err := readAntigravityCredentialRaw()
+		if err != nil || len(back) != 0 {
+			return false, "", fmt.Errorf("退出登录状态未恢复，恢复记录已保留")
 		}
 	}
 
 	currentEmail := ""
-	if got, err := ReadHostLoginEmail(); err == nil {
+	if got, err := ReadHostLoginEmail(); err != nil {
+		return false, "", err
+	} else {
 		currentEmail = strings.TrimSpace(got)
 	}
-	brokerMutate(func(s *LoginBrokerStatus) {
-		s.Restored = restored
-		s.CurrentEmail = currentEmail
-	})
 
 	if hadHost && (len(origRaw) == 0 || restored) {
 		target := currentEmail
@@ -621,19 +644,27 @@ func brokerRestore(origRaw []byte, origEmail string, prior RuntimeModeFacts, had
 			target = origEmail
 		}
 		if err := restartHostInMode(prior.Effective, target); err != nil {
-			log.Printf("[2ag] Login Broker：重启宿主失败（形态 %s）: %v", prior.Effective, err)
-			brokerStage(brokerStageRestoring, "宿主重启失败："+err.Error()+"（登录身份已恢复）")
+			return false, currentEmail, fmt.Errorf("凭据已恢复，但宿主重启失败: %w", err)
 		} else {
 			brokerMutate(func(s *LoginBrokerStatus) { s.HostRestarted = true })
-			brokerStage(brokerStageRestoring, "已按「"+modeLabel(prior.Effective)+"」重启宿主")
+			if currentEmail != "" {
+				if _, err := waitForNativeAccount(currentEmail, 20*time.Second); err != nil {
+					return false, currentEmail, fmt.Errorf("凭据已恢复，但原生登录尚未确认: %w", err)
+				}
+			}
 		}
 	}
-	return restored, currentEmail
+	if err := clearBrokerRecovery(); err != nil {
+		return false, currentEmail, fmt.Errorf("恢复完成，但恢复记录清理失败: %w", err)
+	}
+	brokerMutate(func(s *LoginBrokerStatus) { s.Restored = restored; s.CurrentEmail = currentEmail })
+	brokerStage(brokerStageRestoring, "已恢复登录状态"+orNoAccount(currentEmail))
+	return restored, currentEmail, nil
 }
 
 // brokerRollbackAndFinish 是失败/取消路径的统一出口：先把机器恢复原状，再如实收尾。
 func brokerRollbackAndFinish(reason string, origRaw []byte, origEmail string, prior RuntimeModeFacts, hadHost bool, wasOfficial bool) {
-	restored, currentEmail := brokerRestore(origRaw, origEmail, prior, hadHost, wasOfficial)
+	restored, currentEmail, restoreErr := brokerRestore(origRaw, origEmail, prior, hadHost, wasOfficial, false)
 	detail := reason
 	switch {
 	case origEmail == "":
@@ -644,11 +675,12 @@ func brokerRollbackAndFinish(reason string, origRaw []byte, origEmail string, pr
 		detail += "；原账号 " + origEmail + " **未能确认恢复**（当前身份：" + orNoAccount(currentEmail) + "）"
 	}
 	stage := brokerStageFailed
-	if brokerCancelled() && (origEmail == "" || restored) {
+	if brokerCancelled() && restoreErr == nil {
 		stage = brokerStageCancelled
 	}
-	if origEmail != "" && !restored {
-		reason = "恢复原账号失败，请重启 2Ag 重试恢复"
+	if restoreErr != nil {
+		reason = "恢复未完成，请重启 2Ag 重试恢复"
+		detail += "；" + restoreErr.Error()
 	}
 	brokerFinish(stage, reason, detail)
 }
@@ -661,14 +693,14 @@ func orNoAccount(v string) string {
 }
 
 // restartHostInMode 按指定形态重启宿主（停 → 起），供切换与恢复共用。
-func restartHostInMode(mode, accountEmail string) error {
+func restartHostInMode(mode, accountEmail string, workspacePaths ...string) error {
 	if mode == RuntimeModeOfficialValue {
 		return LaunchOfficialHost("")
 	}
 	if strings.TrimSpace(accountEmail) != "" {
 		SetActiveAccount(accountEmail)
 	}
-	return LaunchEnhancedHost("", accountEmail)
+	return launchEnhancedHost("", accountEmail, false, workspacePaths...)
 }
 
 // SwitchAccountTransactional 事务化切换登录账号：停宿主 → 写凭据 → 启动 → 校验 → 提交/回滚。
@@ -677,7 +709,7 @@ func restartHostInMode(mode, accountEmail string) error {
 // 回写。在它活着的时候改，等于让两个写入者抢同一条记录 —— 结果既不确定，也无法校验。
 // 事务化的价值全在最后那步校验上：**验证失败就回滚，并且把回滚结果也验证一遍**，
 // 于是「切换失败」不再等于「用户不知道自己在哪个账号上」。
-func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResult, error) {
+func SwitchAccountTransactional(email, configuredMode string, options ...AccountSwitchOptions) (AccountSwitchResult, error) {
 	release, err := lockCredentialOperation()
 	if err != nil {
 		return AccountSwitchResult{}, err
@@ -691,33 +723,70 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 	if out.Email == "" {
 		return out, fmt.Errorf("切换账号需要明确的目标邮箱")
 	}
-
-	target, err := ReadVaultCredential(out.Email)
-	if err != nil {
-		return out, err
-	}
-	if len(target) == 0 {
-		return out, fmt.Errorf("保险库里 %s 的凭据为空，拒绝写入", out.Email)
-	}
-	if verified, ok := credentialUsableEmail(target); !ok {
-		return out, fmt.Errorf("保险库里 %s 的凭据不是一份完整登录（缺少 access_token / id_token），拒绝写入", out.Email)
-	} else if !strings.EqualFold(verified, out.Email) {
-		return out, fmt.Errorf("保险库里 %s 的凭据实际属于 %s，拒绝写入", out.Email, verified)
+	var option AccountSwitchOptions
+	if len(options) > 0 {
+		option = options[0]
 	}
 
 	prevRaw, err := readAntigravityCredentialRaw()
 	if err != nil {
 		return out, fmt.Errorf("读取原凭据失败，未切换: %w", err)
 	}
-	if prev, _ := ReadHostLoginEmail(); strings.TrimSpace(prev) != "" {
-		out.PreviousOwner = strings.TrimSpace(prev)
-	}
+	out.PreviousOwner = emailFromCredentialPayload(prevRaw)
 	if len(prevRaw) > 0 && out.PreviousOwner == "" {
 		return out, fmt.Errorf("identity mismatch：无法识别原凭据，未切换")
+	}
+	if option.ExpectedOwner != "" && !strings.EqualFold(option.ExpectedOwner, out.PreviousOwner) {
+		return out, fmt.Errorf("当前账号已改变，本次接力已取消")
 	}
 	prior := RuntimeModeFactsNow(configuredMode)
 	out.Mode = prior.Effective
 	hadHost := prior.Effective != "none"
+	if hadHost && prior.Effective != prior.Configured {
+		return out, fmt.Errorf("运行形态仍待切换，请先完成形态切换后再换号；未停止宿主")
+	}
+	if option.ExpectedOwner != "" && prior.Effective != "enhanced" {
+		return out, fmt.Errorf("自动接力仅支持运行中的增强宿主")
+	}
+	if option.ExpectedOwner != "" {
+		for _, process := range scanAntigravityProcesses() {
+			if !IsFrozenHostPath(process.Exe) {
+				return out, fmt.Errorf("其他 Antigravity 实例正在运行，自动接力已暂缓")
+			}
+		}
+	}
+	sameOwner := strings.EqualFold(out.PreviousOwner, out.Email)
+	if sameOwner && hadHost {
+		fresh, err := waitForNativeAccount(out.Email, 5*time.Second)
+		if err != nil {
+			return out, fmt.Errorf("当前凭据属于目标账号，但原生登录未确认；现有宿主未停止: %w", err)
+		}
+		if _, err := StoreVaultCredential(out.Email, displayNameFromCredentialPayload(fresh), fresh); err != nil {
+			return out, fmt.Errorf("当前登录有效，但保存最新登录失败: %w", err)
+		}
+		out.AlreadyActive, out.Verified = true, true
+		out.VerifiedOwner = out.PreviousOwner
+		out.Message = "当前已是目标账号，原生身份已核验，保留现有宿主和最新凭据"
+		return out, nil
+	}
+	// With no host, the same email still needs a native bootstrap and verification.
+	// Use its current refreshed blob rather than overwriting it with an older archive.
+	target := prevRaw
+	if !sameOwner {
+		target, err = ReadVaultCredential(out.Email)
+		if err != nil {
+			return out, err
+		}
+	}
+	if owner, ok := credentialRestorableEmail(target); !ok || !strings.EqualFold(owner, out.Email) {
+		return out, fmt.Errorf("目标账号凭据不完整、已失效或归属不一致，未切换")
+	}
+	if option.WorkspacePath != "" {
+		info, err := os.Stat(option.WorkspacePath)
+		if err != nil || !info.IsDir() {
+			return out, fmt.Errorf("接力工作目录不可用，未切换")
+		}
+	}
 
 	// 切换是破坏性的：当前凭据里可能有宿主刚刷新过的 refresh_token，
 	// 那是全世界唯一的一份。先归档再动手。
@@ -726,12 +795,52 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 			return out, fmt.Errorf("备份原凭据失败，未切换: %w", err)
 		}
 	}
+	if option.BeforeStop != nil {
+		if err := option.BeforeStop(); err != nil {
+			return out, err
+		}
+	}
+	rollback := func(reason string) (AccountSwitchResult, error) {
+		out.Verified = false
+		out.RolledBack = true
+		ok, _ := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost, option.WorkspacePath)
+		out.RollbackVerified = ok
+		out.Message = reason
+		if ok {
+			SetActiveAccount(out.PreviousOwner)
+			SetPersistedActiveAccount(out.PreviousOwner)
+			if err := clearBrokerRecovery(); err != nil {
+				out.Message += "；原账号已恢复，但恢复记录清理失败，请重启 2Ag"
+			} else {
+				out.Message += "；原账号及宿主已恢复"
+			}
+		} else {
+			out.Message += "；恢复未完成，请重启 2Ag 读取恢复记录"
+		}
+		return out, fmt.Errorf("%s", out.Message)
+	}
 
 	if stopAllAntigravityProcesses("账号切换：先停宿主") != 0 {
 		return out, fmt.Errorf("宿主仍在运行，未写入目标凭据")
 	}
+	// Stop may flush a refreshed token. Preserve the final blob.
+	if latest, err := readAntigravityCredentialRaw(); err != nil {
+		return rollback("停止后读取原凭据失败")
+	} else if !strings.EqualFold(emailFromCredentialPayload(latest), out.PreviousOwner) {
+		return rollback("停止后账号归属发生变化")
+	} else {
+		prevRaw = latest
+	}
+	if out.PreviousOwner != "" {
+		if _, err := StoreVaultCredential(out.PreviousOwner, displayNameFromCredentialPayload(prevRaw), prevRaw); err != nil {
+			return rollback("保存原账号最新凭据失败")
+		}
+	}
+	if err := saveBrokerRecovery(prevRaw, out.PreviousOwner); err != nil {
+		return rollback("保存切号恢复记录失败")
+	}
 	if err := writeAntigravityCredentialRaw(target); err != nil {
-		return out, fmt.Errorf("写入目标凭据失败: %w", err)
+		return rollback("写入目标凭据失败")
 	}
 	log.Printf("[2ag] 账号切换：已写入目标凭据 %s（%d B）", out.Email, len(target))
 
@@ -742,49 +851,40 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 	if strings.TrimSpace(mode) == "" {
 		mode = "enhanced"
 	}
-	if err := restartHostInMode(mode, out.Email); err != nil {
+	if err := restartHostInMode(mode, out.Email, option.WorkspacePath); err != nil {
 		// 启动失败也算切换失败：宿主没起来就无从校验，必须回滚。
-		out.RolledBack = true
-		rollbackOK, rollbackOwner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
-		out.RollbackVerified = rollbackOK
-		out.Message = "启动宿主失败：" + err.Error()
-		if rollbackOK {
-			out.Message += "；已回滚到 " + rollbackOwner
-		} else {
-			out.Message += "；恢复原账号失败，请从保险库恢复"
-		}
-		return out, fmt.Errorf("切换账号 %s 失败：%s", out.Email, out.Message)
+		return rollback("启动目标宿主失败：" + err.Error())
 	}
 	out.HostRestarted = true
 
-	got := waitForHostLoginEmail(out.Email, 8)
+	fresh, authErr := waitForNativeAccount(out.Email, 25*time.Second)
+	if authErr != nil {
+		return rollback(authErr.Error())
+	}
+	got := emailFromCredentialPayload(fresh)
 	out.VerifiedOwner = got
 	out.Verified = strings.EqualFold(got, out.Email)
 	if out.Verified {
+		if _, err := StoreVaultCredential(out.Email, displayNameFromCredentialPayload(fresh), fresh); err != nil {
+			return rollback("保存原生刷新后的登录失败")
+		}
 		SetActiveAccount(out.Email)
 		if mode != RuntimeModeOfficialValue {
 			SetPersistedActiveAccount(out.Email)
 		}
 		out.Message = "已切换到 " + out.Email + "（宿主已按「" + modeLabel(mode) + "」重启，实际登录身份已核对一致）"
+		if err := clearBrokerRecovery(); err != nil {
+			return rollback("清理切号恢复记录失败")
+		}
 		return out, nil
 	}
 
 	// 回滚：写回旧凭据 → 重启 → 再校验一次
-	out.RolledBack = true
-	rollbackOK, rollbackOwner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
-	out.RollbackVerified = rollbackOK
-	out.Message = "切换失败：宿主实际登录身份是 " + orNoAccount(got) + "（目标 " + out.Email + "）"
-	if rollbackOK {
-		out.Message += "；已回滚到 " + rollbackOwner
-	} else {
-		out.Message += "；恢复原账号失败，请从保险库恢复"
-	}
-	errOut := fmt.Errorf("切换账号 %s 失败：校验实际身份为 %s。%s", out.Email, orNoAccount(got), out.Message)
-	return out, errOut
+	return rollback("目标登录身份核对失败：" + orNoAccount(got))
 }
 
 // switchRollback 写回旧凭据并按原形态重启，然后**再校验一次**回滚结果。
-func switchRollback(prevRaw []byte, prevEmail string, prior RuntimeModeFacts, hadHost bool) (bool, string) {
+func switchRollback(prevRaw []byte, prevEmail string, prior RuntimeModeFacts, hadHost bool, workspacePaths ...string) (bool, string) {
 	if stopAllAntigravityProcesses("账号切换回滚：先停宿主") != 0 {
 		return false, ""
 	}
@@ -801,17 +901,31 @@ func switchRollback(prevRaw []byte, prevEmail string, prior RuntimeModeFacts, ha
 	if err != nil || !bytes.Equal(got, prevRaw) {
 		return false, ""
 	}
+	if prevEmail == "" {
+		if err := ClearActiveAccount(); err != nil {
+			return false, ""
+		}
+	} else {
+		SetActiveAccount(prevEmail)
+	}
 	if hadHost {
 		mode := prior.Effective
 		if mode == "" || mode == "none" {
 			mode = "enhanced"
 		}
-		if err := restartHostInMode(mode, prevEmail); err != nil {
+		if err := restartHostInMode(mode, prevEmail, workspacePaths...); err != nil {
 			log.Printf("[2ag] 账号切换回滚：重启宿主失败: %v", err)
+			return false, prevEmail
+		}
+		if prevEmail != "" {
+			if _, err := waitForNativeAccount(prevEmail, 20*time.Second); err != nil {
+				log.Printf("[2ag] 原凭据已恢复，但原生登录尚未确认: %v", err)
+				return false, prevEmail
+			}
 		}
 	}
 	owner := waitForHostLoginEmail(prevEmail, 8)
-	ok := prevEmail != "" && strings.EqualFold(owner, prevEmail)
+	ok := strings.EqualFold(owner, prevEmail)
 	return ok, owner
 }
 

@@ -46,11 +46,30 @@ func lockCredentialOperation() (func(), error) {
 	}, nil
 }
 
+// Independent UI host controls must not interrupt a login/switch transaction.
+// Transaction-owned launches use their internal path while holding the same lock.
+// A nil callback is a read-only admission check before queueing a UI command.
+func RunIndependentHostOperation(action func() error) error {
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return err
+	}
+	defer release()
+	if _, err := os.Stat(brokerRecoveryPath()); !os.IsNotExist(err) {
+		return fmt.Errorf("存在未完成的账号恢复，请先重启 2Ag 恢复")
+	}
+	if action == nil {
+		return nil
+	}
+	return action()
+}
+
 type brokerRecovery struct {
 	Version    int             `json:"version"`
 	Email      string          `json:"email"`
 	CreatedAt  string          `json:"created_at"`
 	Credential json.RawMessage `json:"credential"` // DPAPI envelope, never plaintext
+	SignedOut  bool            `json:"signed_out,omitempty"`
 }
 
 func brokerRecoveryPath() string {
@@ -58,14 +77,17 @@ func brokerRecoveryPath() string {
 }
 
 func saveBrokerRecovery(raw []byte, email string) error {
-	if len(raw) == 0 {
-		return nil
+	var sealed []byte
+	if len(raw) > 0 {
+		var err error
+		sealed, err = encryptVaultPayload(raw)
+		if err != nil {
+			return err
+		}
+	} else if email != "" {
+		return fmt.Errorf("缺少原账号凭据，无法保存恢复记录")
 	}
-	sealed, err := encryptVaultPayload(raw)
-	if err != nil {
-		return err
-	}
-	data, err := json.Marshal(brokerRecovery{Version: 1, Email: email, CreatedAt: time.Now().UTC().Format(time.RFC3339), Credential: sealed})
+	data, err := json.Marshal(brokerRecovery{Version: 1, Email: email, CreatedAt: time.Now().UTC().Format(time.RFC3339), Credential: sealed, SignedOut: len(raw) == 0})
 	if err != nil {
 		return err
 	}
@@ -112,12 +134,23 @@ func restoreBrokerRecovery(stop func() error, write func([]byte) error, read fun
 		return false, err
 	}
 	var record brokerRecovery
-	if json.Unmarshal(data, &record) != nil || record.Version != 1 || !isEncryptedVaultBlob(record.Credential) {
+	if json.Unmarshal(data, &record) != nil || record.Version != 1 {
 		return false, fmt.Errorf("账号恢复记录损坏，已保留；请从保险库恢复原账号")
 	}
-	raw, legacy, err := decryptVaultPayload(record.Credential)
-	if err != nil || legacy || len(raw) == 0 {
-		return false, fmt.Errorf("账号恢复记录无法解密，已保留")
+	var raw []byte
+	if record.SignedOut {
+		if record.Email != "" || (len(record.Credential) != 0 && string(record.Credential) != "null") {
+			return false, fmt.Errorf("退出登录恢复记录损坏，已保留")
+		}
+	} else {
+		if !isEncryptedVaultBlob(record.Credential) {
+			return false, fmt.Errorf("账号恢复记录损坏，已保留")
+		}
+		var legacy bool
+		raw, legacy, err = decryptVaultPayload(record.Credential)
+		if err != nil || legacy || len(raw) == 0 {
+			return false, fmt.Errorf("账号恢复记录无法解密，已保留")
+		}
 	}
 	if err := stop(); err != nil {
 		return false, err
@@ -162,5 +195,19 @@ func RecoverPendingLoginBroker() (bool, error) {
 			return fmt.Errorf("官方宿主仍在运行，无法恢复原凭据")
 		}
 		return nil
-	}, writeAntigravityCredentialRaw, readAntigravityCredentialRaw)
+	}, func(raw []byte) error {
+		if len(raw) == 0 {
+			if err := deleteAntigravityCredentialRaw(); err != nil {
+				return err
+			}
+			return ClearActiveAccount()
+		}
+		if err := writeAntigravityCredentialRaw(raw); err != nil {
+			return err
+		}
+		email := emailFromCredentialPayload(raw)
+		SetActiveAccount(email)
+		SetPersistedActiveAccount(email)
+		return nil
+	}, readAntigravityCredentialRaw)
 }

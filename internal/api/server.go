@@ -27,6 +27,7 @@ type Server struct {
 	// mux 保留裸的（内部路由与单元测试直接跑它），两者不可混用。
 	handler http.Handler
 	server  *http.Server
+	relay   *accountRelay
 }
 
 func NewServer(sm *core.StateMachine, bus *core.EventBus) *Server {
@@ -34,6 +35,7 @@ func NewServer(sm *core.StateMachine, bus *core.EventBus) *Server {
 		stateMachine: sm,
 		bus:          bus,
 		mux:          http.NewServeMux(),
+		relay:        newAccountRelay(),
 	}
 	s.routes()
 	// CORS 必须包在 mux 外层，而不是逐个 handler 手写响应头。
@@ -103,6 +105,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/host/takeover", s.handleHostTakeover)
 	// 舱内账号轮转：G-Cockpit 不切回 2Ag 主窗口就能换账号并重启宿主沙箱。
 	s.mux.HandleFunc("/api/v1/host/switch-and-restart", s.handleHostSwitchAndRestart)
+	s.mux.HandleFunc("/api/v1/host/switch-status", s.handleAccountSwitchStatus)
 	s.mux.HandleFunc("/api/v1/sessions", s.handleSessionsRoute)
 	s.mux.HandleFunc("/api/v1/sessions/export", s.handleExportSession)
 	s.mux.HandleFunc("/api/v1/sessions/delete", s.handleDeleteSession)
@@ -110,6 +113,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/accounts/active", s.handleGetActiveAccount)
 	s.mux.HandleFunc("/api/v1/accounts/primary", s.handleSetPrimaryAccount)
 	s.mux.HandleFunc("/api/v1/accounts/refresh", s.handleRefreshAccounts)
+	s.mux.HandleFunc("/api/v1/accounts/relay", s.handleAccountRelay)
+	s.mux.HandleFunc("/api/v1/accounts/relay/pulse", s.handleRelayPulse)
+	s.mux.HandleFunc("/api/v1/accounts/relay/handoff", s.handleRelayHandoff)
 	// 添加账号 = Official Antigravity Login Broker。
 	//
 	// 为什么不是一个 /oauth/login 端点：2Ag 不再是任何人的 OAuth 客户端。
@@ -192,6 +198,12 @@ func (s *Server) handlePostAction(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&action); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if action.Type == core.HostCtrlAction {
+		if err := supervisor.RunIndependentHostOperation(nil); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 	}
 	// 这里严禁直接执行 HOST_CTRL 的物理动作（拉起/重启/停止宿主）。
 	//
@@ -929,10 +941,7 @@ func (s *Server) handleHostLaunch(w http.ResponseWriter, r *http.Request) {
 		Email      string `json:"email"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	if req.Email != "" {
-		supervisor.SetActiveAccount(req.Email)
-	}
-	if err := supervisor.LaunchEnhancedHost(req.CustomPath, req.Email); err != nil {
+	if err := supervisor.RunIndependentHostOperation(func() error { return supervisor.LaunchEnhancedHost(req.CustomPath, req.Email) }); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -953,10 +962,7 @@ func (s *Server) handleHostTakeover(w http.ResponseWriter, r *http.Request) {
 		Email      string `json:"email"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	if req.Email != "" {
-		supervisor.SetActiveAccount(req.Email)
-	}
-	if err := supervisor.TakeoverHost(req.CustomPath, req.Email); err != nil {
+	if err := supervisor.RunIndependentHostOperation(func() error { return supervisor.TakeoverHost(req.CustomPath, req.Email) }); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -985,6 +991,7 @@ func (s *Server) handleHostSwitchAndRestart(w http.ResponseWriter, r *http.Reque
 	}
 	var req struct {
 		Email string `json:"email"`
+		Async bool   `json:"async"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1004,6 +1011,16 @@ func (s *Server) handleHostSwitchAndRestart(w http.ResponseWriter, r *http.Reque
 	//  2. 不再「先设主控标记、依赖 LaunchEnhancedHost 顺手写凭据」：那条路径里
 	//     ApplyAntigravityCredential 失败只记日志，于是「沙箱换了、身份没换」会
 	//     以 success:true 收场。现在写凭据与校验都是显式的，且必须回读一致。
+	if s.relay != nil {
+		if err := s.relay.beginManualSwitch(); err != nil {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+	}
+	if req.Async {
+		s.startAccountSwitch(w, email)
+		return
+	}
 	result, err := supervisor.SwitchAccountTransactional(email, s.currentRuntimeMode())
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")

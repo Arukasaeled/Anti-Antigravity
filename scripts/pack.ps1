@@ -27,6 +27,11 @@ if (-not [IO.Path]::IsPathRooted($OutputRoot)) {
 }
 $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $Staging = Join-Path $OutputRoot 'staging'
+$stagingAbsolute = [IO.Path]::GetFullPath($Staging)
+$outputPrefix = $OutputRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+if (-not $stagingAbsolute.StartsWith($outputPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Staging path escapes the requested output directory"
+}
 $Binary = Join-Path $Staging '2ag.exe'
 
 # ★ 打包边界：这个脚本**不再携带任何 Google Antigravity 字节**。

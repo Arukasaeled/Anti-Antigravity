@@ -90,3 +90,42 @@ func TestBrokerRecoveryRetainedOnFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestBrokerRecoveryPreservesSignedOutState(t *testing.T) {
+	isolateHome(t)
+	if err := saveBrokerRecovery(nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	current := []byte(`{"token":null}`)
+	recovered, err := restoreBrokerRecovery(func() error { return nil }, func(raw []byte) error {
+		current = append([]byte(nil), raw...)
+		return nil
+	}, func() ([]byte, error) { return current, nil })
+	if err != nil || !recovered || len(current) != 0 {
+		t.Fatalf("signed out state lost: recovered=%v err=%v", recovered, err)
+	}
+}
+
+func TestIndependentHostControlsRespectAccountLock(t *testing.T) {
+	isolateHome(t)
+	release, err := lockCredentialOperation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	action := func() error { called = true; return nil }
+	if err := RunIndependentHostOperation(action); err == nil || called {
+		t.Fatal("host control interrupted an account operation")
+	}
+	release()
+	if err := RunIndependentHostOperation(action); err != nil || !called {
+		t.Fatal("ordinary host controls should work after the account operation")
+	}
+	called = false
+	if err := saveBrokerRecovery(nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunIndependentHostOperation(action); err == nil || called {
+		t.Fatal("host control bypassed pending account restoration")
+	}
+}

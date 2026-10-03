@@ -148,7 +148,12 @@ func detectDefaultAntigravityPath() string {
 }
 
 // LaunchEnhancedHost 带账号沙箱与 CDP 监听拉起宿主
-func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
+func LaunchEnhancedHost(exePath string, activeAccountEmail string, workspacePaths ...string) error {
+	return launchEnhancedHost(exePath, activeAccountEmail, true, workspacePaths...)
+}
+
+// A transactional restore supplies an exact identity, including an empty one.
+func launchEnhancedHost(exePath, activeAccountEmail string, useRecordedAccount bool, workspacePaths ...string) error {
 	if IsOfficialRuntime() {
 		// 形态闸。走到这里说明调用方漏判了形态，而不是用户选错了什么 ——
 		// 这条分支必须存在，因为增强形态的启动流程会做三件官方形态下绝对不能做的事：
@@ -174,8 +179,16 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 		exePath = frozen
 	}
 
-	if activeAccountEmail == "" {
-		activeAccountEmail = GetActiveAccountEmail()
+	if activeAccountEmail == "" && useRecordedAccount {
+		// A persisted UI selection is not a login. Native logout must remain
+		// signed out until the user explicitly selects a vault account.
+		raw, readErr := readAntigravityCredentialRaw()
+		if readErr != nil {
+			return fmt.Errorf("读取当前登录失败，未启动宿主: %w", readErr)
+		}
+		if current, complete := credentialRestorableEmail(raw); complete {
+			activeAccountEmail = current
+		}
 	}
 
 	// 1. 为当前账号分配独立的 Profile 沙箱路径 (对标 cockpit-tools)
@@ -190,7 +203,6 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 	// 宿主起来之后再去猜（扫 localStorage / DOM 找邮箱）在实测中读不到任何东西，
 	// 于是 2Ag 重启后界面上显示的「当前主控」会退回 accounts[0]，
 	// 与实际运行的沙箱不是同一个账号，配额卡片随之张冠李戴。
-	SetPersistedActiveAccount(activeAccountEmail)
 
 	// 2. 构造启动命令：附加 CDP 调试端口与用户隔离目录
 	// CDP 端口改为动态预留：历史硬编码 28472 一旦被占用，宿主会静默换用随机端口，
@@ -210,9 +222,22 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 		// 显式写入进程环境，避免被系统区域覆盖。
 		"--env=LANG=zh_CN.UTF-8",
 	}
+	if len(workspacePaths) > 0 && strings.TrimSpace(workspacePaths[0]) != "" {
+		workspacePath := workspacePaths[0]
+		if !filepath.IsAbs(workspacePath) {
+			return fmt.Errorf("工作目录必须是绝对路径")
+		}
+		info, err := os.Stat(workspacePath)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("工作目录不可用，未启动宿主")
+		}
+		args = append(args, workspacePath)
+	}
 
 	// 确保旧的无 CDP 实例或卡死实例被清理，释放端口与文件锁
-	_ = StopHostClient()
+	if err := StopHostClient(); err != nil {
+		return fmt.Errorf("停止原宿主失败，未启动新实例: %w", err)
+	}
 	time.Sleep(200 * time.Millisecond)
 
 	// 3. 切换真实登录身份 —— 这一步才是「换号」的物理动作。
@@ -224,11 +249,10 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 	//
 	// 时序是承重的：必须排在 StopHostClient 之后（宿主退出时可能回写凭据，若先写会被覆盖），
 	// 并且排在 cmd.Start 之前（宿主一启动就读凭据完成登录）。
-	// 失败不阻断启动 —— 宿主仍可用旧身份跑起来，但必须留下明确日志，
-	// 否则用户只会看到「界面还是旧账号」而 2Ag 一声不吭（正是历史缺陷的形态）。
+	// 身份切换失败必须阻断启动，不能以旧身份假装目标账号已启动。
 	if activeAccountEmail != "" {
 		if err := ApplyAntigravityCredential(activeAccountEmail); err != nil {
-			log.Printf("[2ag] 警告：切换系统登录凭据到 %s 失败，宿主将以原凭据启动: %v", activeAccountEmail, err)
+			return fmt.Errorf("切换系统登录凭据失败，未启动宿主: %w", err)
 		}
 	}
 
@@ -252,6 +276,14 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 	}
 
 	SetManagedHostPID(cmd.Process.Pid)
+	go cmd.Wait()
+	if err := bindEnhancedAuthCallback(exePath, profileDir, cmd.Process.Pid, cdpPort); err != nil {
+		if stopErr := StopHostClient(); stopErr != nil {
+			return fmt.Errorf("绑定登录回调失败: %w；新宿主停止失败: %v", err, stopErr)
+		}
+		return fmt.Errorf("绑定登录回调失败，新宿主已停止: %w", err)
+	}
+	SetPersistedActiveAccount(activeAccountEmail)
 	// 完整执行参数行：profileDir 单独打一份便于肉眼核对「换号是否真的换了沙箱」，
 	// 但只有整条 args 才能证明命令行没有被静默裁剪或回退到老账号目录。
 	log.Printf("[2ag] 物理启动 Antigravity 宿主 (PID %d), 启动路径: %s, 工作目录: %s, 账号沙箱: %s, CDP: %s", cmd.Process.Pid, exePath, cmd.Dir, profileDir, cdpAddr)
@@ -286,21 +318,34 @@ func StopHostClient() error {
 		log.Printf("[2ag] StopHostClient: 当前未发现运行中的 2Ag 宿主进程，无需停止")
 		return nil
 	}
+	if !processAlive(pid) {
+		SetManagedHostPID(0)
+		return nil
+	}
+	if exe := getProcessExePath(pid); !strings.EqualFold(filepath.Base(exe), "Antigravity.exe") {
+		return fmt.Errorf("托管 PID 已不属于 Antigravity；未终止任何进程")
+	}
 	err := killPIDSafely(pid)
-	SetManagedHostPID(0)
+	if err == nil {
+		SetManagedHostPID(0)
+	}
 	return err
 }
 
 // RestartHostClient 重启宿主进程
 func RestartHostClient(customPath string) error {
-	_ = StopHostClient()
+	if err := StopHostClient(); err != nil {
+		return err
+	}
 	time.Sleep(600 * time.Millisecond)
 	return LaunchHostClient(customPath)
 }
 
 // RestartEnhancedHost 重启并切换账号沙箱拉起宿主
 func RestartEnhancedHost(customPath string, activeAccountEmail string) error {
-	_ = StopHostClient()
+	if err := StopHostClient(); err != nil {
+		return err
+	}
 	time.Sleep(600 * time.Millisecond)
 	return LaunchEnhancedHost(customPath, activeAccountEmail)
 }
@@ -308,11 +353,10 @@ func RestartEnhancedHost(customPath string, activeAccountEmail string) error {
 // TakeoverHost 重新拉起宿主并附加当前激活沙箱路径与动态预留的 CDP 调试端口
 func TakeoverHost(customPath string, activeAccountEmail string) error {
 	// 如果当前有 2Ag 托管的旧实例，先精准安全停止（严禁误杀当前 IDE）
-	_ = StopHostClient()
+	if err := StopHostClient(); err != nil {
+		return err
+	}
 	time.Sleep(300 * time.Millisecond)
 
-	if activeAccountEmail == "" {
-		activeAccountEmail = GetActiveAccountEmail()
-	}
 	return LaunchEnhancedHost(customPath, activeAccountEmail)
 }

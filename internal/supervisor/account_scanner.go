@@ -475,6 +475,23 @@ func GetActiveAccountEmail() string {
 	return restored
 }
 
+// Used when rollback restores an originally signed-out host. An empty identity
+// must not fall back to the failed switch's recorded target on the next launch.
+func ClearActiveAccount() error {
+	activeAccountMu.Lock()
+	currentActiveEmail = ""
+	activeAccountMu.Unlock()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	err = os.Remove(filepath.Join(home, ".2ag", activeAccountFile))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
+}
+
 // activeAccountFile 记录「上一次真实拉起宿主时用的账号」。
 // 与 managed_host.pid 同目录、同风格（纯文本单行），便于人工核对与排障。
 const activeAccountFile = "active_account.txt"

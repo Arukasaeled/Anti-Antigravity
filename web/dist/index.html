@@ -3223,6 +3223,14 @@
         <!-- 配额出处 / 新鲜度：优先 live 探测；失败时才用第三方写入的本地缓存兜底，
              并明确标成 cockpit-cache。没有这一行时，旧快照与实时读数在界面上长得一样。 -->
         <div class="section-note" id="dash-quota-source">配额出处：读取中…</div>
+        <div style="margin:12px 0;padding:12px 14px;border:1px solid var(--2ag-blue);border-radius:12px;background:var(--md-sys-color-surface-container);">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+            <strong id="manager-relay-title">低配额接力 · 默认关闭</strong>
+            <label style="display:flex;gap:7px;align-items:center;"><input id="manager-relay-enabled" type="checkbox" onchange="setManagerRelay(this.checked)"><span id="manager-relay-toggle">启用</span></label>
+          </div>
+          <div class="section-note" id="manager-relay-rule">任务进行中，5h 或周配额 ≤5% 时自动切到可用账号并接续任务。设置与交接记录在宿主 G-Hub 顶部。</div>
+          <div class="section-note" id="manager-relay-status" role="status">读取接力状态…</div>
+        </div>
 
         <div class="qring-group">
           <div class="qring-group-title"><img class="pool-logo" src="assets/gemini_logo.png" onerror="this.src='/dist/assets/gemini_logo.png'" alt="">Gemini Models</div>
@@ -4681,6 +4689,38 @@ function loadActiveAccount() {
     });
 }
 
+let managerRelayPending = false;
+function paintManagerRelay(data) {
+  const english = globalState.language === 'en-US';
+  document.getElementById('manager-relay-title').textContent = english ? 'Quota Relay · off by default' : '低配额接力 · 默认关闭';
+  document.getElementById('manager-relay-toggle').textContent = english ? 'Enable' : '启用';
+  document.getElementById('manager-relay-rule').textContent = english ? 'During a task, 5h or weekly quota ≤5% switches to an available account and hands off the task. Settings and retained context are at the top of G-Hub.' : '任务进行中，5h 或周配额 ≤5% 时自动切到可用账号并接续任务。设置与交接记录在宿主 G-Hub 顶部。';
+  document.getElementById('manager-relay-enabled').checked = !!data.enabled;
+  const phaseNames = {off:'关闭',idle:'等待任务',checking:'读取实时配额',watching:'监测任务配额',blocked:'接力暂不可用',switching:'正在切号','resume-ready':'准备接续任务',dispatching:'等待原生接收',running:'任务交接已接收',paused:'接力已暂停','needs-workspace':'请设置工作目录','needs-context':'请补充任务指令','resume-failed':'交接需要处理','needs-confirmation':'发送结果待确认'};
+  document.getElementById('manager-relay-status').textContent = (english ? data.phase : phaseNames[data.phase] || data.phase) + (data.message ? ' · ' + data.message : '');
+}
+async function loadManagerRelay() {
+  if(managerRelayPending)return;
+  managerRelayPending=true;
+  try {
+    const response=await fetch('/api/v1/accounts/relay',{cache:'no-store'});
+    if(!response.ok)throw new Error(await response.text());
+    paintManagerRelay(await response.json());
+  } catch(error) { document.getElementById('manager-relay-status').textContent='Relay unavailable · '+error.message; }
+  finally { managerRelayPending=false; }
+}
+async function setManagerRelay(enabled) {
+  const toggle=document.getElementById('manager-relay-enabled');toggle.disabled=true;
+  try {
+    const response=await fetch('/api/v1/accounts/relay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:enabled})});
+    if(!response.ok)throw new Error(await response.text());
+    paintManagerRelay(await response.json());
+  } catch(error) { toggle.checked=!enabled;document.getElementById('manager-relay-status').textContent=error.message; }
+  finally { toggle.disabled=false; }
+}
+loadManagerRelay();
+setInterval(loadManagerRelay,10000);
+
 // 协议网关实况渲染。
 // 历史上这块卡片是写死的「● 握手就绪 (28ms) / 127.0.0.1:8045 / 智能 429 自愈轮询」，
 // 而 8045 从未被任何进程监听。现在完全由后端 BuildGatewayStatus() 的真实探测结果驱动。
@@ -5338,22 +5378,30 @@ function renderVault(data) {
 
 // 切换账号：事务化（后端负责停宿主 → 写凭据 → 重启 → 校验 → 失败回滚）。
 // 前端只负责如实展示结果，特别是**回滚是否成功** —— 用户必须知道自己现在在哪个账号上。
-function switchVaultAccount(idx) {
+let vaultSwitchBusy = false;
+async function switchVaultAccount(idx) {
+  if(vaultSwitchBusy)return;
   const a = vaultAccounts[idx];
   if (!a || !a.email) return;
   if (!confirm('切换到 ' + a.email + ' ？\n宿主会被重启，系统登录身份会切换到这个账号（失败会自动回滚）。')) return;
 
-  logMsg('正在切换账号到 ' + a.email + '（停宿主 → 写凭据 → 重启 → 校验）...', 'term-cyan');
-  fetch('/api/v1/host/switch-and-restart', {
+  vaultSwitchBusy=true;
+  logMsg('正在切换账号到 ' + a.email + '（停宿主 → 写凭据 → 原生刷新 → 校验）...', 'term-cyan');
+  try {
+  let response=await fetch('/api/v1/host/switch-and-restart', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: a.email })
+    body: JSON.stringify({ email: a.email, async: true })
   })
-  .then(function(r) {
-    return r.json().then(function(j) { return { ok: r.ok, body: j }; });
-  })
-  .then(function(res) {
-    const body = res.body || {};
+  let body=await response.json();
+  const deadline=Date.now()+90000;
+  while(body.running) {
+    if(Date.now()>deadline)throw new Error('切号结果尚未确认，请读取切号状态，勿重复提交');
+    await new Promise(resolve=>setTimeout(resolve,1000));
+    response=await fetch('/api/v1/host/switch-status',{cache:'no-store'});
+    body=await response.json();
+  }
+  const res={ok:response.ok,body};
     const result = body.result || {};
     if (res.ok && body.success) {
       logMsg('已切换到 ' + (body.email || a.email) + '：' + (body.message || ''), 'term-ok');
@@ -5367,11 +5415,10 @@ function switchVaultAccount(idx) {
     }
     loadAccounts();
     loadVault();
-  })
-  .catch(function(err) {
+  } catch(err) {
     logMsg('切换请求异常: ' + err.message, 'term-err');
     alert('切换请求异常: ' + err.message);
-  });
+  } finally {vaultSwitchBusy=false;}
 }
 
 // 删除保险库里的账号：只删 2Ag 自己的加密副本，不动系统当前登录凭据。

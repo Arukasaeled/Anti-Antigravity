@@ -39,10 +39,11 @@ const (
 // 刻意把阶段、已完成步骤、以及原始账号/当前账号都报出来：添加账号会短暂地改动
 // 机器上唯一那份登录凭据，用户必须能一眼看到「现在到哪一步了」「我的原账号回来没有」。
 type LoginBrokerStatus struct {
-	Running bool     `json:"running"`
-	Stage   string   `json:"stage"`
-	Message string   `json:"message"`
-	Steps   []string `json:"steps"`
+	NativeAuth *NativeAuthState `json:"native_auth,omitempty"`
+	Running    bool             `json:"running"`
+	Stage      string           `json:"stage"`
+	Message    string           `json:"message"`
+	Steps      []string         `json:"steps"`
 
 	AccountEmail  string `json:"account_email,omitempty"`  // 本次添加到的账号
 	OriginalEmail string `json:"original_email,omitempty"` // 流程开始前的账号（可能为空）
@@ -76,4 +77,13 @@ type AccountSwitchResult struct {
 	RolledBack       bool   `json:"rolled_back"`
 	RollbackVerified bool   `json:"rollback_verified"`
 	Message          string `json:"message"`
+	AlreadyActive    bool   `json:"already_active,omitempty"`
+}
+
+// ExpectedOwner prevents a quota decision from racing a manual account switch.
+// BeforeStop is the caller's final cancellation gate, run under the credential lock.
+type AccountSwitchOptions struct {
+	ExpectedOwner string
+	WorkspacePath string
+	BeforeStop    func() error
 }

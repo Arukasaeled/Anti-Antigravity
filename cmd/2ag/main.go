@@ -85,6 +85,8 @@ func runCLI(args []string) error {
 		return startManager(configPath, cfg)
 	case "doctor":
 		return doctor(configPath, cfg)
+	case "account":
+		return accountCommand(cfg, args[1:])
 	case "help", "-h", "--help":
 		usage()
 		return nil
@@ -275,7 +277,9 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 						if ok {
 							cmd, _ := payload["cmd"].(string)
 							if cmd == "stop" {
-								managed.Stop()
+								if err := supervisor.RunIndependentHostOperation(managed.Stop); err != nil {
+									log.Printf("[2ag] 停止宿主暂缓: %v", err)
+								}
 							}
 						}
 					}
@@ -619,6 +623,8 @@ func usage() {
 	fmt.Println("  2ag manager")
 	fmt.Println("  2ag run [--debug]")
 	fmt.Println("  2ag restore")
+	fmt.Println("  2ag account status")
+	fmt.Println("  2ag account switch <email>")
 	fmt.Println("  2ag skin show")
 	fmt.Println("  2ag skin set-wallpaper <path>")
 	fmt.Println("  2ag skin set-blur <pixels>")

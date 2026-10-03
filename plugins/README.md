@@ -87,9 +87,9 @@ index.js 是一个返回定义的 JavaScript 表达式，无需打包器或 expo
 
 删除本地插件目录后点 **Refresh local list**，会卸载该插件并清理注册；目录读取失败时保留已加载插件。入口文件缺失造成的加载错误，在修复文件后可点 **Reload** 重新读取。
 
-## API v1.2
+## API v1.3
 
-window.__2AG__.apiVersion 为 '1.2'，向后兼容 v1.1。现有 registerTab 和 ipc 仍可用。所有注册返回 dispose；factory 的 setup(api) 得到可归属到该插件生命周期的 API。
+window.__2AG__.apiVersion 为 '1.3'，向后兼容 v1.1 / v1.2。现有 registerTab 和 ipc 仍可用。所有注册返回 dispose；factory 的 setup(api) 得到可归属到该插件生命周期的 API。
 
 | 注册接口 | 定义 | 入口 |
 | --- | --- | --- |
@@ -111,6 +111,25 @@ api.openPanel(id) 打开已注册面板。api.getSelectedPins() 返回 LENS 选�
 - conversation.messages/current/jump/observe；observe 返回 unsubscribe。消息包含 locator、role、kind、title、text、conversation_key。适配现有 markdown-* 及新版 article/User message/Agent response；角色仍按 DOM 标记识别。
 - conversation.history/list/open：通过原生历史入口展示已加载会话，list 返回 `{href,title}`，open 只点击宿主已有会话链接。不会伪造会话、读取未加载的正文或发起模型请求。
 - project.current()；只返回宿主实际提供的路径／名称，包括可见项目 breadcrumb。宿主只提供名称时省略 path；全部缺失时 available 为 false。
+- trace.snapshot() / trace.observe(callback)：原生执行事件的只读规范化快照。包括 conversation、state、total、retained、historyStart、events、files；events 包含 index、kind、category、status、公开标题／文本、路径、时间、工具名和可用任务状态。observe 返回 unsubscribe，最后一个订阅结束即停止流。公开数据经过字段白名单及常见凭据形式脱敏，不提供隐藏思维、生成器上下文或文件全文。
+
+在 panel 中观察 Live Trace 的最小用法：
+
+~~~javascript
+api.registerPanel({
+  id: 'my-tool.trace', title: 'Agent activity', title_zh: 'Agent 动态',
+  render(panel) {
+    const label = document.createElement('p'); panel.append(label);
+    const stop = api.host.trace.observe(snapshot => {
+      const last = snapshot.events.at(-1);
+      label.textContent = snapshot.state + ' · ' + (last?.title || 'No events');
+    });
+    return () => { stop(); panel.replaceChildren(); };
+  }
+});
+~~~
+
+请在 cleanup 中取消订阅。实时窗口最多保留 600 步；用户回看历史时快照指向当前历史窗口，state 仍来自原生执行流。文件元数据在用户点击 Live Trace 的文件变更入口后提供。宿主版本缺少原生 RPC 时 state 为 unavailable；不以 mock 填充。
 
 call(method, params) / ipc(method, params) 沿用核心 IPC。toast(text) 显示通知。onCleanup(fn) 登记事件或观察器资源的清理，返回值可取消登记。render 也可返回其面板 cleanup。异步 setup、action、provider 和 render 支持 Promise。
 

@@ -24,6 +24,13 @@ func RecoverPendingLoginBroker() (bool, error) { return false, nil }
 
 func CancelLoginBroker() error { return errBrokerUnsupported }
 
-func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResult, error) {
+func RunIndependentHostOperation(action func() error) error {
+	if action == nil {
+		return nil
+	}
+	return action()
+}
+
+func SwitchAccountTransactional(email, configuredMode string, options ...AccountSwitchOptions) (AccountSwitchResult, error) {
 	return AccountSwitchResult{Email: email}, errBrokerUnsupported
 }

@@ -140,3 +140,13 @@ func credentialUsableEmail(raw []byte) (string, bool) {
 	}
 	return email, true
 }
+
+func nativeCredentialReady(raw []byte, native NativeAuthState, email string) bool {
+	owner, ok := credentialRestorableEmail(raw)
+	if !ok || !strings.EqualFold(owner, email) || !native.Available || !native.Valid || !strings.EqualFold(native.Email, email) {
+		return false
+	}
+	v, _ := parseCredentialBlobView(raw)
+	expiry, err := time.Parse(time.RFC3339, v.Token.Expiry)
+	return err == nil && expiry.After(time.Now().Add(15*time.Second))
+}

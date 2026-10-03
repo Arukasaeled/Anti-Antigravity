@@ -271,6 +271,7 @@ func TestCredentialPayloadPrefersVault(t *testing.T) {
 	const email = "vault-only@example.com"
 	// 造一份**可用的**凭据 blob（BuildAntigravityCredentialPayload 要求的形态）。
 	blob := map[string]any{
+		"id_token": jwtWithEmail(email),
 		"token": map[string]any{
 			"access_token":  "ya29.fixture-access",
 			"token_type":    "Bearer",
@@ -329,6 +330,7 @@ func TestIdentifyOwnerFindsVaultAccount(t *testing.T) {
 
 	const email = "owner-lookup@example.com"
 	blob := map[string]any{
+		"id_token": jwtWithEmail(email),
 		"token": map[string]any{
 			"access_token":  "ya29.owner-access",
 			"refresh_token": "1//owner-refresh",

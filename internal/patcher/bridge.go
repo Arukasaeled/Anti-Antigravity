@@ -23,6 +23,9 @@ var hubSource string
 //go:embed hub_i18n.js
 var hubI18nSource string
 
+//go:embed live_trace.js
+var liveTraceSource string
+
 // hubSourceFileName 是补丁源文件名。
 const hubSourceFileName = "injected_hub.js"
 
@@ -173,5 +176,6 @@ func BuildHubExpressionWithSource(config HubConfig) (string, string, error) {
 	text = strings.Replace(text, "__2AG_INITIAL_CONFIG__", string(data), 1)
 	text = strings.Replace(text, "__2AG_BUNDLED_EXTENSIONS__", examples.Expression(), 1)
 	text = strings.Replace(text, "__2AG_HUB_I18N__", hubI18nSource, 1)
+	text = strings.Replace(text, "__2AG_LIVE_TRACE_FACTORY__", liveTraceSource, 1)
 	return text, origin, nil
 }

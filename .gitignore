@@ -43,3 +43,12 @@
 Thumbs.db
 .vscode/
 .idea/
+
+# Local investigation inputs and task launchers (preserve on disk).
+/Antigravity-LiveTrace-侦查报告.md
+/_codex-*-task.md
+/_run-codex-*.ps1
+/internal/supervisor/local_recovery_probe_test.go
+*.heapprofile
+*.cpuprofile
+*.trace
