@@ -2635,7 +2635,16 @@
       if (desc && typeof desc.set === 'function') {
         desc.set.call(el, text);
       } else if (el.isContentEditable) {
-        el.textContent = text;
+        // Lexical owns an editor state independent of the rendered DOM.
+        // Native editing updates both; textContent + synthetic input does not.
+        el.focus();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const selection = window.getSelection();
+        if (!selection) return false;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return document.execCommand('insertText', false, text);
       } else {
         el.value = text;
       }
@@ -3069,44 +3078,52 @@
     // Step 1b: 受控输入（React/Vue）写值穿透
     // 仅在调用方显式给了文本时写入（快捷键路径不传文本 → 保持原有行为，绝不改写用户已输入的内容）
     if (target && typeof text === 'string' && text.length > 0) {
-      writeValueIntoInput(target, text);
+      if (!writeValueIntoInput(target, text)) {
+        showToast('[2Ag] '+translateHub('Unable to write the native Prompt'));
+        return;
+      }
     }
 
     // Step 2: 向当前输入焦点按时序严格派发冒泡键盘事件
     // 负向验证 B: 带上 customEventFlag: true 与 __2ag_synthetic: true，杜绝递归捕获死锁
-    if (target) {
-      const keyOpts = {
-        key: 'Enter',
-        code: 'Enter',
-        keyCode: 13,
-        which: 13,
-        bubbles: true,
-        cancelable: true,
-        composed: true
-      };
+    const dispatch = () => {
+      if (target && target.isConnected) {
+        const keyOpts = {
+          key: 'Enter',
+          code: 'Enter',
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true,
+          composed: true
+        };
 
-      const evDown = new KeyboardEvent('keydown', keyOpts);
-      evDown.__2ag_synthetic = true;
-      evDown.customEventFlag = true;
+        const evDown = new KeyboardEvent('keydown', keyOpts);
+        evDown.__2ag_synthetic = true;
+        evDown.customEventFlag = true;
 
-      const evPress = new KeyboardEvent('keypress', keyOpts);
-      evPress.__2ag_synthetic = true;
-      evPress.customEventFlag = true;
+        const evPress = new KeyboardEvent('keypress', keyOpts);
+        evPress.__2ag_synthetic = true;
+        evPress.customEventFlag = true;
 
-      const evUp = new KeyboardEvent('keyup', keyOpts);
-      evUp.__2ag_synthetic = true;
-      evUp.customEventFlag = true;
+        const evUp = new KeyboardEvent('keyup', keyOpts);
+        evUp.__2ag_synthetic = true;
+        evUp.customEventFlag = true;
 
-      target.dispatchEvent(evDown);
-      target.dispatchEvent(evPress);
-      target.dispatchEvent(evUp);
-    }
+        target.dispatchEvent(evDown);
+        target.dispatchEvent(evPress);
+        target.dispatchEvent(evUp);
+      }
 
-    // Step 3: 若宿主界面仍未提交，等一次同步 flush 后重新寻址当前可见的发送按钮并触发原生 .click()
-    // 已废除：静态 sendButtons 快照（:552 抓到的链表，35ms 后可能已全是孤儿或已复用为 Stop）
-    setTimeout(() => {
-      fallbackClickVisibleSendButton();
-    }, FALLBACK_CLICK_DELAY_MS);
+      // Step 3: 若宿主界面仍未提交，等一次同步 flush 后重新寻址当前可见的发送按钮并触发原生 .click()
+      // 已废除：静态 sendButtons 快照（:552 抓到的链表，35ms 后可能已全是孤儿或已复用为 Stop）
+      setTimeout(() => {
+        fallbackClickVisibleSendButton();
+      }, FALLBACK_CLICK_DELAY_MS);
+    };
+    // Allow the native editor's input change to reach its submit callback.
+    if (typeof text === 'string' && text.length > 0) requestAnimationFrame(dispatch);
+    else dispatch();
 
     // 触发成功反馈 Toast
     showToast('[2Ag] 强制发送已派发 (Bypassed Frontend Lock)');
@@ -6318,7 +6335,7 @@
 
   window.__2ag = {
     version: '2.2',
-    interactionVersion: '0.2.0-rc.2',
+    interactionVersion: '0.2.0-rc.4',
     forceSend: (text) => executeForceDispatch(text),
     dispose: disposeHub,
     // 兼容性自检：返回当前宿主 DOM 上各寻址层各自落在哪一层。
