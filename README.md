@@ -12,7 +12,7 @@
 
 **[⬇ Download v0.1.1](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)** · [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
 
-当前源码为 **v0.2.0-rc.3 Interaction Layer / Live Trace 2.0**，公开安装包仍以 Release 页面为准。新功能与已检查的范围见 [v0.2.0 说明](RELEASE-NOTES-v0.2.0.md)，可按 [构建指南](docs/BUILD.md) 打包当前源码。RC2 的实机范围、性能回放与限制见 [验证记录](docs/RC2-REALITY-OBSERVABILITY.md)；RC3 的白屏修复、切号对照及未完成验收见 [实机记录](docs/RC3-ACCOUNT-SWITCH-REALITY.md)。
+当前源码为 **v0.2.0-rc.4 Interaction Layer / Live Trace 2.0**，公开安装包仍以 Release 页面为准。新功能与已检查的范围见 [v0.2.0 说明](RELEASE-NOTES-v0.2.0.md)，可按 [构建指南](docs/BUILD.md) 打包当前源码。RC2 的实机范围、性能回放与限制见 [验证记录](docs/RC2-REALITY-OBSERVABILITY.md)；RC3 的白屏修复见 [实机记录](docs/RC3-ACCOUNT-SWITCH-REALITY.md)；RC4 将原生身份与资格提示分开，见 [切号修正](docs/RC4-ACCOUNT-IDENTITY.md)。
 
 <img src="docs/screenshots/01-overview-light.png" alt="2Ag Manager 概览" width="880">
 

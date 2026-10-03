@@ -1,5 +1,7 @@
 # RC3：Manager 白屏与账号切换实机记录
 
+> 后续更正：RC4 已在同一官方实例复现 `GetAuthStatus=ineligible` 与 Enter 发送任务成功同时存在。本文的 RPC 记录是真实的，但据此将目标判成切号失败的验收条件有误。当前修复与验证以 [RC4 记录](RC4-ACCOUNT-IDENTITY.md) 为准。
+
 ## 本轮范围
 
 基线为 RC2 提交 `3c29b98`。RC3 修复 Manager 隐藏启动白屏、原生实例绑定、目标登录续期和凭据覆盖；保留原生登录核验与失败回滚。

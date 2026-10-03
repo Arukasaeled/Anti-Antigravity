@@ -1,8 +1,8 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0-rc.3"
+  #define MyAppVersion "0.2.0-rc.4"
 #endif
 #ifndef MyAppFileVersion
-  #define MyAppFileVersion "0.2.0.3"
+  #define MyAppFileVersion "0.2.0.4"
 #endif
 #ifndef SourceDir
   #define SourceDir "staging"
