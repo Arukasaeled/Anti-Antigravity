@@ -21,8 +21,8 @@ func CheckpointCurrentCredential() error {
 	if err != nil {
 		return err
 	}
-	email, ok := credentialRestorableEmail(raw)
-	if !ok {
+	email := nativeCredentialOwner(raw)
+	if email == "" {
 		return nil
 	}
 	old, err := ReadVaultCredential(email)
@@ -32,10 +32,11 @@ func CheckpointCurrentCredential() error {
 	if bytes.Equal(old, raw) {
 		return nil
 	}
-	if !nativeCredentialReady(raw, ReadNativeAuthState(), email) {
+	complete, err := withArchivedCredentialIdentity(raw, old, email)
+	if err != nil || bytes.Equal(old, complete) || !nativeCredentialReady(complete, ReadNativeAuthState(), email) {
 		return nil
 	}
-	if _, err := StoreVaultCredential(email, displayNameFromCredentialPayload(raw), raw); err != nil {
+	if _, err := StoreVaultCredential(email, displayNameFromCredentialPayload(complete), complete); err != nil {
 		return fmt.Errorf("更新原生刷新凭据失败: %w", err)
 	}
 	return nil

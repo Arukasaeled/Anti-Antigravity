@@ -3,6 +3,7 @@ package supervisor
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -164,10 +165,52 @@ func credentialUsableEmail(raw []byte) (string, bool) {
 
 func nativeCredentialReady(raw []byte, native NativeAuthState, email string) bool {
 	owner, ok := credentialRestorableEmail(raw)
-	if !ok || !strings.EqualFold(owner, email) || !native.Available || !native.Valid || !strings.EqualFold(native.Email, email) {
+	if !ok || !strings.EqualFold(owner, email) || !nativeSessionReady(native) || !strings.EqualFold(native.Email, email) {
 		return false
 	}
 	v, _ := parseCredentialBlobView(raw)
 	expiry, err := time.Parse(time.RFC3339, v.Token.Expiry)
 	return err == nil && expiry.After(time.Now().Add(15*time.Second))
+}
+
+// Inputs already have a verified owner. A native refresh after preflight can
+// supersede its grant; a flush of the unchanged original must not undo preflight.
+func sameAccountRecoveryCredential(original, renewed, live []byte) ([]byte, bool) {
+	before, beforeOK := parseCredentialBlobView(original)
+	after, afterOK := parseCredentialBlobView(live)
+	if beforeOK && afterOK && before.Token != nil && after.Token != nil && before.Token.RefreshToken != after.Token.RefreshToken {
+		return live, true
+	}
+	return renewed, false
+}
+
+// Cockpit's native consumer blob intentionally omits ID. Restore the original
+// issued ID only in an archival copy, and only for the exact same known refresh
+// grant. Never invent a JWT or alter the live Windows credential while reading.
+func withArchivedCredentialIdentity(raw, archive []byte, email string) ([]byte, error) {
+	v, ok := parseCredentialBlobView(raw)
+	if !ok || v.Token == nil || v.Token.AccessToken == "" || v.Token.RefreshToken == "" {
+		return nil, fmt.Errorf("当前登录凭据不完整")
+	}
+	if owner, complete := credentialRestorableEmail(raw); complete {
+		if strings.EqualFold(owner, email) {
+			return raw, nil
+		}
+		return nil, fmt.Errorf("当前登录身份不一致")
+	}
+	// A conflicting or malformed identity must not be overwritten.
+	if v.IDToken != "" || (v.Email != "" && !strings.EqualFold(v.Email, email)) {
+		return nil, fmt.Errorf("当前登录身份无法核验")
+	}
+	owner, complete := credentialRestorableEmail(archive)
+	a, parsed := parseCredentialBlobView(archive)
+	if !complete || !parsed || !strings.EqualFold(owner, email) || a.Token.RefreshToken != v.Token.RefreshToken {
+		return nil, fmt.Errorf("缺少与当前刷新凭据匹配的身份归档，请重新添加账号")
+	}
+	var copy map[string]any
+	if err := json.Unmarshal(raw, &copy); err != nil {
+		return nil, err
+	}
+	copy["id_token"] = a.IDToken
+	return json.Marshal(copy)
 }

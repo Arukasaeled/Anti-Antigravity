@@ -20,6 +20,10 @@ func TestRootSelectionAcrossManagerRestart(t *testing.T) {
 }
 
 func TestHealthRejectsCrossAccountNativeState(t *testing.T) {
+	warning := healthNativeForOwner(NativeAuthState{Available: true, Authenticated: true, Failure: "ineligible", Email: "a@example.invalid"}, "b@example.invalid")
+	if warning.Authenticated || warning.Failure != "identity-mismatch" {
+		t.Fatal("eligibility warnings cannot mask a different native identity")
+	}
 	state := healthNativeForOwner(NativeAuthState{Available: true, Valid: true, Email: "a@example.invalid"}, "b@example.invalid")
 	if state.Valid || state.Failure != "identity-mismatch" {
 		t.Fatal("native state cannot be attributed to another account")

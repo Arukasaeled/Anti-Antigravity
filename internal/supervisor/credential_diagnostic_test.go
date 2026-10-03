@@ -4,6 +4,7 @@ package supervisor
 
 import (
 	"os"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -56,10 +57,23 @@ func TestLocalNativeRPC(t *testing.T) {
 	if os.Getenv("TWOAG_NATIVE_RPC") != "1" {
 		t.Skip("read-only local RPC diagnostic")
 	}
+	if pid, _ := strconv.Atoi(os.Getenv("TWOAG_NATIVE_ROOT_PID")); pid > 0 {
+		// Bind only this diagnostic process; do not rewrite Manager's PID file.
+		managedHostMu.Lock()
+		previous := managedHostPID
+		managedHostPID = pid
+		managedHostMu.Unlock()
+		defer func() { managedHostMu.Lock(); managedHostPID = previous; managedHostMu.Unlock() }()
+	}
 	state := readNativeAuthRPC()
 	current, err := ReadHostLoginEmail()
-	if err != nil || !state.Available || !state.Valid || state.Email != current {
+	if err != nil || !nativeSessionReady(state) || state.Email != current {
 		t.Fatalf("native RPC available=%v valid=%v identityMatches=%v failure=%s", state.Available, state.Valid, state.Email == current, state.Failure)
 	}
-	t.Log("native local RPC: valid login and runtime identity match Credential Manager")
+	raw, _ := readAntigravityCredentialRaw()
+	complete, err := credentialForArchive(raw, current)
+	if err != nil || !nativeCredentialReady(complete, state, current) {
+		t.Fatal("native session must match a complete renewable credential")
+	}
+	t.Logf("native local RPC: identity matches Credential Manager; authenticated=%v eligibilityValid=%v failure=%s credentialReady=true", state.Authenticated, state.Valid, state.Failure)
 }

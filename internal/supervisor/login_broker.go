@@ -404,7 +404,7 @@ func runLoginBroker(configuredMode string, network loginNetwork, expectedEmail s
 	// 「已被删除」这一种可能。
 	brokerStage(brokerStageBackingUp, "正在备份当前登录凭据…")
 	if origEmail != "" && len(origRaw) > 0 {
-		if _, err := StoreVaultCredential(origEmail, displayNameFromCredentialPayload(origRaw), origRaw); err != nil {
+		if err := storeCurrentNativeCredential(origEmail, origRaw); err != nil {
 			// 备份失败就绝不往下走：后面要删掉这条凭据，没有备份的删除等于把
 			// 用户唯一一份 refresh_token 置于险境。
 			brokerFinish(brokerStageFailed, "备份当前凭据失败，出于安全考虑已中止（未做任何改动）",
@@ -780,7 +780,7 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 	if err != nil {
 		return out, fmt.Errorf("读取原凭据失败，未切换: %w", err)
 	}
-	out.PreviousOwner = emailFromCredentialPayload(prevRaw)
+	out.PreviousOwner = nativeCredentialOwner(prevRaw)
 	if len(prevRaw) > 0 && out.PreviousOwner == "" {
 		return out, fmt.Errorf("identity mismatch：无法识别原凭据，未切换")
 	}
@@ -791,7 +791,7 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 	out.Mode = prior.Effective
 	hadHost := prior.Effective != "none"
 	if hadHost && prior.Effective != prior.Configured {
-		return out, fmt.Errorf("运行形态仍待切换，请先完成形态切换后再换号；未停止宿主")
+		return out, fmt.Errorf("无法切换到 %s：运行形态仍待切换，请先完成形态切换后再换号；未停止宿主", out.Email)
 	}
 	if option.ExpectedOwner != "" && prior.Effective != "enhanced" {
 		return out, fmt.Errorf("自动接力仅支持运行中的增强宿主")
@@ -804,7 +804,9 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 		}
 	}
 	sameOwner := strings.EqualFold(out.PreviousOwner, out.Email)
-	if sameOwner && hadHost {
+	// An external switch can update the shared credential while our host still
+	// runs the old identity. Restart into the requested account in that case.
+	if sameOwner && hadHost && strings.EqualFold(ReadNativeAuthState().Email, out.Email) {
 		transactionStage("VerifyingNativeAuth", "")
 		fresh, err := waitForNativeAccount(out.Email, 5*time.Second)
 		if err != nil {
@@ -814,6 +816,9 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 			return out, fmt.Errorf("当前登录有效，但保存最新登录失败: %w", err)
 		}
 		out.AlreadyActive, out.Verified = true, true
+		native := ReadNativeAuthState()
+		out.NativeAuth = &native
+		out.EligibilityWarning = native.Authenticated && !native.Valid && native.Failure == "ineligible"
 		out.VerifiedOwner = out.PreviousOwner
 		out.Message = "当前已是目标账号，原生身份已核验，保留现有宿主和最新凭据"
 		return out, nil
@@ -827,6 +832,12 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 			return out, err
 		}
 	}
+	if sameOwner {
+		target, err = credentialForArchive(target, out.Email)
+		if err != nil {
+			return out, err
+		}
+	}
 	if owner, ok := credentialRestorableEmail(target); !ok || !strings.EqualFold(owner, out.Email) {
 		return out, fmt.Errorf("目标账号凭据不完整、已失效或归属不一致，未切换")
 	}
@@ -836,6 +847,17 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 			return out, fmt.Errorf("接力工作目录不可用，未切换")
 		}
 	}
+	// Capture the identity binding before same-owner preflight can rotate its
+	// grant and replace the archive. Keep the exact live bytes for other-owner
+	// rollback; a same-owner rollback must retain the newly renewed grant.
+	var originalArchive []byte
+	if out.PreviousOwner != "" {
+		originalArchive, err = credentialForArchive(prevRaw, out.PreviousOwner)
+		if err != nil {
+			return out, err
+		}
+	}
+	originalBeforeRefresh := originalArchive
 	transactionStage("RefreshingTargetCredential", "")
 	target, err = refreshTargetCredential(target, out.Email, out.Mode)
 	if err != nil {
@@ -852,16 +874,33 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 	// Native refresh or a separate official instance can change the current
 	// blob while preflight runs. Back up the latest original, never a stale one.
 	latest, err := readAntigravityCredentialRaw()
-	if err != nil || !strings.EqualFold(emailFromCredentialPayload(latest), out.PreviousOwner) {
+	if err != nil {
+		return out, fmt.Errorf("预检期间当前账号发生变化，当前宿主未停止")
+	}
+	if out.PreviousOwner != "" {
+		originalArchive, err = withArchivedCredentialIdentity(latest, originalArchive, out.PreviousOwner)
+		if err != nil {
+			return out, fmt.Errorf("预检期间当前账号发生变化，当前宿主未停止")
+		}
+	} else if len(latest) != 0 {
 		return out, fmt.Errorf("预检期间当前账号发生变化，当前宿主未停止")
 	}
 	prevRaw = latest
 
 	// 切换是破坏性的：当前凭据里可能有宿主刚刷新过的 refresh_token，
 	// 那是全世界唯一的一份。先归档再动手。
-	if out.PreviousOwner != "" && len(prevRaw) > 0 {
-		if _, err := StoreVaultCredential(out.PreviousOwner, displayNameFromCredentialPayload(prevRaw), prevRaw); err != nil {
+	if out.PreviousOwner != "" && !sameOwner {
+		if _, err := StoreVaultCredential(out.PreviousOwner, displayNameFromCredentialPayload(originalArchive), originalArchive); err != nil {
 			return out, fmt.Errorf("备份原凭据失败，未切换: %w", err)
+		}
+	}
+	if sameOwner {
+		var nativeRenewed bool
+		prevRaw, nativeRenewed = sameAccountRecoveryCredential(originalBeforeRefresh, target, originalArchive)
+		if nativeRenewed {
+			if _, err := StoreVaultCredential(out.Email, displayNameFromCredentialPayload(prevRaw), prevRaw); err != nil {
+				return out, fmt.Errorf("保存宿主最新登录失败，未停止宿主")
+			}
 		}
 	}
 	if option.BeforeStop != nil {
@@ -903,14 +942,49 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 	// Stop may flush a refreshed token. Preserve the final blob.
 	if latest, err := readAntigravityCredentialRaw(); err != nil {
 		return rollback("停止后读取原凭据失败")
-	} else if !strings.EqualFold(emailFromCredentialPayload(latest), out.PreviousOwner) {
-		return rollback("停止后账号归属发生变化")
 	} else {
-		prevRaw = latest
+		if out.PreviousOwner != "" {
+			originalArchive, err = withArchivedCredentialIdentity(latest, originalArchive, out.PreviousOwner)
+			if err != nil {
+				return rollback("停止后账号归属发生变化")
+			}
+		} else if len(latest) != 0 {
+			return rollback("停止后账号归属发生变化")
+		}
+		if !sameOwner {
+			prevRaw = latest
+		}
 	}
-	if out.PreviousOwner != "" {
-		if _, err := StoreVaultCredential(out.PreviousOwner, displayNameFromCredentialPayload(prevRaw), prevRaw); err != nil {
+	if out.PreviousOwner != "" && !sameOwner {
+		if _, err := StoreVaultCredential(out.PreviousOwner, displayNameFromCredentialPayload(originalArchive), originalArchive); err != nil {
 			return rollback("保存原账号最新凭据失败")
+		}
+	}
+	if sameOwner {
+		var nativeRenewed bool
+		prevRaw, nativeRenewed = sameAccountRecoveryCredential(originalBeforeRefresh, target, originalArchive)
+		if nativeRenewed {
+			// Keep the final native grant recoverable before revalidating it.
+			if err := updateBrokerRecovery(prevRaw, out.PreviousOwner); err != nil {
+				return rollback("保存宿主最新登录恢复记录失败")
+			}
+			if _, err := StoreVaultCredential(out.Email, displayNameFromCredentialPayload(prevRaw), prevRaw); err != nil {
+				return rollback("保存宿主最新登录失败")
+			}
+			target, err = refreshTargetCredential(prevRaw, out.Email, out.Mode)
+			if err != nil {
+				return rollback("宿主最新登录核验失败：" + err.Error())
+			}
+			prevRaw = target
+			if err := updateBrokerRecovery(prevRaw, out.PreviousOwner); err != nil {
+				return rollback("更新续期登录恢复记录失败")
+			}
+			if _, err := StoreVaultCredential(out.Email, displayNameFromCredentialPayload(target), target); err != nil {
+				return rollback("保存宿主最新续期登录失败")
+			}
+			if err := clearRefreshCandidate(out.Email); err != nil {
+				return rollback("清理宿主续期候选失败")
+			}
 		}
 	}
 	if err := updateBrokerRecovery(prevRaw, out.PreviousOwner); err != nil {
@@ -945,6 +1019,9 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 	out.VerifiedOwner = got
 	out.Verified = strings.EqualFold(got, out.Email)
 	if out.Verified {
+		native := ReadNativeAuthState()
+		out.NativeAuth = &native
+		out.EligibilityWarning = native.Authenticated && !native.Valid && native.Failure == "ineligible"
 		if _, err := StoreVaultCredential(out.Email, displayNameFromCredentialPayload(fresh), fresh); err != nil {
 			return rollback("保存原生刷新后的登录失败")
 		}

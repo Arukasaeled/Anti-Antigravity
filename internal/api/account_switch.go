@@ -57,6 +57,8 @@ func (s *Server) startAccountSwitch(w http.ResponseWriter, email string) {
 		state := switchJob{Email: email, Success: err == nil, Message: message, FinishedAt: time.Now().Format(time.RFC3339), Result: result, Transaction: supervisor.CurrentAccountTransaction(), UserMessage: userMessage, UserMessageEN: userMessageEN}
 		if err != nil {
 			state.TechnicalDetails = message
+		} else if result.EligibilityWarning && result.NativeAuth != nil {
+			state.TechnicalDetails = "Native GetAuthStatus: " + result.NativeAuth.Failure + "\n" + result.NativeAuth.Message
 		}
 		if err := persistSwitchReceipt(state); err != nil {
 			log.Printf("[2ag] 保存切号回执失败: %v", err)
@@ -127,6 +129,9 @@ func (s *Server) handleAccountSwitchStatus(w http.ResponseWriter, r *http.Reques
 
 func switchUserMessage(result supervisor.AccountSwitchResult, err error) (string, string) {
 	if err == nil {
+		if result.EligibilityWarning {
+			return "账号身份已核验；原生资格提示与任务可用性可能不一致。发送按钮无响应时可按 Enter 或使用强制发送。", "Account identity verified. Native eligibility may differ from task availability. If Send is disabled, use Enter or Force Send."
+		}
 		return "原生登录已核验", "Native sign-in verified"
 	}
 	zh, en := "无法切换账号。请查看账号健康状态。", "Couldn't switch accounts. Check Account Health."

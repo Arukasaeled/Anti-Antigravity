@@ -20,6 +20,13 @@ func TestSwitchMessageSeparatesFailureAndRecovery(t *testing.T) {
 	}
 }
 
+func TestSwitchWarningDoesNotClaimAgentSuccess(t *testing.T) {
+	zh, en := switchUserMessage(supervisor.AccountSwitchResult{Verified: true, EligibilityWarning: true}, nil)
+	if !strings.Contains(zh, "身份已核验") || !strings.Contains(en, "Force Send") || strings.Contains(en, "Native sign-in verified") {
+		t.Fatal("identity verification must preserve the eligibility warning and offer the working send path")
+	}
+}
+
 func TestRefreshFailureKeepsHostAndOffersReLogin(t *testing.T) {
 	zh, en := switchUserMessage(supervisor.AccountSwitchResult{}, &supervisor.CredentialRefreshError{Code: "invalid_grant", HTTPStatus: 400})
 	if !strings.Contains(zh, "重新添加") || !strings.Contains(en, "still running") {

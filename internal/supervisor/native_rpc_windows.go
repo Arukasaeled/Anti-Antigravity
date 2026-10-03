@@ -216,6 +216,12 @@ func readNativeAuthRPC() NativeAuthState {
 			if nativeUnary(connection, "GetUserStatus", &user) == nil {
 				state.Email = user.Status.Email
 			}
+			var token struct {
+				HasToken bool `json:"hasToken"`
+			}
+			if nativeUnary(connection, "HasAuthToken", &token) == nil {
+				state.Authenticated = token.HasToken && state.Email != ""
+			}
 		}
 		return state
 	}

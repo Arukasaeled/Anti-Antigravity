@@ -19,8 +19,10 @@
         const locationRestricted=native.failure==='ineligible'&&/location/i.test(native.message||'');
         const rows=[
           [t('账号','Account'),h.account||unknown],
-          [h.native_live?t('原生登录','Native sign-in'):t('上次原生登录','Last native sign-in'),native.available?(native.valid?t('有效','Valid'):(failure||t('未登录','Signed out'))):unknown],
+          [h.native_live?t('原生身份','Native identity'):t('上次原生身份','Last native identity'),native.available?(native.valid||native.authenticated?t('已核验','Verified'):(failure||t('未登录','Signed out'))):unknown],
+          [t('资格检查','Eligibility check'),native.available?(native.valid?t('通过','Passed'):(failure||unknown)):unknown],
           [t('原因','Reason'),locationRestricted?t('原生服务本次报告地区限制','The native service reported a location restriction'):native.message],
+          [t('提示','Note'),native.authenticated&&native.failure==='ineligible'?t('此提示不代表任务一定失败。按钮禁用时可尝试 Enter 或强制发送。','This warning does not establish task failure. If Send is disabled, try Enter or Force Send.'):'' ],
           [t('最后核验','Last verified'),h.last_verified],
           [t('最后观察到刷新','Last observed refresh'),h.last_refresh||unknown],
           [t('保险库','Vault'),({archived:t('已归档','Archived'),incomplete:t('不完整','Incomplete'),missing:t('未归档','Missing')})[h.vault]],

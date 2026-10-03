@@ -49,8 +49,9 @@ func loadHealthMetadataLocked() {
 	accountHealth.loaded = true
 }
 func healthNativeForOwner(state NativeAuthState, email string) NativeAuthState {
-	if state.Valid && (email == "" || !strings.EqualFold(state.Email, email)) {
+	if (state.Valid || state.Authenticated) && (email == "" || !strings.EqualFold(state.Email, email)) {
 		state.Valid = false
+		state.Authenticated = false
 		state.Failure = "identity-mismatch"
 		state.Message = "Native identity does not match the stored account."
 	}
@@ -64,7 +65,7 @@ func recordNativeObservation(state NativeAuthState) {
 	if err != nil {
 		return
 	}
-	email := strings.ToLower(emailFromCredentialPayload(raw))
+	email := strings.ToLower(nativeCredentialOwner(raw))
 	if email == "" {
 		return
 	}
@@ -79,7 +80,7 @@ func recordNativeObservation(state NativeAuthState) {
 	next.LastVerified = now
 	if v, ok := parseCredentialBlobView(raw); ok && v.Token != nil {
 		// A newly observed expiry is evidence of refresh, not startup itself.
-		if previous.AccessExpiry != "" && previous.AccessExpiry != v.Token.Expiry && state.Valid && strings.EqualFold(state.Email, email) {
+		if previous.AccessExpiry != "" && previous.AccessExpiry != v.Token.Expiry && nativeSessionReady(state) && strings.EqualFold(state.Email, email) {
 			before, _ := time.Parse(time.RFC3339Nano, previous.AccessExpiry)
 			after, _ := time.Parse(time.RFC3339Nano, v.Token.Expiry)
 			if after.After(before) {
@@ -109,7 +110,7 @@ func recordNativeObservation(state NativeAuthState) {
 
 func AccountHealthSnapshot(requested string) map[string]any {
 	raw, _ := readAntigravityCredentialRaw()
-	current := emailFromCredentialPayload(raw)
+	current := nativeCredentialOwner(raw)
 	host := ProbeRealHost()
 	tx := CurrentAccountTransaction()
 	accountHealth.Lock()

@@ -186,8 +186,10 @@ func launchEnhancedHost(exePath, activeAccountEmail string, useRecordedAccount b
 		if readErr != nil {
 			return fmt.Errorf("读取当前登录失败，未启动宿主: %w", readErr)
 		}
-		if current, complete := credentialRestorableEmail(raw); complete {
-			activeAccountEmail = current
+		if current := nativeCredentialOwner(raw); current != "" {
+			if _, err := credentialForArchive(raw, current); err == nil {
+				activeAccountEmail = current
+			}
 		}
 	}
 
@@ -258,16 +260,18 @@ func launchEnhancedHost(exePath, activeAccountEmail string, useRecordedAccount b
 		if readErr != nil {
 			return fmt.Errorf("读取当前登录失败，未启动宿主: %w", readErr)
 		}
-		owner, complete := credentialRestorableEmail(current)
-		if !complete || !strings.EqualFold(owner, activeAccountEmail) {
+		owner := nativeCredentialOwner(current)
+		_, completeErr := credentialForArchive(current, activeAccountEmail)
+		if completeErr != nil || !strings.EqualFold(owner, activeAccountEmail) {
 			if err := ApplyAntigravityCredential(activeAccountEmail); err != nil {
 				return fmt.Errorf("切换系统登录凭据失败，未启动宿主: %w", err)
 			}
 		}
 	} else if activeAccountEmail != "" {
 		current, readErr := readAntigravityCredentialRaw()
-		owner, complete := credentialRestorableEmail(current)
-		if readErr != nil || !complete || !strings.EqualFold(owner, activeAccountEmail) {
+		owner := nativeCredentialOwner(current)
+		_, completeErr := credentialForArchive(current, activeAccountEmail)
+		if readErr != nil || completeErr != nil || !strings.EqualFold(owner, activeAccountEmail) {
 			return fmt.Errorf("已恢复登录与目标账号不一致，未启动宿主")
 		}
 	}

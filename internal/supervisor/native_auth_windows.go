@@ -33,7 +33,7 @@ func readNativeAuthAt(addr string) NativeAuthState {
 			cancel()
 			continue
 		}
-		raw, err := evaluateCDPString(conn, reader, 1, `(async()=>{const c=window.Wj?.lsClient;if(!c?.getAuthStatus)return JSON.stringify({available:false});const r=(await c.getAuthStatus({})).authResult;if(!r)return JSON.stringify({available:false});let email='';try{if(c.getUserStatus)email=(await c.getUserStatus({})).userStatus?.email||''}catch{}return JSON.stringify({available:true,valid:r.hasValidAuth===true,email,failure:r.failureDetails?.case||'',message:(r.uiMessage||'').slice(0,500)})})()`)
+		raw, err := evaluateCDPString(conn, reader, 1, `(async()=>{const c=window.Wj?.lsClient;if(!c?.getAuthStatus)return JSON.stringify({available:false});const r=(await c.getAuthStatus({})).authResult;if(!r)return JSON.stringify({available:false});let email='',hasToken=false;try{if(c.getUserStatus)email=(await c.getUserStatus({})).userStatus?.email||'';if(c.hasAuthToken)hasToken=(await c.hasAuthToken({})).hasToken===true}catch{}return JSON.stringify({available:true,valid:r.hasValidAuth===true,authenticated:hasToken&&!!email,email,failure:r.failureDetails?.case||'',message:(r.uiMessage||'').slice(0,500)})})()`)
 		conn.Close()
 		cancel()
 		if err == nil {
@@ -68,7 +68,7 @@ func waitForNativeAccount(email string, timeout time.Duration) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if owner := emailFromCredentialPayload(raw); owner != "" && !strings.EqualFold(owner, email) {
+		if owner := nativeCredentialOwner(raw); owner != "" && !strings.EqualFold(owner, email) {
 			return nil, fmt.Errorf("原生宿主凭据归属改变，拒绝提交切号")
 		}
 		last = ReadNativeAuthState()
@@ -78,8 +78,9 @@ func waitForNativeAccount(email string, timeout time.Duration) ([]byte, error) {
 			}
 			// Refresh grants need not issue a new ID token. Require the complete
 			// archive, a current access token and server-confirmed identity instead.
-			if nativeCredentialReady(raw, last, email) {
-				return raw, nil
+			complete, completeErr := credentialForArchive(raw, email)
+			if completeErr == nil && nativeCredentialReady(complete, last, email) {
+				return complete, nil
 			}
 		}
 		time.Sleep(300 * time.Millisecond)
