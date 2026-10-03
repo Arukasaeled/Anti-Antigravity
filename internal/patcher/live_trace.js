@@ -52,15 +52,19 @@
     if(args&&typeof args==='object') {
       e.path=e.path||path(args.AbsolutePath||args.TargetFile||args.FilePath||args.path||'');
       if(e.category==='tool'&&meta.toolCall?.name==='run_command'){e.category='command';e.title=command(args.CommandLine||e.title);}
+      const tool=meta.toolCall?.name||value.toolName||'';
+      if(['view_file','read_file','view_file_outline'].includes(tool))e.category='read';
+      if(['write_to_file','replace_file_content','multi_replace_file_content'].includes(tool))e.category='edit';
+      if(['grep_search','find_by_name','list_dir','search_web'].includes(tool))e.category='search';
     }
     if(step.taskDetails)e.task={id:step.taskDetails.id||'',title:redact(step.taskDetails.title||''),progress:redact(step.taskDetails.progress||''),approval:step.taskDetails.requiresInputApproval===true,logUri:path(step.taskDetails.logUri||'')};
     if(step.error&&e.category!=='error')e.text=redact(e.text+'\n'+(step.error.shortError||'')+'\n'+(step.error.fullError||''));
-    e.eventKind=({read:'file-read',edit:'file-write',command:'command',error:'error',summary:'checkpoint',user:'user',tool:'tool'})[e.category] || (kind==='plannerResponse'?'assistant':'system');
+    e.eventKind=({read:'file-read',edit:'file-write',command:'command',error:'error',summary:'checkpoint',user:'user',tool:'tool',search:'search'})[e.category] || (kind==='plannerResponse'?'assistant':'system');
     e.tool=e.tools[0]?.name || redact(meta.toolCall?.name||'');
     e.timestamp=e.createdAt;e.summary=e.text;e.file=e.path;
     const duration=(Date.parse(e.completedAt)-Date.parse(e.createdAt))/1000;
     if(Number.isFinite(duration)&&duration>=0)e.duration=duration;
-    e.phase=e.category==='read'?'Research':e.category==='edit'?'Implementation':e.category==='command'?( /(?:\b(?:test|pytest|lint|vet|check)\b)/i.test(e.title)?'Validation':/\b(?:build|pack|compile)\b/i.test(e.title)?'Build':'Command'):e.category==='error'?'Error':e.category==='summary'?'Checkpoint':e.category==='tool'?'Tool':'Conversation';
+    e.phase=['read','search'].includes(e.category)?'Research':e.category==='edit'?'Implementation':e.category==='command'?( /(?:\b(?:test|pytest|lint|vet|check)\b)/i.test(e.title)?'Validation':/\b(?:build|pack|compile)\b/i.test(e.title)?'Build':'Command'):e.category==='error'?'Error':e.category==='summary'?'Checkpoint':e.category==='tool'?'Tool':'Conversation';
     e.phaseSource='event-kind'; // A classification of observed work, not an inferred plan.
     return e;
   }
@@ -191,13 +195,13 @@
     const node=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
     const button=(zh,en,fn)=>{const b=node('button','',t(zh,en));b.type='button';b.onclick=fn;b.dataset.zh=zh;b.dataset.en=en;return b;};
     const duration=s=>s===null||s===undefined?'—':s>=60?Math.floor(s/60)+'m '+Math.round(s%60)+'s':s.toFixed(1)+'s';
-    const label={all:['全部','All'],read:['文件','Files'],edit:['编辑','Edits'],command:['命令','Commands'],tool:['工具','Tools'],error:['错误 / 中断','Errors / interruptions'],summary:['检查点','Checkpoints'],user:['用户','User'],progress:['公开输出','Public output']};
+    const label={all:['全部','All'],read:['文件','Files'],edit:['编辑','Edits'],command:['命令','Commands'],tool:['工具','Tools'],error:['错误 / 中断','Errors / interruptions'],summary:['检查点','Checkpoints'],user:['用户','User'],progress:['公开输出','Public output'],search:['搜索','Search']};
     const phaseLabel={Research:['读取 / 调查','Research'],Implementation:['修改','Implementation'],Validation:['验证','Validation'],Build:['构建','Build'],Command:['命令','Command'],Error:['错误','Error'],Checkpoint:['检查点','Checkpoint'],Tool:['工具','Tool'],Conversation:['会话','Conversation']};
     const states={running:['执行中','Running'],done:['完成','Done'],pending:['待执行','Pending'],generating:['生成中','Generating'],waiting:['等待','Waiting'],queued:['排队','Queued'],error:['失败','Error'],invalid:['无效','Invalid'],interrupted:['中断','Interrupted'],canceled:['取消','Canceled'],unknown:['未知','Unknown'],cleared:['已清除','Cleared']};
     const style=node('style');style.textContent='.lt-toolbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}.lt-meta,.lt-note{color:var(--2ag-text-secondary,#9aa0a6);font:11px/1.6 system-ui;overflow-wrap:anywhere}.lt-stats{font:12px/1.7 system-ui;padding:8px 0}.lt-list{height:45vh;min-height:180px;max-height:500px;overflow:auto;position:relative;overflow-anchor:none}.lt-window{position:relative}.lt-event{box-sizing:border-box;position:absolute;left:0;right:0;height:60px;display:flex;gap:8px;align-items:center;border-left:2px solid #68707855;padding:6px 8px}.lt-event[data-category=error]{border-color:#f28b82}.lt-event[data-status=running],.lt-event[data-status=generating]{border-color:#8ab4f8;background:#8ab4f811}.lt-event button{background:transparent!important;text-align:left;border:0!important;min-width:0;flex:1;padding:0!important}.lt-event .lt-line{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:12px/1.5 system-ui}.lt-event input{width:auto!important;flex:none}.lt-detail pre,.lt-files pre{font:11px/1.7 monospace;white-space:pre-wrap;max-height:300px;overflow:auto;overflow-wrap:anywhere}.lt-current{padding:10px 12px;background:#8ab4f811;border-left:2px solid #8ab4f8;font:12px/1.7 system-ui;overflow-wrap:anywhere}.lt-search{flex:1;min-width:100px}.lt-title{font-size:18px;font-weight:650}.lt-pivots{display:flex;gap:4px;flex-wrap:wrap;max-height:110px;overflow:auto}.lt-pivots button{font-size:11px!important}.lt-files>div{max-height:350px;overflow:auto}';
     const title=node('div','lt-title','Live Trace'),status=node('div','lt-meta'),stats=node('div','lt-stats'),current=node('div','lt-current'),note=node('p','lt-note');
     const toolbar=node('div','lt-toolbar'),search=node('input','lt-search'),select=node('select'),sessionSelect=node('select');search.type='search';
-    for(const key of ['all','error','command','read','edit','tool','summary']){const o=node('option');o.value=key;select.append(o);}
+    for(const key of ['all','error','command','read','edit','tool','search','summary']){const o=node('option');o.value=key;select.append(o);}
     const refresh=button('回到实时','Return to live',()=>{follow=true;phaseFilter='';if(data.historyStart!==null)connect(true);else render();}),earlier=button('更早步骤','Earlier steps',async()=>{try{follow=false;await loadEarlier();}catch(e){toast(e.message);}}),changes=button('文件变更','File changes',async()=>{changes.disabled=true;try{await loadFiles();fileList.open=true;}catch(e){toast(e.message);}finally{changes.disabled=false;}});
     toolbar.append(search,select,earlier,refresh,changes);
     const sessionsBar=node('div','lt-toolbar');sessionsBar.append(sessionSelect,button('最近会话','Recent sessions',async()=>{try{await loadSessions();}catch(e){toast(e.message);}}));

@@ -831,6 +831,10 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 		return out, fmt.Errorf("%s", out.Message)
 	}
 
+	// Persist before stopping: process loss or partial stop must remain recoverable.
+	if err := saveBrokerRecovery(prevRaw, out.PreviousOwner); err != nil {
+		return out, fmt.Errorf("无法保存切号恢复记录，未停止宿主: %w", err)
+	}
 	transactionStage("StoppingHost", "")
 	if stopAllAntigravityProcesses("账号切换：先停宿主") != 0 {
 		return rollback("宿主未能完全停止，未写入目标凭据")
@@ -849,8 +853,8 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 			return rollback("保存原账号最新凭据失败")
 		}
 	}
-	if err := saveBrokerRecovery(prevRaw, out.PreviousOwner); err != nil {
-		return rollback("保存切号恢复记录失败")
+	if err := updateBrokerRecovery(prevRaw, out.PreviousOwner); err != nil {
+		return rollback("更新切号恢复记录失败")
 	}
 	transactionStage("WritingTargetCredential", "")
 	if err := writeAntigravityCredentialRaw(target); err != nil {

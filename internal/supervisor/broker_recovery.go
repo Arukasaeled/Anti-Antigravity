@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,6 +78,15 @@ func brokerRecoveryPath() string {
 }
 
 func saveBrokerRecovery(raw []byte, email string) error {
+	return writeBrokerRecovery(raw, email, false)
+}
+
+// Only the credential-lock owner may replace its own pre-stop checkpoint.
+func updateBrokerRecovery(raw []byte, email string) error {
+	return writeBrokerRecovery(raw, email, true)
+}
+
+func writeBrokerRecovery(raw []byte, email string, update bool) error {
 	var sealed []byte
 	if len(raw) > 0 {
 		var err error
@@ -92,7 +102,13 @@ func saveBrokerRecovery(raw []byte, email string) error {
 		return err
 	}
 	path := brokerRecoveryPath()
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
+	if update {
+		data, err := os.ReadFile(path)
+		var prior brokerRecovery
+		if err != nil || json.Unmarshal(data, &prior) != nil || prior.Version != 1 || !strings.EqualFold(prior.Email, email) || prior.SignedOut != (len(raw) == 0) {
+			return fmt.Errorf("切号恢复记录归属不一致，拒绝覆盖")
+		}
+	} else if _, err := os.Stat(path); !os.IsNotExist(err) {
 		return fmt.Errorf("存在未完成的账号恢复记录，请先恢复")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

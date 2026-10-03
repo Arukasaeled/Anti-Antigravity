@@ -5786,7 +5786,12 @@
       try {
         const res = await fetchFirstOk('/api/v1/accounts');
         const data = await res.json();
-        const accounts = Array.isArray(data) ? data : (data.accounts || []);
+        let accounts = Array.isArray(data) ? data : (data.accounts || []);
+        // Quota-only records are not necessarily restorable native logins.
+        const vault=await(await fetchFirstOk('/api/v1/accounts/vault')).json();
+        const archived=new Set((vault.accounts||[]).map(a=>a.email.toLowerCase()));
+        accounts=accounts.filter(a=>archived.has((a.email||'').toLowerCase())||a.is_active);
+        for(const a of vault.accounts||[])if(!accounts.some(row=>row.email?.toLowerCase()===a.email.toLowerCase()))accounts.push({email:a.email,name:a.display_name||'',cooldown_msg:translateHub('Quota unavailable')});
         // 活跃账号以 host/status 的 active_account 为准（accounts 里的 is_active
         // 是磁盘扫描结果，可能与运行中的宿主不一致）。
         //
@@ -6252,6 +6257,8 @@
       appearance: () => syncThemeChips()
     });
     mountAccountRelay({shadow,request:fetchFirstOk,flushDraft:interaction.flushDraft});
+    // A restored open panel has not gone through toggleCockpit this session.
+    refreshAccountList();
 
     // 配额轮询：同样走窗口级命名槽（4s 周期只保留一份，dispose 时随 resize 一并清理）
     hubQuotaRefresher = refreshQuotas;
@@ -6311,7 +6318,7 @@
 
   window.__2ag = {
     version: '2.2',
-    interactionVersion: '0.2.0',
+    interactionVersion: '0.2.0-rc.2',
     forceSend: (text) => executeForceDispatch(text),
     dispose: disposeHub,
     // 兼容性自检：返回当前宿主 DOM 上各寻址层各自落在哪一层。

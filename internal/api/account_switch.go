@@ -139,8 +139,13 @@ func switchUserMessage(result supervisor.AccountSwitchResult, err error) (string
 		}
 	}
 	if strings.Contains(err.Error(), "ineligible") {
-		zh = "Antigravity 原生服务拒绝了此账号的使用资格。" + strings.TrimPrefix(zh, "无法切换账号。请查看账号健康状态。")
-		en = "Antigravity rejected this account's eligibility." + strings.TrimPrefix(en, "Couldn't switch accounts. Check Account Health.")
+		reasonZH, reasonEN := "Antigravity 原生服务拒绝了此账号的使用资格。", "Antigravity rejected this account's eligibility."
+		if strings.Contains(strings.ToLower(err.Error()), "location") {
+			reasonZH = "Antigravity 原生服务提示：此账号当前地区暂不支持使用。"
+			reasonEN = "Antigravity reports that this account isn't supported in its current location."
+		}
+		zh = reasonZH + strings.TrimPrefix(zh, "无法切换账号。请查看账号健康状态。")
+		en = reasonEN + strings.TrimPrefix(en, "Couldn't switch accounts. Check Account Health.")
 	}
 	return zh, en
 }

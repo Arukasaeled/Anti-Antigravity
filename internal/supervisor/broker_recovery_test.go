@@ -129,3 +129,22 @@ func TestIndependentHostControlsRespectAccountLock(t *testing.T) {
 		t.Fatal("host control bypassed pending account restoration")
 	}
 }
+
+func TestRecoveryCheckpointUpdatePreservesOwner(t *testing.T) {
+	isolateHome(t)
+	if err := saveBrokerRecovery([]byte(`{"email":"a@example.invalid","value":"before-stop"}`), "a@example.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	if err := updateBrokerRecovery([]byte(`{"email":"b@example.invalid"}`), "b@example.invalid"); err == nil {
+		t.Fatal("cannot replace another recovery owner")
+	}
+	latest := []byte(`{"email":"a@example.invalid","value":"final-flush"}`)
+	if err := updateBrokerRecovery(latest, "a@example.invalid"); err != nil {
+		t.Fatal(err)
+	}
+	var got []byte
+	ok, err := restoreBrokerRecovery(func() error { return nil }, func(raw []byte) error { got = raw; return nil }, func() ([]byte, error) { return got, nil })
+	if err != nil || !ok || !bytes.Equal(got, latest) {
+		t.Fatal("recovery must use final flushed snapshot")
+	}
+}
