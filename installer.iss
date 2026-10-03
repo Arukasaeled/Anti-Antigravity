@@ -1,5 +1,8 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0"
+  #define MyAppVersion "0.2.0-rc.2"
+#endif
+#ifndef MyAppFileVersion
+  #define MyAppFileVersion "0.2.0.2"
 #endif
 #ifndef SourceDir
   #define SourceDir "staging"
@@ -15,6 +18,7 @@
 AppId={{F5D0B4CE-6B17-4A06-93A0-2A6000000001}
 AppName={#AppName}
 AppVersion={#MyAppVersion}
+VersionInfoVersion={#MyAppFileVersion}
 AppPublisher=Anti-Antigravity
 DefaultDirName={localappdata}\Programs\Anti-Antigravity
 DefaultGroupName={#AppName}

@@ -1,13 +1,15 @@
 ﻿[CmdletBinding()]
 param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot '..\dist'),
-    [string]$Version = '0.2.0',
+    [string]$Version = '0.2.0-rc.2',
     [string]$Go = 'go',
     [string]$ISCC = 'ISCC.exe',
     [switch]$SkipInstaller
 )
 
 $ErrorActionPreference = 'Stop'
+if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$') { throw 'Version must be major.minor.patch or major.minor.patch-rc.number' }
+$fileVersion = $Matches[1] + '.' + $Matches[2] + '.' + $Matches[3] + '.' + $(if ($Matches[4]) { $Matches[4] } else { '0' })
 $goCommand = $Go
 if ($Go -eq 'go' -and -not (Get-Command go -ErrorAction SilentlyContinue)) {
     $installedGo = Join-Path ${env:ProgramFiles} 'Go\bin\go.exe'
@@ -56,7 +58,7 @@ if ($LASTEXITCODE -ne 0) { throw "Go release build failed with exit code $LASTEX
 Copy-Item -Path (Join-Path $ProjectRoot 'assets\*') -Destination (Join-Path $Staging 'assets') -Recurse -Force -Exclude '*.go'
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\injected_hub.js') -Destination (Join-Path $Staging 'assets\injected_hub.js') -Force
 Copy-Item -Path (Join-Path $ProjectRoot 'themes\*') -Destination (Join-Path $Staging 'themes') -Recurse -Force
-Copy-Item -Path (Join-Path $ProjectRoot 'plugins\*') -Destination (Join-Path $Staging 'plugins') -Recurse -Force
+Copy-Item -Path (Join-Path $ProjectRoot 'plugins\*') -Destination (Join-Path $Staging 'plugins') -Recurse -Force -Exclude '*.go'
 
 # ★ 中性初始配置。
 #   wallpaper_path 留空 = Native（使用 Antigravity 自己的原生背景）。
@@ -234,7 +236,7 @@ if ($SkipInstaller) {
 
 $installer = Join-Path $ProjectRoot 'installer.iss'
 if ((Test-Path -LiteralPath $isccCommand -PathType Leaf -ErrorAction SilentlyContinue) -or (Get-Command $isccCommand -ErrorAction SilentlyContinue)) {
-	& $isccCommand "/DSourceDir=$Staging" "/DOutputDir=$OutputRoot" "/DMyAppVersion=$Version" $installer
+	& $isccCommand "/DSourceDir=$Staging" "/DOutputDir=$OutputRoot" "/DMyAppVersion=$Version" "/DMyAppFileVersion=$fileVersion" $installer
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
     Write-Host "Created $(Join-Path $OutputRoot 'Anti-Antigravity-Setup-x64.exe')"
 } else {

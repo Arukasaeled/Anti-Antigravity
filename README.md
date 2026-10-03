@@ -12,7 +12,7 @@
 
 **[⬇ Download v0.1.1](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)** · [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
 
-当前源码为 **v0.2.0 Interaction Layer**，公开安装包仍以 Release 页面为准。新功能与已检查的范围见 [v0.2.0 说明](RELEASE-NOTES-v0.2.0.md)，可按 [构建指南](docs/BUILD.md) 打包当前源码。
+当前源码为 **v0.2.0-rc.2 Interaction Layer / Live Trace 2.0**，公开安装包仍以 Release 页面为准。新功能与已检查的范围见 [v0.2.0 说明](RELEASE-NOTES-v0.2.0.md)，可按 [构建指南](docs/BUILD.md) 打包当前源码。RC2 的实机范围、性能回放与限制见 [验证记录](docs/RC2-REALITY-OBSERVABILITY.md)。
 
 <img src="docs/screenshots/01-overview-light.png" alt="2Ag Manager 概览" width="880">
 
