@@ -3094,6 +3094,10 @@
       <span class="tab-icon-stack"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 3.2a2.4 2.4 0 1 1 0 4.8 2.4 2.4 0 0 1 0-4.8Zm0 14.1a7.9 7.9 0 0 1-5.5-2.2c.1-1.8 3.7-2.9 5.5-2.9s5.4 1.1 5.5 2.9a7.9 7.9 0 0 1-5.5 2.2Z"/></svg><img class="tab-star" src="assets/gemini_logo.png" onerror="this.src='/dist/assets/gemini_logo.png'" alt="" aria-hidden="true"></span>
       <span class="tab-text">账号矩阵<span class="tab-latin">Accounts</span></span>
     </div>
+    <div class="sidebar-tab" data-target="context">
+      <span class="tab-icon-stack"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h18v16H3V4Zm2 2v12h14V6H5Zm2 2h10v2H7V8Zm0 4h7v2H7v-2Z"/></svg></span>
+      <span class="tab-text">上下文<span class="tab-latin">Context</span></span>
+    </div>
     <div class="sidebar-tab" data-target="sessions">
       <span class="tab-icon-stack"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm2 4v1.8h10V8H7Zm0 3.6v1.8h10v-1.8H7Zm0 3.6v1.8h6.5v-1.8H7Z"/></svg><img class="tab-star" src="assets/gemini_logo.png" onerror="this.src='/dist/assets/gemini_logo.png'" alt="" aria-hidden="true"></span>
       <span class="tab-text">会话审计<span class="tab-latin">Sessions</span></span>
@@ -3107,6 +3111,10 @@
     <div class="sidebar-tab" data-target="boost">
       <span class="tab-icon-stack"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M13.5 2 4 13.2h6.1L10.2 22 20 10.6h-6.2L13.5 2Z"/></svg><img class="tab-star" src="assets/gemini_logo.png" onerror="this.src='/dist/assets/gemini_logo.png'" alt="" aria-hidden="true"></span>
       <span class="tab-text">重力加倍<span class="tab-latin">Gravity Boost</span></span>
+    </div>
+    <div class="sidebar-tab" data-target="skills">
+      <span class="tab-icon-stack"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h16v18H4V3Zm2 2v14h12V5H6Zm2 3h8v2H8V8Zm0 4h8v2H8v-2Z"/></svg></span>
+      <span class="tab-text">技能<span class="tab-latin">Skills</span></span>
     </div>
     <div class="sidebar-tab" data-target="diagnostics">
       <span class="tab-icon-stack"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v2.2H3V5Zm0 5.9h18v2.2H3v-2.2Zm0 5.9h11.5V19H3v-2.2Zm14.6 2.4-1.5-1.5 1.9-1.9-1.9-1.9 1.5-1.5 3.4 3.4-3.4 3.4Z"/></svg><img class="tab-star" src="assets/gemini_logo.png" onerror="this.src='/dist/assets/gemini_logo.png'" alt="" aria-hidden="true"></span>
@@ -3224,6 +3232,7 @@
              本工程只读、从不主动向官方端点握手。没有这一行时，9 小时前的快照
              与 3 秒前的快照在界面上长得一模一样。 -->
         <div class="section-note" id="dash-quota-source">配额出处：读取中…</div>
+        <details style="margin:16px 0"><summary style="cursor:pointer">额度历史与账号比较 · Quota Intelligence</summary><div id="quota-intelligence" class="observation-scroll" style="margin-top:12px">读取真实额度历史…</div></details>
 
         <div class="qring-group">
           <div class="qring-group-title"><img class="pool-logo" src="assets/gemini_logo.png" onerror="this.src='/dist/assets/gemini_logo.png'" alt="">Gemini Models</div>
@@ -3376,18 +3385,44 @@
       </div>
     </div>
 
+    <div id="context" class="content-panel">
+      <div class="panel-header-wrap">
+        <div><h2 class="panel-title">Context</h2><div class="panel-subtitle">查看最近请求的用量、上下文组成与增长记录</div></div>
+        <button class="btn btn-tonal" onclick="loadContextInspector()">刷新</button>
+      </div>
+      <div class="toolbar" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <label for="context-target">Antigravity Target</label><select id="context-target" class="modal-input" style="max-width:560px"><option value="">等待采集</option></select>
+        <span id="context-connection" class="compat-detail" role="status">尚未采集</span>
+      </div>
+      <div id="context-content" class="subsection" style="max-width:880px;margin-top:24px"><p class="compat-detail">打开 Antigravity 会话后选择 Target。上限未知时不会显示虚构百分比。</p></div>
+    </div>
+
+    <div id="skills" class="content-panel">
+      <div class="panel-header-wrap">
+        <div><h2 class="panel-title">Skills</h2><div class="panel-subtitle">已安装 Skill 的说明、资源、示例与脚本</div></div>
+        <button class="btn btn-tonal" onclick="loadSkillsHub()">刷新</button>
+      </div>
+      <div class="toolbar" style="display:flex;gap:16px;flex-wrap:wrap">
+        <label for="skills-scope">安装位置</label><select id="skills-scope" class="modal-input"><option value="all">全部</option><option value="global">Global</option><option value="workspace">Workspace</option></select>
+        <input id="skills-search" class="modal-input" type="search" aria-label="搜索 Skills" placeholder="搜索名称、描述或路径">
+      </div>
+      <p class="compat-detail">当前只读。原生启停机制尚未确认；资源与脚本可查看结构，不会执行。</p>
+      <div id="skills-list" class="session-list">点击刷新读取已安装 Skills。</div>
+    </div>
+
     <!-- 03 SESSIONS AUDIT (真实会话审计 - 项目树与 Codex++ 级管控中枢) -->
     <div id="sessions" class="content-panel">
       <div class="panel-header-wrap">
         <div>
           <h2 class="panel-title">会话</h2>
-          <div class="panel-subtitle">本地 Antigravity 真实持久化会话索引、多维项目归类与批量管控</div>
+          <div class="panel-subtitle">Antigravity / Codex 本地元数据索引；点击预览后才加载消息</div>
         </div>
         <div class="flex-gap">
+          <select id="session-provider" class="modal-input" aria-label="会话 Provider"><option value="all">全部 Agent</option><option value="antigravity">Antigravity</option><option value="codex">Codex</option></select>
           <span class="runtime-state" id="sessions-total-badge" data-state="off">
             <span class="runtime-dot"></span><span class="runtime-state-text">正在读取…</span>
           </span>
-          <button class="btn btn-tonal" onclick="exportAllSessions()">导出全量 .md</button>
+          <button class="btn btn-tonal" onclick="exportAllSessions()">导出索引 .md</button>
           <button class="btn btn-primary" onclick="loadSessions(true)">同步索引</button>
         </div>
       </div>
@@ -3438,7 +3473,7 @@
               <span>全选当前列表</span>
             </label>
             <button class="btn btn-tonal" onclick="batchExportMarkdown()" id="btn-batch-export">
-              批量导出 Markdown
+              导出选中索引
             </button>
             <button class="btn btn-quiet-danger" onclick="batchDeleteSessions()" id="btn-batch-delete" style="display:none;">
               彻底删除选中 (<span id="selected-count">0</span>)
@@ -3775,6 +3810,13 @@
         </div>
       </div>
 
+      <div class="subsection" style="margin-bottom:24px">
+        <div class="row"><span class="card-title-text">2Ag Doctor</span><div class="flex-gap"><button class="btn btn-tonal" onclick="loadDoctor()">刷新诊断</button><a class="btn btn-tonal" href="/api/v1/doctor?export=1" download>Export Diagnostic Report</a></div></div>
+        <div id="doctor-checks" class="status-cluster" style="margin-top:16px">等待只读诊断…</div>
+        <details style="margin-top:16px"><summary style="cursor:pointer">Developer / Runtime counters</summary><div id="runtime-counters" class="status-cluster"></div><div id="runtime-targets" class="observation-scroll"></div></details>
+        <div class="compat-detail" style="margin-top:12px">导出仅含状态与计数；不包含凭据、账号身份、路径或会话正文。</div>
+      </div>
+
       <!-- 诊断抬头：两项关键读数 + 一行实时终端，构成一个紧凑的 header cluster。
            原来这里是两张同样大小的卡片，各装一个数字 —— 一个数字不需要一张卡。 -->
       <div class="section" style="padding-top:0;">
@@ -3801,7 +3843,7 @@
             <span class="term-hint">SSE 事件流 · 语义色区分</span>
           </div>
           <div class="flex-gap">
-            <button class="btn btn-tonal diag-act" onclick="logMsg('PING // 心跳探活正常 (延迟 0.4ms)', 'term-ok')">模拟心跳</button>
+            <button class="btn btn-tonal diag-act" onclick="loadDoctor()">刷新只读诊断</button>
             <button class="btn btn-tonal diag-act" onclick="document.getElementById('terminal').innerHTML=''">清空终端</button>
           </div>
         </div>
@@ -3986,6 +4028,17 @@
   </div>
 </div>
 
+<style>
+  .observation-scroll { overflow-x:auto; }
+  .observation-table { width:100%;border-collapse:collapse;font-size:12px;min-width:620px; }
+  .observation-table td,.observation-table th { text-align:left;padding:12px 8px;border-bottom:1px solid var(--2ag-outline,var(--md-sys-color-outline-variant)); }
+  .observation-table th { font-weight:500;color:var(--text-secondary); }
+  #observation-preview { width:min(920px,90vw);max-height:85vh;background:var(--2ag-surface-1);color:var(--text-primary);border:1px solid var(--2ag-outline);border-radius:6px;padding:24px; }
+  #observation-preview::backdrop { background:rgba(0,0,0,.4); }
+  #observation-preview-content { white-space:pre-wrap;overflow-wrap:anywhere;max-height:65vh;overflow:auto;font-size:13px;line-height:1.7; }
+</style>
+<dialog id="observation-preview"><div class="row"><strong id="observation-preview-title"></strong><button class="btn btn-tonal" onclick="document.getElementById('observation-preview').close()">关闭</button></div><pre id="observation-preview-content"></pre></dialog>
+<script src="/api/v1/context/view.js"></script>
 <script>
 // 2.2 健壮无 Bug 的侧边栏 Tab 切换器
 function initTabs() {
@@ -4889,16 +4942,26 @@ function renderSessionMetrics(sessions, projects) {
   // 量词交给下面那行标签去说。
   if (totalProjectsEl) totalProjectsEl.innerText = validProjects.length;
 
-  // 计算今日活跃会话数 (按当前本地日期比较 YYYY-MM-DD)
-  const todayPrefix = new Date().toISOString().slice(0, 10);
+  // 按浏览器本地日期计算，兼容不同 provider 的时区。
+  const today = new Date().toDateString();
   let todayCount = 0;
   sessions.forEach(function(s) {
-    if (s.updated_at && s.updated_at.startsWith(todayPrefix)) {
+    const updated = sessionUpdatedDate(s.updated_at);
+    if (!isNaN(updated.getTime()) && updated.toDateString() === today) {
       todayCount++;
     }
   });
   if (todayActiveEl) todayActiveEl.innerText = todayCount;
   if (archivedCountEl) archivedCountEl.innerText = archivedSessionCount;
+}
+
+function sessionUpdatedDate(value) {
+  return new Date((value || '').replace(' ', 'T'));
+}
+
+function sessionTimeLabel(value) {
+  const updated = sessionUpdatedDate(value);
+  return isNaN(updated.getTime()) ? (value || '未知时间') : updated.toLocaleString();
 }
 
 function renderProjectPills(projects, sessions) {
@@ -4951,6 +5014,8 @@ function onSearchSessions(query) {
 
 function getFilteredSessions() {
   return currentSessions.filter(function(s) {
+    const provider = document.getElementById('session-provider').value;
+    if (provider !== 'all' && s.provider !== provider) return false;
     // 项目胶囊过滤
     if (activeProjectFilter !== 'ALL') {
       const proj = s.project || '未分类项目';
@@ -5096,13 +5161,14 @@ function renderSessions(sessions) {
         '<div class="session-title" title="' + escapeHtml(s.title) + '">' + escapeHtml(s.title) + '</div>',
         '<div class="session-meta">',
           '<span class="session-proj">' + escapeHtml(projName) + '</span>',
-          '<span class="session-time">' + escapeHtml(s.updated_at || '未知时间') + '</span>',
-          '<span class="session-tech">#' + escapeHtml(shortId) + ' · ' + (s.turns || 0) + ' 步 · ' + escapeHtml(s.source || '') + '</span>',
+          '<span class="session-time">' + escapeHtml(sessionTimeLabel(s.updated_at)) + '</span>',
+          '<span class="session-tech">#' + escapeHtml(shortId) + ' · ' + (s.turns ? s.turns + ' 步' : '消息未加载') + ' · ' + escapeHtml(s.provider || s.source || '') + '</span>',
         '</div>',
       '</div>',
       '<div class="session-actions">',
-        '<button class="btn btn-tonal session-act" onclick="downloadSessionMD(\'' + escapeHtml(s.id) + '\')">导出</button>',
-        '<button class="btn btn-quiet-danger session-act" onclick="deleteSessionSingle(\'' + escapeHtml(s.id) + '\')">删除</button>',
+        '<button class="btn btn-tonal session-act" onclick="previewAISession(\'' + escapeHtml(s.id) + '\')" ' + (s.messages_available ? '' : 'disabled title="此会话尚无可读消息格式"') + '>预览</button>',
+        '<button class="btn btn-tonal session-act" onclick="downloadSessionMD(\'' + escapeHtml(s.id) + '\')" ' + (s.messages_available ? '' : 'disabled title="此会话尚无可读消息格式"') + '>导出</button>',
+        (s.can_delete ? '<button class="btn btn-quiet-danger session-act" onclick="deleteSessionSingle(\'' + escapeHtml(s.id) + '\')">删除</button>' : ''),
       '</div>'
     ].join('');
     list.appendChild(item);
@@ -5133,7 +5199,7 @@ function updateBatchButtons() {
   const countEl = document.getElementById('selected-count');
   if (countEl) countEl.innerText = count;
   const delBtn = document.getElementById('btn-batch-delete');
-  if (delBtn) delBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+  if (delBtn) delBtn.style.display = count > 0 && currentSessions.filter(s => selectedSessionIds.has(s.id)).every(s => s.can_delete) ? 'inline-flex' : 'none';
   const allChk = document.getElementById('select-all-sessions');
   const filtered = getFilteredSessions();
   if (allChk && filtered.length > 0) {
@@ -5189,18 +5255,21 @@ function batchDeleteSessions() {
   });
 }
 
-function downloadSessionMD(id) {
-  logMsg("正在下载单个会话 #" + id.slice(0, 8) + ".md 归档...", "term-cyan");
-  archivedSessionCount++;
-  const archivedCountEl = document.getElementById('stat-archived-count');
-  if (archivedCountEl) archivedCountEl.innerText = archivedSessionCount;
-
-  const link = document.createElement('a');
-  link.href = '/api/v1/sessions/export?id=' + encodeURIComponent(id);
-  link.download = 'session-' + id.slice(0, 8) + '.md';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+async function downloadSessionMD(id) {
+  try {
+    const response = await fetch('/api/v1/sessions/export?id=' + encodeURIComponent(id));
+    if (!response.ok) throw new Error(await response.text());
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'session-' + id.replace(':','-') + '.md';
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    archivedSessionCount++;
+    document.getElementById('stat-archived-count').innerText = archivedSessionCount;
+    logMsg('已请求下载会话 Markdown', 'term-ok');
+  } catch (error) { logMsg('导出失败: ' + error.message, 'term-err'); alert(error.message); }
 }
 
 function batchExportMarkdown() {
@@ -5222,7 +5291,7 @@ function batchExportMarkdown() {
     md += "- **所属项目**: `" + (s.project || '未分类项目') + "`\n";
     md += "- **UUID**: `" + s.id + "`\n";
     md += "- **更新时间**: " + s.updated_at + "\n";
-    md += "- **对话步数**: " + s.turns + "\n";
+    md += "- **消息状态**: " + (s.turns ? s.turns + " 步" : "未加载") + "\n";
     md += "- **持久化来源**: " + s.source + "\n\n";
   });
 
@@ -6528,5 +6597,6 @@ paintThemeSelection(readStoredThemeMode());
 setInterval(loadCapability, 30000);
 setInterval(probeRealHost, 1500);
 </script>
+<script src="/observability.js"></script>
 </body>
 </html>

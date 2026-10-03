@@ -91,6 +91,14 @@ func isTrustedLocalOrigin(origin string) bool {
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("/api/v1/context", s.handleContext)
+	s.mux.HandleFunc("/api/v1/context/view.js", s.handleContextView)
+	s.mux.HandleFunc("/api/v1/runtime", s.handleRuntime)
+	s.mux.HandleFunc("/api/v1/doctor", s.handleDoctor)
+	s.mux.HandleFunc("/api/v1/environment", s.handleEnvironment)
+	s.mux.HandleFunc("/api/v1/quota/history", s.handleQuotaHistory)
+	s.mux.HandleFunc("/api/v1/skills", s.handleSkills)
+	s.mux.HandleFunc("/api/v1/skills/read", s.handleSkillRead)
 	s.mux.HandleFunc("/api/v1/state", s.handleGetState)
 	s.mux.HandleFunc("/api/v1/action", s.handlePostAction)
 	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
@@ -101,6 +109,7 @@ func (s *Server) routes() {
 	// 舱内账号轮转：G-Cockpit 不切回 2Ag 主窗口就能换账号并重启宿主沙箱。
 	s.mux.HandleFunc("/api/v1/host/switch-and-restart", s.handleHostSwitchAndRestart)
 	s.mux.HandleFunc("/api/v1/sessions", s.handleSessionsRoute)
+	s.mux.HandleFunc("/api/v1/sessions/preview", s.handleSessionPreview)
 	s.mux.HandleFunc("/api/v1/sessions/export", s.handleExportSession)
 	s.mux.HandleFunc("/api/v1/sessions/delete", s.handleDeleteSession)
 	s.mux.HandleFunc("/api/v1/accounts", s.handleGetAccounts)
@@ -831,7 +840,7 @@ func (s *Server) handleSessionsRoute(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	result := supervisor.ScanLocalSessions()
+	result := supervisor.ScanAISessions()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
 }

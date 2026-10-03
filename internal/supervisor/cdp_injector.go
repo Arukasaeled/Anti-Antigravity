@@ -36,7 +36,7 @@ type cdpTarget struct {
 // IsRealWorkbenchTarget 判断 Target 是否为真实工作台页面，严格只抓取真实的渲染视窗
 func IsRealWorkbenchTarget(t cdpTarget) bool {
 	// 1. 严格只抓取 page 类型的渲染目标
-	if t.Type != "page" || t.WebSocketDebuggerURL == "" {
+	if (t.Type != "page" && t.Type != "webview") || t.WebSocketDebuggerURL == "" {
 		return false
 	}
 
@@ -329,6 +329,7 @@ func HotReloadCDP(targetAddr string) (HotReloadReport, error) {
 		}
 	}
 	report.Targets = len(valid)
+	RuntimeManager.discover(targetAddr, targets)
 	if len(valid) == 0 {
 		return report, fmt.Errorf("CDP 端口 %s 可达，但没有找到 Antigravity 工作台视窗", targetAddr)
 	}
@@ -359,6 +360,7 @@ func HotReloadCDP(targetAddr string) (HotReloadReport, error) {
 	report.Message = fmt.Sprintf("已对 %d/%d 个工作台视窗重新注入补丁（来源: %s, %d 字节）",
 		report.Injected, report.Targets, report.Source, report.Size)
 	log.Printf("[2ag] 热重载完成: %s", report.Message)
+	maintainCDPInjection(targetAddr, expression)
 	return report, nil
 }
 
@@ -405,6 +407,7 @@ func WatchAndInjectCDP(targetAddr string, timeout time.Duration) error {
 		select {
 		case <-ctx.Done():
 			log.Printf("[2ag] CDP 自动注入监听超时 (%s)", targetAddr)
+			maintainCDPInjection(targetAddr, expression)
 			return ctx.Err()
 		case <-ticker.C:
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+targetAddr+"/json", nil)
@@ -425,6 +428,7 @@ func WatchAndInjectCDP(targetAddr string, timeout time.Duration) error {
 			if err := json.Unmarshal(data, &targets); err != nil {
 				continue
 			}
+			RuntimeManager.discover(targetAddr, targets)
 
 			var validTargets []cdpTarget
 			for _, t := range targets {
@@ -512,13 +516,16 @@ func runMaintainLoop(targetAddr string, expression string) {
 	// 而补丁真实挂载的宿主 id 是 'twoag-injected-root' —— 该 id 永远不存在，
 	// 于是 needsInject 恒为 true，每 3 秒无脑重注入一次（既浪费又掩盖真实状态）。
 	// 这里改为检测真实宿主并且要求它仍在文档树内，才能真正判断补丁是否存活。
-	probeExpr := `Boolean((function(){var h=document.getElementById('twoag-injected-root');return !!h && h.isConnected && !!h.shadowRoot;})() || document.getElementById('2ag-dream-skin-bg'))`
+	probeExpr := `Boolean((function(){var h=document.getElementById('twoag-injected-root');return !!h && h.isConnected && !!h.shadowRoot && typeof window.__2ag?.runtimeSnapshot === 'function';})())`
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+		if IsOfficialRuntime() {
+			continue
 		}
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+targetAddr+"/json", nil)
@@ -527,6 +534,12 @@ func runMaintainLoop(targetAddr string, expression string) {
 		}
 		resp, err := client.Do(req)
 		if err != nil {
+			// Re-resolve an endpoint after a port change; never launch a host to obtain one.
+			if discovered := ResolveCDPAddr(); discovered != targetAddr {
+				RuntimeManager.discover(targetAddr, nil)
+				maintainCDPInjection(discovered, expression)
+				return
+			}
 			continue
 		}
 		data, err := io.ReadAll(resp.Body)
@@ -539,6 +552,7 @@ func runMaintainLoop(targetAddr string, expression string) {
 		if err := json.Unmarshal(data, &targets); err != nil {
 			continue
 		}
+		RuntimeManager.discover(targetAddr, targets)
 
 		for _, t := range targets {
 			if !IsRealWorkbenchTarget(t) {
@@ -553,6 +567,9 @@ func runMaintainLoop(targetAddr string, expression string) {
 					if alive, ok := value.(bool); ok && alive {
 						needsInject = false
 					}
+				} else {
+					session.detach()
+					session = nil
 				}
 			}
 
@@ -576,11 +593,18 @@ func runMaintainLoop(targetAddr string, expression string) {
 					log.Printf("[2ag] 重新激活失败 (Title: %q): %v", t.Title, err)
 				}
 			}
+			if live := lookupLiveSession(t.WebSocketDebuggerURL); live != nil {
+				RuntimeManager.sample(t.WebSocketDebuggerURL, live)
+			}
 		}
 	}
 }
 
-func performCDPInject(ctx context.Context, wsURL string, expression string) error {
+func performCDPInject(ctx context.Context, wsURL string, expression string) (injectErr error) {
+	if IsOfficialRuntime() {
+		return fmt.Errorf("official runtime: injection disabled")
+	}
+	defer func() { RuntimeManager.injection(wsURL, injectErr) }()
 	// 1. 取得（或建立）该目标的持久会话，并把补丁注册为「跳转自愈契约」。
 	//
 	// 这里是「补丁被冲刷消失」的修复点。历史实现在同一函数里先注册
@@ -971,4 +995,3 @@ func evaluateCDPString(conn net.Conn, reader *bufio.Reader, id int, expr string)
 		return "", nil
 	}
 }
-

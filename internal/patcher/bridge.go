@@ -18,6 +18,32 @@ import (
 //go:embed injected_hub.js
 var hubSource string
 
+//go:embed context_reader.js
+var contextReaderSource string
+
+//go:embed context_view.js
+var ContextViewSource string
+
+// ContextProbeExpression reads one live conversation without installing any hooks.
+func ContextProbeExpression() string {
+	_, origin := loadHubSource()
+	return loadHubCompanion(origin, "context_reader.js", contextReaderSource) + "()"
+}
+
+func ContextViewScript() string {
+	_, origin := loadHubSource()
+	return loadHubCompanion(origin, "context_view.js", ContextViewSource)
+}
+
+func loadHubCompanion(origin, name, embedded string) string {
+	if !strings.HasPrefix(origin, "embedded:") {
+		if raw, err := os.ReadFile(filepath.Join(filepath.Dir(origin), name)); err == nil && len(raw) > 0 {
+			return string(raw)
+		}
+	}
+	return embedded
+}
+
 // hubSourceFileName 是补丁源文件名。
 const hubSourceFileName = "injected_hub.js"
 
@@ -165,5 +191,7 @@ func BuildHubExpressionWithSource(config HubConfig) (string, string, error) {
 	if strings.TrimSpace(text) == "" {
 		return "", origin, fmt.Errorf("2Ag hub 源为空（%s）", origin)
 	}
+	text = strings.Replace(text, "__2AG_CONTEXT_READER__", loadHubCompanion(origin, "context_reader.js", contextReaderSource), 1)
+	text = strings.Replace(text, "__2AG_CONTEXT_VIEW__", loadHubCompanion(origin, "context_view.js", ContextViewSource), 1)
 	return strings.Replace(text, "__2AG_INITIAL_CONFIG__", string(data), 1), origin, nil
 }

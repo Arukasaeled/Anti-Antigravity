@@ -2,6 +2,8 @@
   'use strict';
 
   const INITIAL_CONFIG = __2AG_INITIAL_CONFIG__;
+  const readContext = __2AG_CONTEXT_READER__;
+  __2AG_CONTEXT_VIEW__
   const BG_ID = '2ag-dream-skin-bg';
   const OVERLAY_ID = '2ag-dream-skin-overlay';
   const SHADOW_HOST_ID = 'twoag-injected-root';
@@ -156,7 +158,7 @@
   //   3. 输入框（contenteditable / Lexical）与代码块（pre/code）整块跳过。
   //      注意输入框里那句占位文本不是可编辑内容，所以它照样会被翻译。
   const HOST_I18N_SKIP_SELECTOR = [
-    'script', 'style', 'noscript', 'textarea', 'input', 'select', 'option',
+    'script', 'style', 'noscript', 'textarea', 'input', 'select', 'option', 'button', '[role="button"]', '.ProseMirror',
     'pre', 'code', 'kbd', 'samp', 'var',
     '[contenteditable]:not([contenteditable="false"])',
     '[data-lexical-editor]', '.monaco-editor',
@@ -482,27 +484,7 @@
       hostI18nPrimed = false;
       return;
     }
-    if (document.documentElement && !window[I18N_OBSERVER_KEY]) {
-      window[I18N_OBSERVER_KEY] = new MutationObserver((records) => {
-        if (hubDisposed || !boost.force_zh_cn) return;
-        for (const record of records) {
-          if (record.type === 'childList') {
-            for (const added of record.addedNodes) hostI18nSchedule(added);
-          } else {
-            hostI18nSchedule(record.target);
-          }
-        }
-      });
-      try {
-        // subtree 是硬要求：上游的菜单、弹层、下拉都走 base-ui portal 挂到 body 末尾，
-        // 不在「当前面板」这棵子树里。
-        window[I18N_OBSERVER_KEY].observe(document.documentElement, {
-          childList: true, subtree: true,
-          characterData: true,
-          attributes: true, attributeFilter: HOST_I18N_ATTRS
-        });
-      } catch (_) {}
-    }
+    // Incremental translation shares the DOM Runtime Engine below.
     // 首次全站扫描要等 body 真的存在（document-start 注入时它还是 null）。
     // 单独用一个旗标而不是「装了观察器就算完」—— 否则 body 迟到的那次扫描永远不会发生。
     if (!hostI18nPrimed && document.body) {
@@ -938,6 +920,95 @@
   // → 最新一次挂载的 syncThemeChips：主窗口改了主题时，舱内主题卡的高亮要跟着走
   let hubThemeSyncer = null;
   let hubDisposed = false;         // dispose() 之后彻底停摆，不再自愈/响应快捷键
+  let contextSnapshot = null;
+  let contextTimer = null;
+  let lastContextSample = 0;
+  let runtimeFrame = null;
+  const runtimeCounters = { dom_events: 0, activity_events: 0, context_updates: 0, failures: 0 };
+  const pendingRuntimeNodes = new Set();
+  const contextTimeline = [];
+  const DOM_RUNTIME_EXCLUDE = [
+    'textarea', 'input', 'select', 'option', 'button', '[role="button"]', '[role="textbox"]',
+    '[contenteditable]:not([contenteditable="false"])', '.monaco-editor', '.ProseMirror', '[data-lexical-editor]',
+    '#' + SHADOW_HOST_ID, '#' + BG_ID, '#' + OVERLAY_ID, '[data-twoag-owned]'
+  ].join(',');
+
+  function paintContext() {
+    const host = document.getElementById(SHADOW_HOST_ID);
+    const shadow = host?.shadowRoot;
+    const summary = shadow?.getElementById('hub-context-summary');
+    if (summary) summary.textContent = 'Context · ' + (contextSnapshot?.mode === 'estimated' ? '≈ ' : '') +
+      window.TwoAgContextView.tokens(contextSnapshot?.used_tokens) + ' · ' + (contextSnapshot?.activity || 'unknown');
+    if (shadow?.getElementById('hub-context')?.open) {
+      window.TwoAgContextView.render(shadow.getElementById('hub-context-content'), contextSnapshot, contextTimeline, true);
+    }
+  }
+
+  function collectContext() {
+    contextTimer = null;
+    if (hubDisposed) return;
+    lastContextSample = Date.now();
+    try {
+      const next = readContext();
+      const previous = contextSnapshot;
+      if (previous?.session_id !== next.session_id || previous?.model !== next.model) contextTimeline.length = 0;
+      if (next.used_tokens !== null && (!previous || previous.session_id !== next.session_id || previous.model !== next.model ||
+          previous.used_tokens !== next.used_tokens || previous.mode !== next.mode || previous.usage_step !== next.usage_step)) {
+        const comparable = previous?.session_id === next.session_id && previous?.model === next.model && previous?.mode === next.mode && previous.used_tokens !== null;
+        contextTimeline.push({ at: next.sampled_at, tokens: next.used_tokens, mode: next.mode,
+          delta: comparable ? next.used_tokens - previous.used_tokens : null, cause: comparable ? '最近请求更新 · 归因未知' : '首次采集' });
+        if (contextTimeline.length > 120) contextTimeline.shift();
+        runtimeCounters.context_updates++;
+      }
+      if (previous?.activity !== next.activity) runtimeCounters.activity_events++;
+      contextSnapshot = next;
+      paintContext();
+    } catch (_) { runtimeCounters.failures++; }
+  }
+
+  function scheduleContext() {
+    if (contextTimer || hubDisposed) return;
+    contextTimer = window.setTimeout(collectContext, Math.max(0, 1200 - (Date.now() - lastContextSample)));
+  }
+
+  const domProcessors = new Map([
+    ['Translation', node => { if (boost.force_zh_cn) hostI18nSchedule(node); }],
+    ['Context / Activity', node => {
+      if (node.closest?.('[data-testid="conversation-view"]') || node.querySelector?.('[data-testid="conversation-view"]')) scheduleContext();
+    }],
+    ['Diagnostics', () => {}]
+  ]);
+
+  function flushRuntimeNodes() {
+    runtimeFrame = null;
+    if (hubDisposed) return;
+    const batch = [...pendingRuntimeNodes];
+    pendingRuntimeNodes.clear();
+    // Parent candidates subsume child candidates within this frame.
+    const roots = batch.filter(node => node.isConnected && !node.closest(DOM_RUNTIME_EXCLUDE) &&
+      !batch.some(other => other !== node && other.contains(node)));
+    for (const node of roots) {
+      for (const process of domProcessors.values()) {
+        try { process(node); } catch (_) { runtimeCounters.failures++; }
+      }
+      try { performSubsystemGuards(node); } catch (_) { runtimeCounters.failures++; }
+    }
+    // Only repair missing owned layers. Normal streaming mutations never run a full-page tick.
+    if (!document.getElementById(SHADOW_HOST_ID)?.isConnected) tick();
+  }
+
+  function enqueueRuntimeNode(raw) {
+    const node = raw?.nodeType === Node.TEXT_NODE ? raw.parentElement : raw;
+    if (!node || node.nodeType !== Node.ELEMENT_NODE || node.closest(DOM_RUNTIME_EXCLUDE)) return;
+    if (node === document.body || node === document.documentElement) {
+      // A portal removal targets body; do not turn that into a whole-document scan.
+      scheduleContext();
+      if (runtimeFrame === null) runtimeFrame = requestAnimationFrame(flushRuntimeNodes);
+      return;
+    }
+    pendingRuntimeNodes.add(node);
+    if (runtimeFrame === null) runtimeFrame = requestAnimationFrame(flushRuntimeNodes);
+  }
 
   function clearHubRuntimeHandles() {
     const installed = window[HOOKS_KEY];
@@ -3104,12 +3175,12 @@
   }
 
   // 9. 输入状态自愈 (State Healer) 与 过渡遮罩粉碎 (Overlay Stripper) 守卫
-  function performSubsystemGuards() {
+  function performSubsystemGuards(root = document) {
     if (!document.body) return;
 
     // Guard 1: 输入状态自愈
     if (subsystems.state_healer) {
-      const inputs = document.querySelectorAll('textarea[disabled], input[disabled], [contenteditable="false"][class*="editor"]');
+      const inputs = root.querySelectorAll('textarea[disabled], input[disabled], [contenteditable="false"][class*="editor"]');
       inputs.forEach(el => {
         el.removeAttribute('disabled');
         el.setAttribute('aria-disabled', 'false');
@@ -3119,7 +3190,7 @@
 
     // Guard 2: 过渡遮罩粉碎 (清理阻挡输入的无用幽灵遮罩)
     if (subsystems.overlay_stripper) {
-      const potentialMasks = document.querySelectorAll('div[class*="backdrop"], div[class*="mask"], div[class*="overlay"], div[class*="shield"]');
+      const potentialMasks = root.querySelectorAll('div[class*="backdrop"], div[class*="mask"], div[class*="overlay"], div[class*="shield"]');
       potentialMasks.forEach(mask => {
         if (mask.id === BG_ID || mask.id === SHADOW_HOST_ID) return;
         const style = window.getComputedStyle(mask);
@@ -3373,6 +3444,10 @@
                可用性按池标记（available=false 的池整块置灰并显示 --）：
                后端只会把「真的解析到该池的 5h / weekly 桶」标成可用，读不到就
                如实说「未载入」，绝不用默认值或另一个池的读数顶替。 -->
+          <details id="hub-context" style="margin:16px 0;padding:12px;border:1px solid var(--border-color,#dadce0);border-radius:4px">
+            <summary id="hub-context-summary" style="cursor:pointer;font-weight:500">Context · 读取中</summary>
+            <div id="hub-context-content" style="margin-top:12px"></div>
+          </details>
           <div class="quota-caps" id="quota-caps">
             <div class="quota-pool" id="quota-pool-gemini" data-available="false">
               <div class="quota-pool-head">
@@ -4649,15 +4724,25 @@
     hubQuotaRefresher = refreshQuotas;
     ensureHubRuntimeHooks();
 
+    const contextPanel = shadow.getElementById('hub-context');
+    contextPanel.open = !!readUiOpenState().context;
+    contextPanel.addEventListener('toggle', () => {
+      rememberUiOpenState('context', contextPanel.open);
+      if (contextPanel.open) { collectContext(); paintContext(); }
+    });
+    scheduleContext();
     refreshQuotas();
 
     // 关键挂载断言日志（按规范格式输出）
-    console.log('[2AG_UI_MOUNTED]', { version: '2.2', root: '#' + SHADOW_HOST_ID });
+    console.log('[2AG_UI_MOUNTED]', { version: '2.3', root: '#' + SHADOW_HOST_ID });
   }
 
   // 11.1 对外应急接口：快捷键被抢占/宿主假死时的编程逃生口
   function disposeHub() {
     hubDisposed = true;
+    if (runtimeFrame !== null) cancelAnimationFrame(runtimeFrame);
+    if (contextTimer !== null) clearTimeout(contextTimer);
+    pendingRuntimeNodes.clear();
     clearHubRuntimeHandles();
     if (window[TIMER_KEY]) {
       try { window.clearInterval(window[TIMER_KEY]); } catch (_) {}
@@ -4688,7 +4773,16 @@
   }
 
   window.__2ag = {
-    version: '2.2',
+    version: '2.3',
+    runtimeSnapshot: () => ({ context: !contextSnapshot || Date.now() - contextSnapshot.sampled_at > 6000 ? readContext() : contextSnapshot, hub: !!document.getElementById(SHADOW_HOST_ID)?.isConnected,
+      features: { 'G-Hub': !!document.getElementById(SHADOW_HOST_ID)?.shadowRoot, 'DOM Observer': domObserverReady,
+        'Context Reader': typeof readContext === 'function', 'Activity Observer': domObserverReady },
+      epoch: HUB_INSTANCE_ID, ...runtimeCounters }),
+    registerDOMProcessor: (name, processor) => {
+      if (typeof name !== 'string' || typeof processor !== 'function') return false;
+      domProcessors.set(name, processor);
+      return true;
+    },
     forceSend: (text) => executeForceDispatch(text),
     dispose: disposeHub,
     // 兼容性自检：返回当前宿主 DOM 上各寻址层各自落在哪一层。
@@ -4835,16 +4929,20 @@
     if (window[OBSERVER_KEY]) {
       try { window[OBSERVER_KEY].disconnect(); } catch (_) {}
     }
-    window[OBSERVER_KEY] = new MutationObserver(() => {
-      if (window.__2ag_guard) return;
-      window.__2ag_guard = true;
-      try {
-        tick();
-      } finally {
-        window.__2ag_guard = false;
+    window[OBSERVER_KEY] = new MutationObserver(records => {
+      if (hubDisposed) return;
+      runtimeCounters.dom_events += records.length;
+      for (const record of records) {
+        if (record.type === 'childList') {
+          for (const node of record.addedNodes) enqueueRuntimeNode(node);
+          if (record.removedNodes.length) enqueueRuntimeNode(record.target);
+        } else {
+          enqueueRuntimeNode(record.target);
+        }
       }
     });
-    window[OBSERVER_KEY].observe(root, { childList: true, subtree: true });
+    window[OBSERVER_KEY].observe(root, { childList: true, subtree: true, characterData: true,
+      attributes: true, attributeFilter: [...HOST_I18N_ATTRS, 'data-cascade-id'] });
     domObserverReady = true;
   }
 
@@ -4860,7 +4958,9 @@
     if (window[TIMER_KEY]) {
       try { window.clearInterval(window[TIMER_KEY]); } catch (_) {}
     }
-    window[TIMER_KEY] = window.setInterval(tick, 2000);
+    // State-only context sampling covers native updates without a visible DOM mutation.
+    // It reads framework state, never scans document.body on an interval.
+    window[TIMER_KEY] = window.setInterval(() => { if (!document.hidden) scheduleContext(); }, 5000);
   }
 
   // 12.3 双通道等待宿主 DOM 就绪。

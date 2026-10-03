@@ -43,20 +43,10 @@ func ReadCDPPortFromFile(path string) int {
 //  3. %USERPROFILE%\.2ag\profiles\*\DevToolsActivePort —— 2Ag 各账号沙箱拉起的宿主
 func cdpPortCandidates() []string {
 	var out []string
-	if appData := os.Getenv("APPDATA"); appData != "" {
-		out = append(out,
-			filepath.Join(appData, "Antigravity", devToolsActivePortFile),
-			filepath.Join(appData, "antigravity", devToolsActivePortFile),
-		)
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		profilesRoot := filepath.Join(home, ".2ag", "profiles")
-		if entries, err := os.ReadDir(profilesRoot); err == nil {
-			for _, e := range entries {
-				if e.IsDir() {
-					out = append(out, filepath.Join(profilesRoot, e.Name(), devToolsActivePortFile))
-				}
-			}
+	environment := DetectAntigravityEnvironment()
+	for _, root := range append([]string{environment.UserDataRoot}, environment.ProfileRoots...) {
+		if root != "" {
+			out = append(out, filepath.Join(root, devToolsActivePortFile))
 		}
 	}
 	return out

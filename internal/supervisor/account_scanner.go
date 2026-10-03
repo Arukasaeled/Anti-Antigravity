@@ -12,6 +12,8 @@ import (
 
 // QuotaWindow defines the 5-hour rolling window and weekly limit
 type QuotaWindow struct {
+	FiveHourResetAt string `json:"five_hour_reset_at"`
+	WeeklyResetAt   string `json:"weekly_reset_at"`
 	FiveHourPercent int    `json:"five_hour_percent"` // 5小时滑窗剩余 (0-100)
 	FiveHourReset   string `json:"five_hour_reset"`   // 重置时间 (例如 "2h 20m")
 	WeeklyPercent   int    `json:"weekly_percent"`    // 周配额剩余 (0-100)
@@ -42,12 +44,12 @@ type QuotaWindow struct {
 
 // AccountInstance defines account entity with dual quota pools
 type AccountInstance struct {
-	ID          string      `json:"id"`
-	Email       string      `json:"email"`
-	Name        string      `json:"name"`
-	Role        string      `json:"role"`
-	IsPrimary   bool        `json:"is_primary"`
-	IsActive    bool        `json:"is_active"`
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	Role      string `json:"role"`
+	IsPrimary bool   `json:"is_primary"`
+	IsActive  bool   `json:"is_active"`
 	// Status 取值 "ACTIVE"（当前主控）/ "STANDBY"（在线备选）/ "OFFLINE"（未载入）。
 	// 历史实现还会出现 "COOLDOWN"：那是把每个非主账号无条件标成「429 冷却中」的产物，
 	// 而本工程从未向任何官方端点发起过握手去观测 429 —— 属于凭空判定，已移除。
@@ -196,8 +198,9 @@ func cockpitCacheDir() string {
 // 「未载入」，绝不能回填任何看起来合理的数字。
 //
 // 历史实现的两处伪造都发生在这个函数的调用方与尾部：
-//   1) 缓存未命中时按邮箱分支编造两套漂亮百分比（按账号分成两档，与真实读数无关）；
-//   2) 模型清单写死为 SupportedOfficialModels（"Gemini 3.8 Flash High" 等 5 个名字）。
+//  1. 缓存未命中时按邮箱分支编造两套漂亮百分比（按账号分成两档，与真实读数无关）；
+//  2. 模型清单写死为 SupportedOfficialModels（"Gemini 3.8 Flash High" 等 5 个名字）。
+//
 // 那 5 个名字既不来自任何真实来源，也不随账号变化 —— 而缓存文件里每个组本来就带着
 // "Models within this group: ..."，那才是账号卡片「支持模型」胶囊的唯一真实出处。
 func queryCacheFor(email string) (geminiPool QuotaWindow, claudePool QuotaWindow, models []string, ok bool) {
@@ -251,10 +254,12 @@ func queryCacheFor(email string) (geminiPool QuotaWindow, claudePool QuotaWindow
 									geminiPool.FiveHourPercent = pct
 									geminiPool.FiveHourReset = formatResetTime(b.ResetTime, b.RemainingFraction, "待刷新")
 									geminiPool.FiveHourKnown = true
+									geminiPool.FiveHourResetAt = b.ResetTime
 								} else if b.Window == "weekly" {
 									geminiPool.WeeklyPercent = pct
 									geminiPool.WeeklyReset = formatResetTime(b.ResetTime, b.RemainingFraction, "待刷新")
 									geminiPool.WeeklyKnown = true
+									geminiPool.WeeklyResetAt = b.ResetTime
 								}
 							} else if isClaude {
 								if bucketed {
@@ -264,10 +269,12 @@ func queryCacheFor(email string) (geminiPool QuotaWindow, claudePool QuotaWindow
 									claudePool.FiveHourPercent = pct
 									claudePool.FiveHourReset = formatResetTime(b.ResetTime, b.RemainingFraction, "待刷新")
 									claudePool.FiveHourKnown = true
+									claudePool.FiveHourResetAt = b.ResetTime
 								} else if b.Window == "weekly" {
 									claudePool.WeeklyPercent = pct
 									claudePool.WeeklyReset = formatResetTime(b.ResetTime, b.RemainingFraction, "待刷新")
 									claudePool.WeeklyKnown = true
+									claudePool.WeeklyResetAt = b.ResetTime
 								}
 							}
 						}
@@ -276,18 +283,19 @@ func queryCacheFor(email string) (geminiPool QuotaWindow, claudePool QuotaWindow
 					// 历史上无条件把两个池都标成可用，于是「只有 Gemini 分组」的账号
 					// 在界面上也会显示一个 0% 的 Claude 池，看起来像「额度耗尽的真实读数」。
 					// 新鲜度与出处来自缓存文件顶部，而不是按池分别采样 —— 一个文件只可能
-				// 有一次采样时刻。两个池都带上同一组值，界面因此能对整张账号卡片
-				// 说「这份数据是 X 时刻采的、来自 Y」，而不会出现两个池自称不同时间。
-				source := quotaSourceLabel(qcf.Source, qcf.CustomSource)
-				if geminiPool.Available {
-					geminiPool.UpdatedAt = qcf.UpdatedAt
-					geminiPool.Source = source
-				}
-				if claudePool.Available {
-					claudePool.UpdatedAt = qcf.UpdatedAt
-					claudePool.Source = source
-				}
-				return geminiPool, claudePool, models, true
+					// 有一次采样时刻。两个池都带上同一组值，界面因此能对整张账号卡片
+					// 说「这份数据是 X 时刻采的、来自 Y」，而不会出现两个池自称不同时间。
+					source := quotaSourceLabel(qcf.Source, qcf.CustomSource)
+					if geminiPool.Available {
+						geminiPool.UpdatedAt = qcf.UpdatedAt
+						geminiPool.Source = source
+					}
+					if claudePool.Available {
+						claudePool.UpdatedAt = qcf.UpdatedAt
+						claudePool.Source = source
+					}
+					recordQuotaHistory(email, geminiPool, claudePool)
+					return geminiPool, claudePool, models, true
 				}
 			}
 		}
@@ -534,5 +542,3 @@ func GetActiveAccountInstance() AccountInstance {
 		Status: "OFFLINE",
 	}
 }
-
-

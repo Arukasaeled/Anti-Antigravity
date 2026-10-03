@@ -143,11 +143,14 @@ func acquirePersistentCDPSession(ctx context.Context, wsURL string, expression s
 	if raced, ok := cdpSessionRegistry.sessions[wsURL]; ok {
 		cdpSessionRegistry.Unlock()
 		s.shutdown() // 并发下别的调用已先建好同 wsURL 的会话，丢弃自己这份
-		_ = raced.ensureScript(expression)
+		if err := raced.ensureScript(expression); err != nil {
+			return nil, err
+		}
 		return raced, nil
 	}
 	cdpSessionRegistry.sessions[wsURL] = s
 	cdpSessionRegistry.Unlock()
+	RuntimeManager.connection(wsURL, true)
 
 	go s.keepalive(sessionCtx)
 	log.Printf("[2ag] 已建立 CDP 持久会话（补丁 %d 字节已在会话上注册，跳转自愈契约生效）: %s", len(expression), wsURL)
@@ -256,8 +259,8 @@ func (s *persistentCDPSession) commandLocked(id int, command map[string]any) (js
 			continue
 		}
 		var response struct {
-			ID     int             `json:"id"`
-			Error  *struct {
+			ID    int `json:"id"`
+			Error *struct {
 				Message string `json:"message"`
 			} `json:"error"`
 			Result json.RawMessage `json:"result"`
@@ -274,15 +277,8 @@ func (s *persistentCDPSession) commandLocked(id int, command map[string]any) (js
 
 // evaluate 在当前文档上即时执行补丁源码。
 func (s *persistentCDPSession) evaluate(id int, expression string) error {
-	return s.exchange(id, map[string]any{
-		"id":     id,
-		"method": "Runtime.evaluate",
-		"params": map[string]any{
-			"expression":    expression,
-			"awaitPromise":  true,
-			"returnByValue": true,
-		},
-	})
+	_, err := s.evalRaw(id, expression)
+	return err
 }
 
 // evalRaw 在当前文档上执行表达式并返回其值（按值传递）。
@@ -302,12 +298,16 @@ func (s *persistentCDPSession) evalRaw(id int, expression string) (any, error) {
 		return nil, err
 	}
 	var parsed struct {
-		Result struct {
+		ExceptionDetails *json.RawMessage `json:"exceptionDetails"`
+		Result           struct {
 			Value any `json:"value"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, err
+	}
+	if parsed.ExceptionDetails != nil {
+		return nil, errors.New("CDP Runtime.evaluate reported a JavaScript exception")
 	}
 	return parsed.Result.Value, nil
 }
@@ -375,4 +375,7 @@ func (s *persistentCDPSession) shutdown() {
 		s.cancel()
 	}
 	_ = s.conn.Close()
+	if live := lookupLiveSession(s.wsURL); live == nil || live == s {
+		RuntimeManager.connection(s.wsURL, false)
+	}
 }

@@ -50,6 +50,8 @@ if ($LASTEXITCODE -ne 0) { throw "Go release build failed with exit code $LASTEX
 # 又多一处需要审的字节，所以只搬真正的资源。
 Copy-Item -Path (Join-Path $ProjectRoot 'assets\*') -Destination (Join-Path $Staging 'assets') -Recurse -Force -Exclude '*.go'
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\injected_hub.js') -Destination (Join-Path $Staging 'assets\injected_hub.js') -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\context_reader.js') -Destination (Join-Path $Staging 'assets\context_reader.js') -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\context_view.js') -Destination (Join-Path $Staging 'assets\context_view.js') -Force
 Copy-Item -Path (Join-Path $ProjectRoot 'themes\*') -Destination (Join-Path $Staging 'themes') -Recurse -Force
 Copy-Item -Path (Join-Path $ProjectRoot 'plugins\*') -Destination (Join-Path $Staging 'plugins') -Recurse -Force
 
