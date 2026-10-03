@@ -202,3 +202,5 @@ sidecar 只在 2ag run 链路由 Windows Job Object 管理；Manager 默认路�
 快照带 `cacheLimit` 和最近最多 12 条 `sessions` 元数据。长会话窗口外的统计不能当作全会话总数。关闭最后一个 observer 会取消原生流并释放事件、diff 缓存与会话列表。
 
 TRACE 界面支持 file:/kind: 搜索、错误定位、按需脱敏 diff hunks、MD/JSON 摘要导出，以及最多 12 条选中事件送 Capsule。全文件内容和原始 RPC 对象不进入扩展 API；缺失 before snapshot 时不假装它是新建文件。Diff 的前后内容只在按需计算期间使用，片段缓存最多 6 个，不读取敏感文件预览。
+
+`filesLoaded` 区分“尚未取得文件元数据”与“已确认零文件”。打开 TRACE 会读取一次原生文件摘要，可用“文件变更”刷新。Windows 的“打开文件”使用本机记事本：Antigravity 2.19.1 不处理普通文件 CLI 参数，因此不借此启动额外宿主。

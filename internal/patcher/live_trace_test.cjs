@@ -50,6 +50,23 @@ test('large streams are bounded and release their subscription',async()=>{
   off();await new Promise(setImmediate);assert.ok(f.aborted());assert.equal(f.trace.snapshot().retained,0);
 });
 
+test('closing Trace discards an in-flight file summary',async()=>{
+  let finish,signal;
+  const f=fixture([],{getTrajectoryFileDiffs:(_,options)=>{
+    signal=options.signal;
+    return new Promise(resolve=>{finish=resolve;});
+  }});
+  const off=f.trace.observe(()=>{});
+  await new Promise(setImmediate);
+  assert.equal(f.trace.snapshot().filesLoaded,false);
+  off();
+  assert.ok(signal.aborted);
+  finish({diffs:[{uri:'file:///C:/project/app.ts',originalContent:'old',modifiedContent:'new'}]});
+  await new Promise(setImmediate);
+  assert.equal(f.trace.snapshot().files.length,0);
+  assert.equal(f.trace.snapshot().filesLoaded,false);
+});
+
 test('diff preview uses real hunks, invalidates cache, and excludes sensitive files',async(t)=>{
   let after='first\nchanged\nlast\n';
   const f=fixture([{case:'checkpoint',value:{sessionSummary:'Public checkpoint'}}],{

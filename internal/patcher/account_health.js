@@ -12,24 +12,27 @@
       if(disposed||inflight)return;inflight=true;refresh.disabled=true;
       try{
         const h=await request(email);if(disposed)return;
-        head.textContent=t('账号健康','Account Health')+' · '+stage(h.transaction?.stage);
+        head.textContent=t('账号健康','Account Health');
         picker.replaceChildren(...(h.accounts||[h.account]).map(value=>{const option=el('option',value);option.value=value;option.selected=value===h.account;return option;}));
         const native=h.native||{},unknown=t('未取得','Unavailable');
+        const failure=({ineligible:t('资格受限','Ineligible'),'identity-mismatch':t('账号不一致','Account mismatch')})[native.failure]||native.failure;
+        const locationRestricted=native.failure==='ineligible'&&/location/i.test(native.message||'');
         const rows=[
           [t('账号','Account'),h.account||unknown],
-          [h.native_live?t('原生登录','Native sign-in'):t('上次原生登录','Last native sign-in'),native.available?(native.valid?t('有效','Valid'):(native.failure||t('未登录','Signed out'))):unknown],
-          [t('原因','Reason'),native.message],
+          [h.native_live?t('原生登录','Native sign-in'):t('上次原生登录','Last native sign-in'),native.available?(native.valid?t('有效','Valid'):(failure||t('未登录','Signed out'))):unknown],
+          [t('原因','Reason'),locationRestricted?t('Antigravity 暂不支持该账号所在地区','Antigravity is unavailable for this account’s location'):native.message],
           [t('最后核验','Last verified'),h.last_verified],
-          [t('上次原生状态','Last native status'),!h.native_live&&h.last_native?.available?(h.last_native.valid?t('有效（历史）','Valid (historical)'):h.last_native.failure):''],
           [t('最后观察到刷新','Last observed refresh'),h.last_refresh||unknown],
           [t('保险库','Vault'),({archived:t('已归档','Archived'),incomplete:t('不完整','Incomplete'),missing:t('未归档','Missing')})[h.vault]],
           [t('刷新凭据','Refresh credential'),h.has_refresh_credential?t('已保存','Saved'):t('未取得','Unavailable')],
           [t('宿主','Host'),h.host?.process_found?'PID '+h.host.pid:t('未运行','Stopped')],
           [t('当前宿主 Profile','Current host profile'),h.profile],
-          [t('上次切换','Last switch'),language()==='zh-CN'?h.last_switch?.user_message:h.last_switch?.user_message_en]
+          [t('当前事务','Current transaction'),h.transaction?.target?stage(h.transaction.stage)+' · '+h.transaction.target:''],
+          [t('上次切换','Last switch'),h.last_switch?.email?[h.last_switch.email,language()==='zh-CN'?h.last_switch.user_message:h.last_switch.user_message_en].filter(Boolean).join(' · '):'']
         ];
         body.replaceChildren(picker,...rows.filter(r=>r[1]).map(([label,value])=>{const row=el('div');row.append(el('strong',label+': '),document.createTextNode(String(value)));return row;}));
-        if(h.last_switch?.technical_details){const detail=el('details');detail.append(el('summary',t('技术详情','Technical details')),el('pre',h.last_switch.technical_details));detail.lastChild.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';body.append(detail);}
+        const technical=[native.failure?'Native GetAuthStatus: '+native.failure:'',locationRestricted?native.message:'',h.last_switch?.technical_details].filter(Boolean).join('\n\n');
+        if(technical){const detail=el('details');detail.append(el('summary',t('技术详情','Technical details')),el('pre',technical));detail.lastChild.style.cssText='white-space:pre-wrap;font:11px/1.6 monospace';body.append(detail);}
         body.append(refresh);
       }catch(error){if(!disposed)body.replaceChildren(el('p',t('无法读取状态，请重试。','Status unavailable. Try again.')),refresh);}
       finally{inflight=false;refresh.disabled=false;}

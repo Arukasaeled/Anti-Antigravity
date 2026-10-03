@@ -68,7 +68,8 @@
     e.phaseSource='event-kind'; // A classification of observed work, not an inferred plan.
     return e;
   }
-  function snapshot() {return {conversation:convo,state,failure,total,retained:events.size,updatedAt,idle,historyStart,events:[...events.values()].sort((a,b)=>a.index-b.index),files:files.map(f=>({...f})),sessions:sessions.map(s=>({...s})),cacheLimit:LIMIT};}
+  let filesLoaded=false;
+  function snapshot() {return {conversation:convo,state,failure,total,retained:events.size,updatedAt,idle,historyStart,events:[...events.values()].sort((a,b)=>a.index-b.index),files:files.map(f=>({...f})),filesLoaded,sessions:sessions.map(s=>({...s})),cacheLimit:LIMIT};}
   function notify(){const data=snapshot();for(const fn of listeners)try{fn(data);}catch(_){} }
   function consume(update) {
     const steps=update.mainTrajectoryUpdate?.stepsUpdate;
@@ -89,10 +90,11 @@
   }
   async function connect(force=false) {
     const id=conversation();if(!force&&id===convo&&controller)return;
-    disconnect();const ticket=generation;convo=id;events.clear();files=[];diffCache.clear();total=0;idle=null;historyStart=null;failure='';
+    disconnect();const ticket=generation;convo=id;events.clear();files=[];filesLoaded=false;diffCache.clear();total=0;idle=null;historyStart=null;failure='';
     if(!id){state='no-conversation';notify();return;}
     const c=client();if(!c?.streamAgentStateUpdates){state='unavailable';failure='Native Agent RPC client is unavailable in this host version';notify();return;}
     controller=new AbortController();const signal=controller.signal;state='connecting';notify();
+    loadFiles().catch(()=>{});
     try {
       const stream=c.streamAgentStateUpdates({conversationId:id,subscriberId:'2ag-trace-'+crypto.randomUUID(),trajectoryVerbosity:2,disableRehydration:true,enableLatencyTelemetry:false},{signal});
       iterator=stream[Symbol.asyncIterator]();
@@ -105,14 +107,15 @@
   }
   function observe(fn) {
     listeners.add(fn);if(!active){active=true;connect();routeTimer=setInterval(()=>{if(conversation()!==convo)connect();},750);}fn(snapshot());
-    return()=>{listeners.delete(fn);if(!listeners.size){active=false;clearInterval(routeTimer);routeTimer=null;disconnect();events.clear();files=[];sessions=[];diffCache.clear();state='disconnected';}};
+    return()=>{listeners.delete(fn);if(!listeners.size){active=false;clearInterval(routeTimer);routeTimer=null;disconnect();events.clear();files=[];filesLoaded=false;sessions=[];diffCache.clear();state='disconnected';}};
   }
   async function loadFiles() {
-    const id=convo,c=client();if(!id||!c?.getTrajectoryFileDiffs)throw new Error('Native file changes are unavailable');
+    const id=convo,ticket=generation,c=client();if(!id||!c?.getTrajectoryFileDiffs)throw new Error('Native file changes are unavailable');
     const r=await c.getTrajectoryFileDiffs({conversationId:id},{signal:controller?.signal});
-    if(id!==convo||!active)return;
+    if(id!==convo||ticket!==generation||!active)return;
     diffCache.clear();
     files=(r.diffs||[]).slice(0,400).map(f=>({path:path(f.uri),firstStep:f.firstTouchedStepIndex,lastStep:f.lastTouchedStepIndex,edited:f.hasModelEdited===true,artifact:f.isArtifactFile===true,noChange:f.isNoop===true,diffAvailable:typeof f.originalContent==='string'&&typeof f.modifiedContent==='string'&&(f.originalContent!==''||f.modifiedContent!==''),...diffStats(f)}));
+    filesLoaded=true;
     notify();
   }
   async function loadEarlier() {
@@ -184,9 +187,9 @@
   }
   function exportTrace(format='markdown',data=snapshot()){
     const info=overview(data),focus=data.events.filter(e=>e.category==='error'||e.category==='summary'||e.status==='error').slice(-60);
-    const safe={session:data.conversation,duration_seconds:info.duration,total_steps:data.total,loaded_steps:data.retained,partial:info.partial,commands:info.commands,errors:info.errors,files:data.files.map(f=>({...f})),stages:info.stages,events:focus.map(e=>({id:e.id,timestamp:e.timestamp,kind:e.eventKind,status:e.status,title:redact(e.title),summary:redact(e.text).slice(0,2000),file:e.file,duration:e.duration}))};
+    const safe={session:data.conversation,duration_seconds:info.duration,total_steps:data.total,loaded_steps:data.retained,partial:info.partial,commands:info.commands,errors:info.errors,files_loaded:data.filesLoaded===true,files:data.files.map(f=>({...f})),stages:info.stages,events:focus.map(e=>({id:e.id,timestamp:e.timestamp,kind:e.eventKind,status:e.status,title:redact(e.title),summary:redact(e.text).slice(0,2000),file:e.file,duration:e.duration}))};
     if(format==='json')return JSON.stringify(safe,null,2);
-    return `# Live Trace\n\nSession: ${safe.session}\nDuration (loaded range): ${safe.duration_seconds??'Unavailable'}s\nSteps: ${safe.loaded_steps}/${safe.total_steps}\nCommands: ${safe.commands}\nErrors: ${safe.errors}\nFiles: ${safe.files.length}\n\n## Files\n`+safe.files.map(f=>`- ${f.path}${f.additions!==undefined?' +'+f.additions+' -'+f.deletions:' (line counts unavailable)'}`).join('\n')+'\n\n## Checkpoints / Errors\n'+safe.events.map(e=>`### ${e.kind} · ${e.timestamp||'Timestamp unavailable'}\n${e.title}\n${e.summary}\n${e.file||''}`).join('\n\n');
+    return `# Live Trace\n\nSession: ${safe.session}\nDuration (loaded range): ${safe.duration_seconds??'Unavailable'}s\nSteps: ${safe.loaded_steps}/${safe.total_steps}\nCommands: ${safe.commands}\nErrors: ${safe.errors}\nFiles: ${safe.files_loaded?safe.files.length:'Unavailable'}\n\n## Files\n`+safe.files.map(f=>`- ${f.path}${f.additions!==undefined?' +'+f.additions+' -'+f.deletions:' (line counts unavailable)'}`).join('\n')+'\n\n## Checkpoints / Errors\n'+safe.events.map(e=>`### ${e.kind} · ${e.timestamp||'Timestamp unavailable'}\n${e.title}\n${e.summary}\n${e.file||''}`).join('\n\n');
   }
   function mount(panel,{i18n,copy,context,toast,openFile}) {
     let fileSignature='',data=snapshot(),selected=new Set(),filter='all',needle='',phaseFilter='',follow=true,ended=false,renderTimer=null,chosen=null,matching=[];
@@ -235,7 +238,7 @@
       if(ended)return;
       const info=overview(data),phase={connecting:t('连接中','Connecting'),working:t('执行中','Working'),idle:t('空闲','Idle'),connected:t('已连接','Connected'),'no-conversation':t('请打开会话','Open a conversation'),unavailable:t('宿主不支持','Host unavailable'),error:t('连接失败','Connection error'),disconnected:t('已断开','Disconnected')}[data.state]||data.state;
       status.textContent=phase+(data.failure?' · '+data.failure:'');
-      stats.textContent=`${t('时长','Duration')} ${duration(info.duration)} · ${t('步骤','Steps')} ${data.retained}/${data.total} · ${t('命令','Commands')} ${info.commands} · ${t('错误','Errors')} ${info.errors} · ${t('文件','Files')} ${info.files}${info.partial?' · '+t('统计仅覆盖已加载范围','Statistics cover loaded range'):''}`;
+      stats.textContent=`${t('时长','Duration')} ${duration(info.duration)} · ${t('步骤','Steps')} ${data.retained}/${data.total} · ${t('命令','Commands')} ${info.commands} · ${t('错误','Errors')} ${info.errors} · ${t('文件','Files')} ${data.filesLoaded?info.files:'—'}${info.partial?' · '+t('统计仅覆盖已加载范围','Statistics cover loaded range'):''}`;
       const activeEvent=data.idle===false?[...data.events].reverse().find(e=>['running','generating','waiting','pending'].includes(e.status)):null;
       current.textContent=activeEvent?t('当前：','CURRENT: ')+activeEvent.title+(activeEvent.path&&activeEvent.path!==activeEvent.title?' · '+activeEvent.path:''):data.idle===true?t('当前空闲','Currently idle'):t('当前动作未取得','Current action unavailable');
       note.textContent=t('原生公开事件 · 阶段按事件类型归组 · 最多保留 10,000 步 · 不读取隐藏思维','Native public events · stages grouped by event type · up to 10,000 retained steps · hidden reasoning excluded');
@@ -250,7 +253,7 @@
       if(follow&&data.historyStart===null){windowRows.style.height=(matching.length*ROW)+'px';list.scrollTop=Math.max(0,matching.length*ROW-list.clientHeight);}
       renderRows();tail.hidden=follow&&data.historyStart===null;showDetail(data.events.find(e=>e.id===chosen));
       const known=data.files.filter(f=>f.additions!==undefined),add=known.reduce((n,f)=>n+f.additions,0),del=known.reduce((n,f)=>n+f.deletions,0);
-      fileTitle.textContent=t('文件变更','Changed files')+' · '+info.files+' · +'+add+' −'+del+' · '+t('已取得行数','Counts available')+' '+known.length+'/'+data.files.length;
+      fileTitle.textContent=data.filesLoaded?t('文件变更','Changed files')+' · '+info.files+' · +'+add+' −'+del+' · '+t('已取得行数','Counts available')+' '+known.length+'/'+data.files.length:t('文件变更 · 未取得，可重试','Changed files · unavailable; retry');
       const signature=i18n.language+JSON.stringify(data.files);
       if(signature!==fileSignature){fileSignature=signature;fileBody.replaceChildren(...data.files.map(f=>{const row=node('details');row.append(node('summary','',f.path+(f.additions!==undefined?' · +'+f.additions+' −'+f.deletions:' · '+t('行数未取得','Counts unavailable'))));let loaded=false;row.ontoggle=async()=>{if(!row.open||loaded)return;loaded=true;const body=node('div');row.append(body);body.textContent=t('读取原生 diff…','Loading native diff…');try{const diff=await loadDiff(f.path);if(ended)return;body.replaceChildren(node('pre','',diff||t('没有变更片段','No changed hunks')),button('复制 Diff','Copy Diff',()=>copy(diff)),button('打开文件','Open file',()=>openFile?.(f.path).catch(e=>toast(e.message))));}catch(e){body.textContent=t('无法显示 Diff：','Diff unavailable: ')+e.message;}};return row;}));}
     }
@@ -262,5 +265,5 @@
     loadSessions().catch(()=>{});render();
     return()=>{ended=true;clearTimeout(renderTimer);list.onscroll=null;unsubscribe();languageOff();selected.clear();data=null;matching=[];panel.replaceChildren();};
   }
-  return {observe,snapshot,mount,loadFiles,loadDiff,loadEarlier,loadSessions,overview,matches,exportTrace,dispose(){active=false;listeners.clear();clearInterval(routeTimer);disconnect();events.clear();files=[];sessions=[];diffCache.clear();}};
+  return {observe,snapshot,mount,loadFiles,loadDiff,loadEarlier,loadSessions,overview,matches,exportTrace,dispose(){active=false;listeners.clear();clearInterval(routeTimer);disconnect();events.clear();files=[];filesLoaded=false;sessions=[];diffCache.clear();}};
 })
