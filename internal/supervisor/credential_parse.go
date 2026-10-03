@@ -1,6 +1,7 @@
 package supervisor
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
@@ -10,9 +11,8 @@ import (
 // ============================================================================
 // 凭据 blob 的解析（与平台无关）
 //
-// 这里刻意只依赖 encoding/json 与 base64：Login Broker 要在「官方 Antigravity
-// 刚写完凭据」的那一刻判断这份凭据**是不是一个可用的登录结果**，而那个判断
-// 不能依赖 Windows 专有的读写路径（否则非 Windows 编译不过、逻辑也会分叉）。
+// Broker 验收新登录，Stored 校验可恢复的已有凭据；两套策略共享解析，
+// 不共享新鲜度要求。这里不依赖 Windows 专有的凭据读写路径。
 //
 // 只读、不校验签名：签名是宿主与 Google 的事，2Ag 只是读取身份。
 // ============================================================================
@@ -58,7 +58,8 @@ type credentialBlobView struct {
 }
 
 func parseCredentialBlobView(raw []byte) (*credentialBlobView, bool) {
-	if len(raw) == 0 {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return nil, false
 	}
 	var v credentialBlobView
@@ -101,7 +102,7 @@ func displayNameFromCredentialPayload(raw []byte) string {
 	return strings.TrimSpace(s)
 }
 
-// credentialUsableEmail 判定「这份凭据算不算一次完成的登录」。
+// BrokerFreshCredentialValidation 判定「刚完成官方登录」的凭据。
 //
 // 这是 Login Broker 的关键判定，也是 E 项验收（中间态不得入库）的实现：
 // 官方 Antigravity 在 OAuth 过程中会先写一个中间态
@@ -110,10 +111,12 @@ func displayNameFromCredentialPayload(raw []byte) string {
 //
 // 如果只看「凭据存在了」，就会把中间态当成登录成功入库 —— 库里于是多出一个
 // 没有 refresh_token 的空账号。因此必须三项同时成立：
-//  1. token 结构有效（access_token 非空）
+//  1. token 结构有效（access_token / refresh_token 非空）
 //  2. id_token 是可解析的 JWT，且带 email
-//  3. id_token 的 exp（若有）尚未过期
-func credentialUsableEmail(raw []byte) (string, bool) {
+//  3. id_token 的 exp 与 access_token 的 expiry（若有）尚未过期
+//
+// This must not be used for stored credentials or post-write verification.
+func BrokerFreshCredentialValidation(raw []byte) (string, bool) {
 	v, ok := parseCredentialBlobView(raw)
 	if !ok {
 		return "", false
@@ -138,5 +141,75 @@ func credentialUsableEmail(raw []byte) (string, bool) {
 			return "", false
 		}
 	}
+	if expiry := strings.TrimSpace(v.Token.Expiry); expiry != "" {
+		expiresAt, err := time.Parse(time.RFC3339Nano, expiry)
+		if err != nil || expiresAt.Before(time.Now().Add(-time.Minute)) {
+			return "", false
+		}
+	}
 	return email, true
+}
+
+// Kept for the existing Broker-focused tests; production callers use the
+// explicit fresh/stored names so their validation policies cannot be confused.
+func credentialUsableEmail(raw []byte) (string, bool) {
+	return BrokerFreshCredentialValidation(raw)
+}
+
+type StoredCredentialStatus struct {
+	Owner    string `json:"owner"`
+	State    string `json:"state"`
+	Recovery string `json:"recovery,omitempty"`
+}
+
+// StoredCredentialValidation checks recoverable material, not freshness.
+// An expired ID token can still identify the credential owner (no signature
+// verification here). It never proves the running host's internal identity.
+func StoredCredentialValidation(raw []byte, requestedEmail string) (StoredCredentialStatus, error) {
+	var out StoredCredentialStatus
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return out, credentialError(CredentialMissing, "凭据内容为空")
+	}
+	v, ok := parseCredentialBlobView(raw)
+	if !ok {
+		return out, credentialError(CredentialParseFailed, "凭据不是可解析的 Antigravity JSON")
+	}
+	var claims map[string]any
+	if strings.TrimSpace(v.IDToken) != "" {
+		claims = decodeJWTPayload(v.IDToken)
+		if claims == nil {
+			return out, credentialError(CredentialParseFailed, "凭据中的身份元数据不可解析")
+		}
+	}
+	out.Owner = emailFromCredentialPayload(raw)
+	if out.Owner == "" || !strings.Contains(out.Owner, "@") {
+		return out, credentialError(CredentialOwnerMissing, "无法读取凭据所属邮箱")
+	}
+	if !strings.EqualFold(out.Owner, strings.TrimSpace(requestedEmail)) {
+		return out, credentialError(CredentialOwnerMismatch, "凭据所属邮箱 "+out.Owner+" 与目标 "+strings.TrimSpace(requestedEmail)+" 不一致")
+	}
+	if v.Token == nil || strings.TrimSpace(v.Token.RefreshToken) == "" {
+		return out, credentialError(CredentialTokenMissing, "凭据缺少 refresh_token，无法交给宿主恢复")
+	}
+	out.State = "stored_valid"
+	now := time.Now()
+	expired := false
+	if expiry := strings.TrimSpace(v.Token.Expiry); expiry != "" {
+		expiresAt, err := time.Parse(time.RFC3339Nano, expiry)
+		if err != nil {
+			return out, credentialError(CredentialParseFailed, "凭据中的 token expiry 不可解析")
+		}
+		expired = !expiresAt.After(now)
+	}
+	if exp, ok := claims["exp"].(float64); ok && exp > 0 {
+		expired = expired || !time.Unix(int64(exp), 0).After(now)
+	}
+	if expired {
+		out.State, out.Recovery = CredentialExpiredRefreshable, "host_recovery"
+	} else if strings.TrimSpace(v.Token.AccessToken) == "" || strings.TrimSpace(v.IDToken) == "" {
+		out.State, out.Recovery = "token_refresh_required", "host_recovery"
+	}
+	// Refresh token existence is not proof that Google will accept it. Only the
+	// host's actual recovery can establish that; expiration alone is not failure.
+	return out, nil
 }

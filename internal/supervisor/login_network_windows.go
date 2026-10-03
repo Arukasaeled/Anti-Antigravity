@@ -9,6 +9,9 @@ import (
 )
 
 func launchOfficialLoginHost(network loginNetwork) error {
+	if err := RequireManagedHosts(); err != nil {
+		return err
+	}
 	exe := FindOfficialAntigravity()
 	if exe == "" || IsFrozenHostPath(exe) {
 		return fmt.Errorf("未找到官方 Antigravity，请先安装官方客户端")
@@ -22,7 +25,10 @@ func launchOfficialLoginHost(network loginNetwork) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动官方客户端失败")
 	}
-	SetManagedHostPID(cmd.Process.Pid)
+	if err := registerHost(cmd.Process.Pid, HostOwned); err != nil {
+		stopErr := cmd.Process.Kill()
+		return fmt.Errorf("记录登录宿主失败: %v；停止新进程: %v", err, stopErr)
+	}
 	go cmd.Wait()
 	return nil
 }

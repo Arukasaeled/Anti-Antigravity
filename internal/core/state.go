@@ -1,7 +1,9 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -36,20 +38,50 @@ type StateMachine struct {
 	bus           *EventBus
 	debounceTimer *time.Timer
 	saveMu        sync.Mutex
+	revision      uint64
+	persistence   PersistenceStatus
+}
+
+type PersistenceStatus struct {
+	Status    string `json:"status"`
+	Revision  uint64 `json:"revision"`
+	Error     string `json:"error,omitempty"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+func (sm *StateMachine) Persistence() PersistenceStatus {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.persistence
 }
 
 func NewStateMachine(cfg config.Config, configPath string, bus *EventBus) *StateMachine {
 	return &StateMachine{
-		state:      cfg,
-		configPath: configPath,
-		bus:        bus,
+		state:       cfg,
+		configPath:  configPath,
+		bus:         bus,
+		persistence: PersistenceStatus{Status: "idle", UpdatedAt: time.Now().UnixMilli()},
 	}
 }
 
 func (sm *StateMachine) GetState() config.Config {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	return sm.state
+	return cloneConfig(sm.state)
+}
+
+// Clone under the state lock: plugins contain maps and must not change while
+// the asynchronous saver serializes a snapshot.
+func cloneConfig(cfg config.Config) config.Config {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		panic("state contains a non-JSON configuration")
+	}
+	var copy config.Config
+	if err := json.Unmarshal(data, &copy); err != nil {
+		panic("cannot clone configuration")
+	}
+	return copy
 }
 
 func (sm *StateMachine) ApplyAction(action StateAction) error {
@@ -179,15 +211,24 @@ func (sm *StateMachine) ApplyAction(action StateAction) error {
 		key, _ := payload["key"].(string)
 		val, _ := payload["value"].(bool)
 		switch key {
-		case "session_delete": sm.state.GravityBoost.SessionDelete = val
-		case "markdown_export": sm.state.GravityBoost.MarkdownExport = val
-		case "paste_plaintext_fix": sm.state.GravityBoost.PastePlaintextFix = val
-		case "session_id_tag": sm.state.GravityBoost.SessionIdTag = val
-		case "centered_width": sm.state.GravityBoost.CenteredWidth = val
-		case "preserve_scroll": sm.state.GravityBoost.PreserveScroll = val
-		case "force_zh_cn": sm.state.GravityBoost.ForceZhCn = val
-		case "enable_devtools": sm.state.GravityBoost.EnableDevtools = val
-		case "disable_auto_update": sm.state.GravityBoost.DisableAutoUpdate = val
+		case "session_delete":
+			sm.state.GravityBoost.SessionDelete = val
+		case "markdown_export":
+			sm.state.GravityBoost.MarkdownExport = val
+		case "paste_plaintext_fix":
+			sm.state.GravityBoost.PastePlaintextFix = val
+		case "session_id_tag":
+			sm.state.GravityBoost.SessionIdTag = val
+		case "centered_width":
+			sm.state.GravityBoost.CenteredWidth = val
+		case "preserve_scroll":
+			sm.state.GravityBoost.PreserveScroll = val
+		case "force_zh_cn":
+			sm.state.GravityBoost.ForceZhCn = val
+		case "enable_devtools":
+			sm.state.GravityBoost.EnableDevtools = val
+		case "disable_auto_update":
+			sm.state.GravityBoost.DisableAutoUpdate = val
 		}
 		changed = true
 	case SetRuntimeModeAction:
@@ -202,13 +243,14 @@ func (sm *StateMachine) ApplyAction(action StateAction) error {
 			// 会让用户以为自己切到了官方形态，实际仍带着注入在跑。
 			return fmt.Errorf("unknown runtime mode: %s", mode)
 		}
-		// 只有真变化才算 changed —— 否则重复点同一个模式也会触发一次
-		// 落盘与后续的宿主重启，把一次点击变成一次无谓的工作台中断。
+		// 仅保存下次启动配置。模式选择不发布生命周期命令。
 		if sm.state.RuntimeMode != mode {
 			sm.state.RuntimeMode = mode
 			changed = true
 		}
-	case HostCtrlAction, OpenDevtoolsAction, HotReloadAction, ExportConfigAction:
+	case HostCtrlAction:
+		return fmt.Errorf("HOST_CTRL requires the synchronous host lifecycle API")
+	case OpenDevtoolsAction, HotReloadAction, ExportConfigAction:
 		// Dispatch as CommandEvent, do not mutate state
 		sm.bus.Publish(Event{
 			Type:    CommandEvent,
@@ -219,7 +261,10 @@ func (sm *StateMachine) ApplyAction(action StateAction) error {
 	}
 
 	if changed {
-		stateCopy := sm.state
+		sm.revision++
+		sm.persistence = PersistenceStatus{Status: "pending", Revision: sm.revision, UpdatedAt: time.Now().UnixMilli()}
+		sm.bus.Publish(Event{Type: PersistenceEvent, Payload: sm.persistence})
+		stateCopy := cloneConfig(sm.state)
 		sm.bus.Publish(Event{
 			Type:    StateChangedEvent,
 			Payload: stateCopy,
@@ -237,11 +282,24 @@ func (sm *StateMachine) schedulePersistLocked() {
 	sm.debounceTimer = time.AfterFunc(300*time.Millisecond, func() {
 		sm.saveMu.Lock()
 		defer sm.saveMu.Unlock()
-		
+
 		sm.mu.RLock()
-		stateCopy := sm.state
+		stateCopy := cloneConfig(sm.state)
+		revision := sm.revision
 		sm.mu.RUnlock()
 
-		_ = config.Save(sm.configPath, stateCopy)
+		err := config.Save(sm.configPath, stateCopy)
+		status := PersistenceStatus{Status: "saved", Revision: revision, UpdatedAt: time.Now().UnixMilli()}
+		if err != nil {
+			status.Status, status.Error = "save_failed", err.Error()
+			log.Printf("[2ag] 配置保存失败（版本 %d）: %v", revision, err)
+		}
+		sm.mu.Lock()
+		// An older save must not claim that a newer edit was persisted.
+		if revision == sm.revision {
+			sm.persistence = status
+			sm.bus.Publish(Event{Type: PersistenceEvent, Payload: status})
+		}
+		sm.mu.Unlock()
 	})
 }

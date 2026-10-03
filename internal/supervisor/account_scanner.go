@@ -353,17 +353,14 @@ func ScanLocalAccounts() []AccountInstance {
 	}
 	probes := probeQuotaBatch(emails)
 
-	// 主控身份的权威来源：宿主 CDP 探针读到的真实登录邮箱，或用户在界面上的显式选择。
-	// 2Ag 自己没有任何记录时，才回落到第三方账号库自报的 current_account_id ——
-	// 纯粹为了不让老用户的「主控」标记在升级后凭空消失。
+	// Selection is a next-launch preference. Only confirmed native identity is active.
 	active := strings.TrimSpace(GetActiveAccountEmail())
-	if active == "" {
-		active = legacyCockpitPrimaryEmail()
-	}
+	selected := strings.TrimSpace(GetSelectedAccountEmail())
 
 	result := make([]AccountInstance, 0, len(entries))
 	for _, e := range entries {
-		isPrimary := active != "" && strings.EqualFold(e.Email, active)
+		isPrimary := selected != "" && strings.EqualFold(e.Email, selected)
+		isActive := active != "" && strings.EqualFold(e.Email, active)
 		role := "BACKUP"
 		status := "OFFLINE"
 		weight := 5
@@ -371,7 +368,7 @@ func ScanLocalAccounts() []AccountInstance {
 
 		if isPrimary {
 			role = "PRIMARY"
-			status = "ACTIVE"
+			status = "SELECTED"
 			weight = 10
 			cooldown = "未载入配额"
 		}
@@ -424,7 +421,7 @@ func ScanLocalAccounts() []AccountInstance {
 			Name:        e.Name,
 			Role:        role,
 			IsPrimary:   isPrimary,
-			IsActive:    isPrimary,
+			IsActive:    isActive,
 			Weight:      weight,
 			Status:      status,
 			GeminiPool:  gemPool,
@@ -437,71 +434,112 @@ func ScanLocalAccounts() []AccountInstance {
 }
 
 var (
-	activeAccountMu sync.RWMutex
-	// currentActiveEmail 初始为空：主控账号必须由真实来源确定
-	// （宿主 CDP 探针读到的登录邮箱，或用户在界面上的显式选择）。
-	// 历史实现把它预设成一个写死的邮箱，于是即使 cockpit 的
-	// accounts.json 里 current_account_id 是空的，界面也会凭空指认某个账号为主控。
-	currentActiveEmail = ""
+	activeAccountMu      sync.RWMutex
+	currentActiveEmail   string
+	activeHost           HostProcess
+	selectedAccountEmail string
 )
 
-// SetActiveAccount 设置当前激活主控账号，并同步落盘。
-//
-// 落盘是必需的，不是锦上添花：currentActiveEmail 只活在进程内存里，2Ag 一重启就归零，
-// 而 CDP 邮箱探针（QueryHostEmailViaCDP）在宿主页面里读不到邮箱时返回空字符串
-// （实测宿主 localStorage 里只有一个 2ag 自己的键，DOM 里也没有邮箱节点），
-// 于是 GetActiveAccountInstance 会回落到 accounts[0] —— 界面显示的「当前主控」
-// 与实际运行中的沙箱不是同一个账号，配额信息也随之张冠李戴。
-func SetActiveAccount(email string) {
-	if email == "" {
-		return
-	}
-	activeAccountMu.Lock()
-	currentActiveEmail = email
-	activeAccountMu.Unlock()
-	SetPersistedActiveAccount(email)
+// The current host has no proven internal sign-in identity source. Neither
+// selection, shared credentials nor an arbitrary DOM email is such evidence.
+// Only an internal native identity observer may supply this evidence.
+type hostAccountEvidence struct {
+	Email   string
+	Process HostProcess
 }
 
-// GetActiveAccountEmail 获取当前主控账号。
-// 内存为空时（典型场景：2Ag 刚重启）从磁盘恢复上次真实拉起宿主所用的账号，
-// 恢复成功后回写内存，后续调用不再触碰磁盘。
+func SetActiveAccount(email string, evidence ...hostAccountEvidence) error {
+	if len(evidence) != 1 || !strings.EqualFold(evidence[0].Email, email) || !sameHostProcess(evidence[0].Process, processIdentity(evidence[0].Process.PID)) {
+		return fmt.Errorf("宿主内部身份未确认，不提交 active account")
+	}
+	activeAccountMu.Lock()
+	defer activeAccountMu.Unlock()
+	if err := persistAccountMarker(activeAccountFile, email); err != nil {
+		return err
+	}
+	currentActiveEmail, activeHost = email, evidence[0].Process
+	return nil
+}
+
 func GetActiveAccountEmail() string {
 	activeAccountMu.RLock()
-	email := currentActiveEmail
-	activeAccountMu.RUnlock()
-	if email != "" {
-		return email
-	}
-	restored := GetPersistedActiveAccount()
-	if restored == "" {
+	defer activeAccountMu.RUnlock()
+	if currentActiveEmail == "" || !sameHostProcess(activeHost, processIdentity(activeHost.PID)) {
 		return ""
 	}
-	activeAccountMu.Lock()
-	currentActiveEmail = restored
-	activeAccountMu.Unlock()
-	return restored
+	return currentActiveEmail
 }
 
-// activeAccountFile 记录「上一次真实拉起宿主时用的账号」。
-// 与 managed_host.pid 同目录、同风格（纯文本单行），便于人工核对与排障。
 const activeAccountFile = "active_account.txt"
 
-// SetPersistedActiveAccount 把主控账号落盘。
-// 这是「换号后重启 2Ag 仍认得自己托管的是哪个沙箱」的唯一持久凭据来源。
-func SetPersistedActiveAccount(email string) {
-	email = strings.TrimSpace(email)
-	if email == "" {
-		return
-	}
-	userHome, err := os.UserHomeDir()
+func persistAccountMarker(name, email string) error {
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return
+		return err
 	}
-	stateDir := filepath.Join(userHome, ".2ag")
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
-		return
+	dir := filepath.Join(home, ".2ag")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
 	}
-	_ = os.WriteFile(filepath.Join(stateDir, activeAccountFile), []byte(email), 0644)
+	// Failed writes must leave the previous account marker intact.
+	tmp, err := os.CreateTemp(dir, ".account-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(strings.TrimSpace(email)); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), filepath.Join(dir, name))
+}
+
+// Preserve the public name without permitting an unverified persistence bypass.
+func SetPersistedActiveAccount(email string) error {
+	if !strings.EqualFold(GetActiveAccountEmail(), email) || email == "" {
+		return fmt.Errorf("active account 尚未确认")
+	}
+	return persistAccountMarker(activeAccountFile, email)
+}
+
+func SetSelectedAccount(email string) error {
+	if err := ValidateLaunchAccount(email); err != nil {
+		return err
+	}
+	activeAccountMu.Lock()
+	defer activeAccountMu.Unlock()
+	if err := persistAccountMarker("selected_account.txt", email); err != nil {
+		return err
+	}
+	selectedAccountEmail = strings.TrimSpace(email)
+	return nil
+}
+
+func GetSelectedAccountEmail() string {
+	activeAccountMu.RLock()
+	value := selectedAccountEmail
+	activeAccountMu.RUnlock()
+	if value != "" {
+		return value
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(home, ".2ag", "selected_account.txt"))
+	if err == nil {
+		return strings.TrimSpace(string(raw))
+	}
+	// Old releases wrote a requested account here; it is only a selection hint,
+	// never restored as a confirmed current host identity.
+	return GetPersistedActiveAccount()
 }
 
 // GetPersistedActiveAccount 读取上次落盘的主控账号；无记录或读失败时返回空字符串。
@@ -546,9 +584,6 @@ func GetActiveAccountInstance() AccountInstance {
 			ClaudePool: c,
 			Models:     models,
 		}
-	}
-	if len(accounts) > 0 {
-		return accounts[0]
 	}
 	// 账号列表为空、且没有任何主控标记：如实报告「未检测到账号」。
 	// 这里绝不能回 ACTIVE —— 那会让一个空邮箱在界面上显示成活跃主控。

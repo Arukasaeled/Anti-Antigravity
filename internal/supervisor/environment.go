@@ -9,6 +9,7 @@ import (
 
 // The read-only discovery boundary shared by sessions, skills, CDP and Doctor.
 type AntigravityEnvironment struct {
+	ConversationStores  []string `json:"conversation_stores"`
 	StorageRoot         string   `json:"storage_root"`
 	BrainRoot           string   `json:"brain_root"`
 	ConversationsRoot   string   `json:"conversations_root"`
@@ -24,7 +25,7 @@ type AntigravityEnvironment struct {
 }
 
 func DetectAntigravityEnvironment() AntigravityEnvironment {
-	env := AntigravityEnvironment{CredentialSlot: "gemini:antigravity", ProfileRoots: []string{}, WorkspaceStorage: []string{}, ConversationFormats: []string{}}
+	env := AntigravityEnvironment{ConversationStores: discoverConversationStores(), CredentialSlot: "gemini:antigravity", ProfileRoots: []string{}, WorkspaceStorage: []string{}, ConversationFormats: []string{}}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		env.StorageRoot = filepath.Join(home, ".gemini", "antigravity")
 		env.BrainRoot = filepath.Join(env.StorageRoot, "brain")
@@ -60,8 +61,8 @@ func DetectAntigravityEnvironment() AntigravityEnvironment {
 		}
 	}
 	formats := make(map[string]bool)
-	if env.ConversationsRoot != "" {
-		if entries, err := os.ReadDir(env.ConversationsRoot); err == nil {
+	for _, conversationRoot := range env.ConversationStores {
+		if entries, err := os.ReadDir(conversationRoot); err == nil {
 			for _, entry := range entries {
 				if entry.IsDir() {
 					continue

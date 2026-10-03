@@ -2,31 +2,51 @@
 
 本轮沿用 2Ag 的 CDP runtime injection、G-Hub 和内嵌 Manager。没有修改官方 resources，也没有执行任何宿主关闭、重启、接管或页面刷新操作。
 
-## Context 的数据契约
+## Context / Request / Session 的数据契约
 
-只读侦查在现有运行实例中发现了：
+三个数字分开处理：
 
-- `conversation-view` 的 React fiber 中存在语义属性 `trajectorySlice`。
-- `stepsInSlice[].metadata.modelUsage` 提供真实 `inputTokens`、`outputTokens`、`cacheReadTokens`、`cacheWriteTokens`。
-- 当前实例的 generator metadata 没有提供可用的 chat-model prompt metadata 或 context 上限。
-- 前端 bundle / protobuf 描述中存在 `ChatModelMetadata`、`chatStartMetadata.contextWindowMetadata.maxContextTokens`、`estimatedTokensUsed`、`messagePrompts.numTokens` 和 `toolCallOutputTokens`。字段存在于 schema 不代表当前会话已经提供读数。
-- Network resource entries 包含 LanguageServerService RPC。没有拦截 fetch/WebSocket、改变网络请求或调用会修改 Agent 状态的 RPC。
+- Request 是最近一次请求的输入规模、output 和缓存读数。优先使用 React 原生 usage；缺失时使用持久化库中有真实时间戳的最近响应，并明确显示来源。
+- Context Window 只消费原生 contextWindowMetadata 的占用/估算和 maxContextTokens；请求输入量不再充当 Context。没有上限时显示“上限暂未获取”，不显示斜杠、百分比或模型名推测上限。
+- Session 是原生会话库的 generation 累计，不累加 React 当前切片。三个 UI 共用 ContextView 的格式、hover 和 breakdown。
 
-读取器只返回计数、模型、类别、步骤标签和文件引用。它不返回 prompt、工具正文、认证对象或完整 RPC payload。React 属性通过语义键定位，不依赖压缩后的组件函数名。
+Native 表示读取原生计数；Estimated 表示原生 estimatedTokensUsed 或单个 prompt 文本的字符估算；Unavailable 表示字段未暴露。缺失字段保持 null，不补零。
 
-| 路线 | 条件 | UI |
-| --- | --- | --- |
-| Native | 有原生完整 prompt token，或者没有缓存 token 的原生 input token | `Native · 最近请求` |
-| Estimated | input 与 cache 重建，原生 `estimatedTokensUsed`，或实际 prompt 文本估算 | `≈ Estimated` |
-| Composition Only | 只有组成/DOM，无法可靠得到总量 | 不显示虚构用量 |
+Total = Input + Output + Cache Read + Cache Write；Reasoning 是 Output 的信息性子集。Cache Hit = Cache Read / (Input + Cache Read + Cache Write)，仅在分母字段完整、且确实存在缓存 telemetry 时显示。完整 total 未知时，≥ 表示已读取原生计数的下界，不把它冒充精确累计。
 
-缓存 token 的口径尚未确认。有缓存时，`input + cache-read + cache-write` 仅作重建估算，可能存在重复计数；原始字段单独展示。每次模型调用的 input 不累计为上下文总量。output 单独列出，不添加到最近请求的 input。
+当前 Prompt 构成来自 messagePrompts / promptSections / systemPrompt；loaded history 独立、默认折叠，明确注明不等同于当前 Prompt / Context Window。历史字符估算不再回填 Context 或 Request 总量。Activity 不出现在 Context UI。
 
-上限只来自原生 `maxContextTokens`。缺失时显示“上限未知”，隐藏使用百分比与剩余量。没有依据模型名字硬编码上限。
+G-Hub Compact 仅显示最近请求、当前 Context、本会话和“查看详情”。Full Inspector 分为 Request Telemetry、Session Usage、Current Context、Prompt、Loaded History、最近请求变化和 Files / Details。采样不到两点不显示时间线。
 
-组成分为当前 prompt、已加载历史和可见页面。历史中的消息、工具结果和 checkpoint 可能已被压缩或截断，因此历史估算不能当成当前上下文。缺少正文/计数的项标为未知；有部分可计数内容的类别明确显示“部分可计数”。文件引用也不证明文件仍在当前 prompt 内。
+输入框 HUD 挂在 Composer 的 control row，沿可见编辑器寻找模型选择与麦克风 / 发送控件的共同容器，不依赖 Local footer 或屏幕底部位置。中央和底部 Composer 共用定位；原生控件之间空间不足时收缩为数字。ResizeObserver 与现有 DOM observer 恢复定位，不改模型或发送控件。一级显示 Request 与 Session，保留 ≥；实际 Context 独立放在 hover 和 Inspector。title hover 与 aria-label 提供同源 breakdown，点击打开 G-Hub 完整详情。未找到明确控制行时不猜位置。
 
-Manager 与 G-Hub 共用显示模块。明细按占用降序排列；时间线只记录采集后发生的真实请求变化，切换会话/模型时开始新序列。只有当前 prompt 的可比组成才进行粗略增长归因；其它变化标为归因未知。当前时间线保留最近 120 点，不落盘。
+## Antigravity Session Token Reader
+
+G-Hub 账号卡、配额池和 Home 配额共用 `/api/v1/accounts` 中 selected account 的同一份数据。宿主内部身份验证只作为中性 provenance 展示，不作为 quota 可见性条件。未知为 —，缓存单独标注；不回退到另一个 active account 的配额。
+
+Session Token 加载与消息预览独立。Token 数值可读时显示“Token 已载入”；消息是否可读只在 Preview 入口说明，不混入 Token metadata。
+
+发现当前用户以下实际存在的 conversation 目录：
+
+- ~/.gemini/antigravity/conversations
+- ~/.gemini/antigravity-ide/conversations
+- ~/.gemini/antigravity-backup/conversations
+
+Windows x64 使用系统 winsqlite3.dll，以 SQLITE_OPEN_READONLY 打开 DB，保留实时 WAL 可见性，不创建备份、导出 cache 或迁移数据库。其它平台暂时返回 Unavailable。
+
+只读取当前版本的 gen_metadata(idx, data)、steps(idx, step_type, metadata) 与 trajectory_metadata_blob(id, data)。不读取 step_payload；gen_metadata BLOB 只提取 usage / model，跳过 prompt 正文，不实施全面 protobuf 兼容。
+
+原生 generation 的 chatModel.usage 中，New Input 使用字段 #2；字段 #1 的数值可读取但具体类别未确认，单列为 Unclassified Input，不归入 Cache。Output 使用 #3，总 output 包含 #9 文本和 #10 reasoning；Cache Read 是 #5，responseId 是 #11。Model 来自 chatModel #19，次选 #21 原生显示名。步骤 metadata 提供响应 ID / generation 索引对应的真实时间戳；没有可靠时间戳就保留未知，不使用 DB 修改时间冒充请求时间。
+
+Total 与输入处理都包含 New Input、Unclassified Input、Cache Read、Cache Write；Total 再加 Output，Reasoning 不重复计入。每一个计入累计下界的 response 都同步贡献 observed_breakdown，缺字段或去重不完整时各类别显示已读取下界，保证 Total 有可见归属。当前库的 Cache Write 仍 unknown，不补 0；Runtime 缓存字段默认 0 也不能证明提供了缓存 telemetry。Cache Hit 仅在输入与缓存分类完整且没有未分类输入时显示，否则为 —。Runtime 最近请求只按相同 sessionId / responseId 补入持久化字段，不按时间或模型猜匹配。
+
+优先按 responseId 去重，重复响应只能贡献一次累计，后续来源只能补缺失字段。缺失 responseId 的原始记录仅取第一个可读权威库，并标记 dedup confidence lower；无 ID 记录不计入累计下界；该库存在无 ID 记录时不合并备份来源，避免与备份的已识别响应重复累计。requestCount 在读取或去重不完整时保持未知，另提供 observedRequests。解析损坏或超出读取界限不会生成精确累计。
+
+会话页只为可见行按需读取 usage，最多三个并发请求；后端使用五秒内存缓存。不会在索引加载时读取全部 generation 或消息正文。
+
+## Runtime Mode
+
+SET_RUNTIME_MODE 仅修改和保存下次启动配置，不更新当前宿主注入策略，不发布启动/停止/重启命令，也不触发外观首次推送。配置模式与实际模式分别显示。已有宿主按实际模式初始化注入策略；明确的“启动宿主”或“重启”动作才应用新配置。本轮没有执行这些生命周期动作。
 
 ## CDP 与 DOM Runtime
 
@@ -55,16 +75,11 @@ Doctor 导出是固定结构的状态与计数，不包含账号身份、路径�
 
 Environment 集中了 Antigravity storage、brain、conversations、profiles、workspace storage、credential slot、已安装 Language Server 与可见存档格式。CDP、Sessions 和 Skills 复用这层发现。版本是已发现安装的文件版本，不冒充正在运行实例的版本。
 
-## Sessions 与 Skills 的首批范围
+## Sessions 边界
 
-Sessions 在原有页面加入 provider abstraction，首批支持 Antigravity 和 Codex：
+主 /api/v1/sessions、列表总数、项目数、今日活跃、搜索、预览和导出仅支持 Antigravity。Codex Provider 保留为未启用代码，主页面没有“全部 Agent”或 Provider 选择器。
 
-- 列表读取目录项、文件时间与原生元数据索引，不读取所有消息内容。缺少标题/项目时明确使用 ID 和未分类项目，不制造会话或步数。
-- Antigravity 能索引 brain、protobuf、SQLite 等存档；消息预览/导出目前支持已有 transcript.jsonl，protobuf / SQLite 没有实现解码。
-- Codex 使用 `CODEX_HOME` 或标准用户目录、原生 `session_index.jsonl` 与 session 文件目录元数据；点击后读取 response items。
-- 预览有消息/文件大小上限并明确标记截断；Codex 导出拒绝输出不完整记录。
-- 支持 provider / 项目过滤、搜索、按需预览及单会话 Markdown 导出。批量导出明确命名为“索引”，仅包含元数据。
-- 本轮不暴露删除按钮；现有删除接口增加 ID、路径与运行中宿主保护，不删除 workspaceStorage。未实现跨 provider 的可靠删除、打开项目或更多 Agent。
+列表索引三个原生 conversation 根及现有 brain 元数据。DB 的 workspace / session 创建时间来自 trajectory_metadata_blob，最后请求时间优先读取最后一条 generation step 的真实时间。备份文件复制时间不冒充真实请求活动。消息预览/Markdown 导出仍只支持现有 transcript.jsonl；本轮不解码 SQLite 消息正文。
 
 Skills Hub 只读扫描原生 Global 与已发现 Workspace 的 Skill 目录。支持常见 frontmatter、SKILL.md 查看、名称/描述搜索、scope 过滤以及 resources / examples / scripts 结构识别。不执行脚本，不擅自改写原生启停状态。本轮未实现安装、Git 拉取、Marketplace 或其它 Agent 的 Skill 管理。
 
@@ -77,23 +92,17 @@ Skills Hub 只读扫描原生 Global 与已发现 Workspace 的 Skill 目录。�
 - `internal/supervisor/cdp_runtime_manager.go`、`cdp_session.go`、`cdp_injector.go`：target registry、采样、恢复与真实注入回执。
 - `internal/supervisor/quota_history.go`、`account_scanner.go`：真实额度历史与 reset timestamp。
 - `internal/supervisor/doctor.go`、`environment.go`：轻量只读诊断与发现边界。
-- `internal/supervisor/session_scanner.go`、`session_providers.go`、`skills_hub.go`：元数据列表与延迟内容读取。
+- `internal/supervisor/antigravity_usage.go`、`antigravity_sqlite_windows.go`：原生 usage、responseId 去重与会话聚合。
+- `internal/supervisor/session_scanner.go`、`session_providers.go`：Antigravity 元数据列表与延迟内容读取。
 - `internal/api/observability.go`、`server.go`：本机 API。
 - `web/dist/index.html`、`observability.js`：Manager 导航、页面与交互。
 - `scripts/pack.ps1`：发布时携带 Context companion modules 与双语资源。
 
-## 本轮验证边界
+## 探查阶段的验证记录
 
-开发阶段只做了静态阅读、源码格式整理，以及对当前一个真实 target 的必要只读侦查/计数采集。随后按用户要求编译自测包并打包发布 0.2.1。没有运行 test、lint、typecheck、smoke、E2E 或截图矩阵，没有构造测试账号、额度或存档。编译与打包成功不代表新 UI 已完成运行验证。
+此次只读取源码、当前真实 SQLite 的少量 schema / generation，以及当前宿主的 DOM / React 属性。没有运行 build、test、lint、typecheck、smoke、E2E、CI 或自动验证脚本，没有模拟状态、内容哈希或存档指纹比较。源码的格式整理不等于编译验证。
 
-新 Manager/API/G-Hub 尚未运行验证；多 target、断线恢复、reload/reinject、持久额度历史和 Skills/Sessions 交互均未进行真实运行验证。当前 2Ag 进程不会因源码修改自动拥有新 API。用户可手动加载新版 2Ag；若需要重启宿主观察，等待用户手动重启后验证。禁止为验证中断正在执行的任务。
-
-## 后续值得继续的工作
-
-1. 确认不同 provider 的缓存 token 口径，并寻找原生当前 prompt 的完整上限/组成。
-2. 用户任务结束后，观察新版多 target 恢复、页面重载及共用 Context UI。
-3. 接入 Antigravity protobuf / SQLite 的只读会话元数据与消息解码。
-4. 确认原生 Skill 启停/安装机制后再增加管理操作。
+探查时没有关闭、启动、重启、刷新、重载或向当前宿主注入修改。当时可见 target 是新会话输入页，没有可读的当前 usage / Context 上限；bundle 中字段存在不代表实际读数可得。当时新的 SQLite C API 路径、API、HUD、hover/click、Compact/Full Inspector 和模式交互尚未运行验证。后续已按用户要求编译当前源码，并由用户进行真实使用验证。v0.2.2 收录这些源码修改，并按同一提交编译安装包与便携 ZIP；发布过程未运行自动测试，也未启动或重启宿主。历史 v0.2.1 发布包不包含这些修改。
 
 ## 查阅的社区设计
 
@@ -101,3 +110,6 @@ Skills Hub 只读扫描原生 Global 与已发现 Workspace 的 Skill 目录。�
 - [anti-power scan](https://github.com/daoif/anti-power/blob/master/patcher/patches/manager-panel/scan.js)：局部节点收集、语义候选与按帧去重。没有采用它的官方文件 patch 路线。
 - [antigravity-storage-manager quotaUsageTracker](https://github.com/unchase/antigravity-storage-manager/blob/master/src/quota/quotaUsageTracker.ts)：按真实历史分隔账号/模型与观察额度变化。没有引入 Gateway、Bot 或复杂预测。
 - [antigravity-skills](https://github.com/rominirani/antigravity-skills)：Global / Workspace 安装结构以及 resources、examples、scripts 层次。
+
+- [Token Monitor Antigravity 数据说明](https://github.com/Javis603/token-monitor/blob/main/docs/providers/antigravity.md)。
+- [Tokscale Antigravity SQLite reader](https://github.com/Javis603/tokscale/blob/main/crates/tokscale-core/src/sessions/antigravity_cli.rs)：只参考原生 conversation discovery、usage、responseId 与聚合；没有研究其它 Provider 路线。

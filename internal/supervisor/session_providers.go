@@ -39,11 +39,7 @@ func (antigravitySessionProvider) Preview(id string) (SessionPreview, error) {
 	if !validSessionID(id) {
 		return SessionPreview{}, fmt.Errorf("invalid session ID")
 	}
-	root := DetectAntigravityEnvironment().BrainRoot
-	if root == "" {
-		return SessionPreview{}, fmt.Errorf("Antigravity storage unavailable")
-	}
-	return readSessionMessages(filepath.Join(root, id, ".system_generated", "logs", "transcript.jsonl"), id, "antigravity", 120)
+	return previewAntigravitySession(id, "")
 }
 
 type codexSessionProvider struct{}
@@ -152,7 +148,7 @@ func (codexSessionProvider) Preview(id string) (SessionPreview, error) {
 
 func ScanAISessions() SessionsResult {
 	items, projects := []SessionItem{}, make(map[string]bool)
-	for _, provider := range []SessionProvider{antigravitySessionProvider{}, codexSessionProvider{}} {
+	for _, provider := range []SessionProvider{antigravitySessionProvider{}} {
 		for _, item := range provider.List() {
 			if updated := sessionTimestamp(item.UpdatedAt); !updated.IsZero() {
 				item.UpdatedAt = updated.UTC().Format(time.RFC3339Nano)
@@ -185,11 +181,26 @@ func sessionTimestamp(value string) time.Time {
 	return timestamp
 }
 
-func PreviewAISession(id string) (SessionPreview, error) {
+func PreviewAISession(id string, stores ...string) (SessionPreview, error) {
 	if strings.HasPrefix(id, "codex:") {
-		return (codexSessionProvider{}).Preview(strings.TrimPrefix(id, "codex:"))
+		return SessionPreview{}, fmt.Errorf("主会话审计仅支持 Antigravity")
 	}
-	return (antigravitySessionProvider{}).Preview(id)
+	store := ""
+	if len(stores) > 0 {
+		store = stores[0]
+	}
+	return previewAntigravitySession(id, store)
+}
+
+func previewAntigravitySession(id, store string) (SessionPreview, error) {
+	source, err := resolveSessionSource(id, store)
+	if err != nil {
+		return SessionPreview{}, err
+	}
+	if source.TranscriptPath == "" {
+		return SessionPreview{}, fmt.Errorf("此来源没有可预览的消息记录")
+	}
+	return readSessionMessages(source.TranscriptPath, id, "antigravity", 120)
 }
 
 func readSessionMessages(path, id, provider string, limit int) (SessionPreview, error) {

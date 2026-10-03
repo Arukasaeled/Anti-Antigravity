@@ -11,6 +11,7 @@
   const view = document.querySelector('[data-testid="conversation-view"]');
   const sessionId = view?.getAttribute('data-cascade-id') || location.pathname.match(/\/c\/([^/?]+)/)?.[1] || '';
   const result = {
+    schema_version: 2, request: null, context_tokens: null, context_provenance: 'Unavailable', loaded_history: [],
     session_id: sessionId, view_available: !!view, model: '', mode: 'composition', source: 'DOM',
     sampled_at: Date.now(), used_tokens: null, limit_tokens: null,
     input_tokens: null, cache_read_tokens: null, cache_write_tokens: null, output_tokens: null,
@@ -102,36 +103,42 @@
     result.model = label(chat?.responseModel || planner?.modelName || selectedModel?.label || selectedModel?.modelName);
     result.limit_tokens = number(windowMetadata?.maxContextTokens);
     if (result.limit_tokens === 0) result.limit_tokens = null;
+    const estimatedContext = number(windowMetadata?.estimatedTokensUsed);
+    if (estimatedContext > 0) { result.context_tokens = estimatedContext; result.context_provenance = 'Estimated'; }
     const steps = slice.stepsInSlice;
     const lastUsageStep = [...steps].reverse().find(s => s.metadata?.modelUsage);
-    const usage = chat?.usage || lastUsageStep?.metadata?.modelUsage;
+    const usage = lastUsageStep?.metadata?.modelUsage || chat?.usage;
     if (usage) {
       result.input_tokens = number(usage.inputTokens);
-      result.cache_read_tokens = number(usage.cacheReadTokens);
-      result.cache_write_tokens = number(usage.cacheWriteTokens);
+      // Runtime protobuf defaults of zero do not establish cache telemetry.
+      const cacheCounter = value => number(value) > 0 ? number(value) : null;
+      result.cache_read_tokens = cacheCounter(usage.cacheReadTokens);
+      result.cache_write_tokens = cacheCounter(usage.cacheWriteTokens);
       result.output_tokens = number(usage.outputTokens);
       result.usage_step = number(lastUsageStep?.metadata?.sourceTrajectoryStepInfo?.stepIndex);
       result.usage_at = timestamp(lastUsageStep?.metadata?.completedAt || lastUsageStep?.metadata?.createdAt);
-      const exactPrompt = number(usage.promptTokenCount ?? usage.promptTokens);
-      const cache = (result.cache_read_tokens || 0) + (result.cache_write_tokens || 0);
-      if (exactPrompt !== null) {
-        result.used_tokens = exactPrompt;
-        result.mode = 'native';
-        result.note = '原生最近请求的 prompt token；生成期间可能尚未更新。';
-      } else if (result.input_tokens !== null && cache === 0) {
-        result.used_tokens = result.input_tokens;
-        result.mode = 'native';
-        result.note = '原生最近请求的 input token；不累计历次请求。';
-      } else if (result.input_tokens !== null) {
-        result.used_tokens = result.input_tokens + cache;
-        result.mode = 'estimated';
-        result.note = '按 input + cache-read + cache-write 重建最近请求；缓存计数口径未确认，原始读数单独列出。';
-      }
-    }
-    if (result.used_tokens === null && number(windowMetadata?.estimatedTokensUsed) > 0) {
-      result.used_tokens = number(windowMetadata.estimatedTokensUsed);
-      result.mode = 'estimated';
-      result.note = 'Antigravity 原生 estimatedTokensUsed，仍属于估算。';
+      const sum = values => values.every(n => n !== null) ? values.reduce((a, b) => a + b, 0) : null;
+      const observed = values => values.some(n => n !== null) ? values.reduce((a, b) => a + (b ?? 0), 0) : null;
+      // This Runtime view has no confirmed name for native DB usage field #1.
+      // A responseId match may fill it from persistence; never guess a field.
+      const unclassifiedInput = null;
+      const inputValues = [result.input_tokens, unclassifiedInput, result.cache_read_tokens, result.cache_write_tokens];
+      const requestInput = sum(inputValues);
+      const totalValues = [...inputValues, result.output_tokens];
+      result.request = {
+        session_id: sessionId, response_id: label(usage.responseId), timestamp: result.usage_at,
+        model: result.model, provider: 'antigravity', provenance: 'Native', source: lastUsageStep ? 'React native modelUsage' : 'React native chatModel.usage',
+        input: result.input_tokens, output: result.output_tokens, cache_read: result.cache_read_tokens,
+        unclassified_input: unclassifiedInput,
+        cache_write: result.cache_write_tokens, reasoning: number(usage.reasoningTokens),
+        request_input: requestInput, observed_input: observed(inputValues), total: sum(totalValues),
+        observed_total: observed(totalValues), partial: sum(totalValues) === null,
+        cache_hit_rate: requestInput > 0 && (result.cache_read_tokens > 0 || result.cache_write_tokens > 0)
+          ? result.cache_read_tokens / requestInput : null
+      };
+      // Legacy sampling fields now describe requests only, never Context Window.
+      result.used_tokens = requestInput;
+      result.mode = requestInput === null ? 'composition' : 'native';
     }
     for (const workspace of slice.metadata?.workspaces || []) {
       if (workspace.workspaceFolderAbsoluteUri) result.workspace_dirs.push(workspace.workspaceFolderAbsoluteUri);
@@ -157,6 +164,7 @@
       for (const attachment of step.attachments || []) rememberFile(attachment.uri || attachment.fileUri);
     }
     // Message prompts describe the current assembled prompt. Do not mix them with all historical steps.
+    result.loaded_history = [...groups.values()].map(({ unknown, ...g }) => ({ ...g, partial: unknown, tokens: unknown && g.tokens === 0 ? null : g.tokens }));
     if (chat?.messagePrompts?.length || chat?.promptSections?.length || chat?.systemPrompt) {
       groups.clear(); result.items = []; result.composition_scope = 'active_prompt';
       const stepByIndex = new Map(steps.map((s, i) => [s.metadata?.sourceTrajectoryStepInfo?.stepIndex ?? i, s]));
@@ -177,12 +185,7 @@
       for (const tool of chat.tools || []) {
         // Count schema text only; no execution, no serialization methods on host objects.
         const text = JSON.stringify({ name: tool.name, description: tool.description, parameters: tool.parameters });
-        add('other', `Tool definition · ${tool.name || 'tool'}`, estimate(text), true);
-      }
-      if (result.used_tokens === null) {
-        result.used_tokens = [...groups.values()].reduce((sum, group) => sum + group.tokens, 0);
-        result.mode = 'estimated';
-        result.note = '按实际 prompt 文本长度 / 3.5 重建；图片与隐藏上下文可能未计入。';
+        add('tools', `Tool definition · ${tool.name || 'tool'}`, estimate(text), true);
       }
     }
     const latest = steps.at(-1);
@@ -209,7 +212,9 @@
     result.activity = view.querySelector('[data-testid="agent-loading"]') ? 'working' : 'idle';
   }
   for (const item of files.values()) add('files', item.name, item.tokens, false);
-  for (const uri of result.workspace_dirs) add('workspace', uri.replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'Workspace', null, false);
+  if (result.composition_scope !== 'active_prompt') {
+    for (const uri of result.workspace_dirs) add('workspace', uri.replace(/\\/g, '/').split('/').filter(Boolean).pop() || 'Workspace', null, false);
+  }
   result.composition = [...groups.values()].map(({ unknown, ...g }) => ({ ...g, partial: unknown, tokens: unknown && g.tokens === 0 ? null : g.tokens }));
   result.items.sort((a, b) => (b.tokens ?? -1) - (a.tokens ?? -1));
   if (result.items.length > 400) { result.items = result.items.slice(0, 400); result.partial = true; }

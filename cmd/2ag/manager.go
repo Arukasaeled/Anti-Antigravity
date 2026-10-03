@@ -332,11 +332,12 @@ func startManager(configPath string, cfg config.Config) error {
 	sm := core.NewStateMachine(cfg, configPath, bus)
 	apiServer := api.NewServer(sm, bus)
 
-	// 把配置里的形态登记进进程级状态。这一步必须在任何注入/启动动作之前：
-	// LaunchEnhancedHost、WatchAndInjectCDP（启动 600ms 后就会跑）、PushHubState
-	// 三处闸门都只问 supervisor.IsOfficialRuntime()，它们没有耐心先去读一次磁盘。
-	// 漏掉这一行的后果是「配置写了官方形态，机器上照样注入」—— 本轮最不能出的错。
-	supervisor.SetRuntimeMode(cfg.RuntimeMode)
+	// 当前宿主的注入策略与下次启动配置分开。已有宿主优先沿用实际形态。
+	activeMode := cfg.RuntimeMode
+	if facts := supervisor.RuntimeModeFactsNow(cfg.RuntimeMode); facts.Effective != "none" {
+		activeMode = facts.Effective
+	}
+	supervisor.SetRuntimeMode(activeMode)
 
 	// Account Vault 的一次性兼容迁移：0.1.1 之前的 ~/.2ag/vault/*.bin 是**明文**
 	// 写的（里面是含 refresh_token 的完整凭据）。升级到本版本后第一次启动就把它们
@@ -349,22 +350,7 @@ func startManager(configPath string, cfg config.Config) error {
 		log.Printf("[2ag] 账号保险库已升级：%d 份明文凭据已加密为 DPAPI(CurrentUser) 密文", migrated)
 	}
 
-	// 形态切换的落地：切换运行形态是一次**结构性**变更，不能只改一个字段然后
-	// 继续拿旧形态的宿主干活 —— 那样界面显示 OFFICIAL CLEAN，跑着的却仍是带补丁的
-	// 增强宿主，正是本轮要根除的「界面与事实不符」。
-	// 因此切换时重启宿主到新形态。这会打断用户正在编辑的工作台，但那是用户点下
-	// 这个开关时明确表达的意图；相比之下，让开关看起来生效实则没有，代价更大。
-	runtimeModeCh := make(chan string, 4)
-	defer close(runtimeModeCh)
-	go func() {
-		for mode := range runtimeModeCh {
-			supervisor.SetRuntimeMode(mode)
-			log.Printf("[2ag] 运行形态已切换为 %s，正在把宿主重启到该形态...", mode)
-			if err := supervisor.RestartHostClient(""); err != nil {
-				log.Printf("[2ag] 形态切换后重启宿主失败: %v", err)
-			}
-		}
-	}()
+	// 模式选择只保存下次启动配置。注入策略保持当前运行形态，直到明确启动动作。
 
 	// Listen for CommandEvents
 	cmdCh := bus.Subscribe(core.CommandEvent)
@@ -374,17 +360,8 @@ func startManager(configPath string, cfg config.Config) error {
 			if action, ok := event.Payload.(core.StateAction); ok {
 				switch action.Type {
 				case core.HostCtrlAction:
-					if payload, ok := action.Payload.(map[string]any); ok {
-						cmd, _ := payload["cmd"].(string)
-						switch cmd {
-						case "start":
-							_ = supervisor.LaunchEnhancedHost("", "")
-						case "restart":
-							_ = supervisor.RestartEnhancedHost("", "")
-						case "stop":
-							_ = supervisor.StopHostClient()
-						}
-					}
+					// HTTP lifecycle commands are executed synchronously by the API.
+					log.Printf("[2ag] 拒绝旧 EventBus 生命周期命令；请使用受鉴权的宿主控制 API")
 				case core.HotReloadAction:
 					// 走真实的热重载通道：读磁盘最新 injected_hub.js → 经 CDP 重新注入。
 					// 历史上这里只靠 WatchAndInjectCDP 重新注入编译期快照，日志永远"成功"，
@@ -417,8 +394,7 @@ func startManager(configPath string, cfg config.Config) error {
 	stateCh := bus.Subscribe(core.StateChangedEvent)
 	defer bus.Unsubscribe(core.StateChangedEvent, stateCh)
 	go func() {
-		lastSig := ""
-		lastMode := cfg.RuntimeMode
+		lastSig := hostVisibleSignature(cfg)
 		var debounce *time.Timer
 		for event := range stateCh {
 			newState, ok := event.Payload.(config.Config)
@@ -426,34 +402,8 @@ func startManager(configPath string, cfg config.Config) error {
 				continue
 			}
 
-			// 运行形态单独一条通道。它刻意不进 hostVisibleSignature：
-			// 那个签名的语义是「宿主看得见的外观」，形态变化照它比较会被当成
-			// 一次普通的滑块拖动，走增量推送 —— 而形态切换要的是重启。
-			if newState.RuntimeMode != lastMode {
-				lastMode = newState.RuntimeMode
-				select {
-				case runtimeModeCh <- newState.RuntimeMode:
-				default:
-					log.Printf("[2ag] 形态切换请求队列已满，已丢弃一次（%s）", newState.RuntimeMode)
-				}
-			}
-
 			sig := hostVisibleSignature(newState)
-			// 去重只看「和上一次相比变了没有」。
-			//
-			// 历史实现这里还有一个 initialized 首事件基线分支（首个事件只记录不处理，
-			// 理由写的是「它可能是启动探针或与本次操作无关的变更」）。那个理由不成立：
-			// StateChangedEvent 全仓只有一处发端（core.state.go 的 ApplyAction 末尾，
-			// 且仅在 changed 为真时），启动过程不会自行发布任何事件 —— 换句话说，
-			// 被那条基线吞掉的只可能是**用户新进程启动后的第一次真实修改**。
-			//
-			// 代价是实测出来的：拉起 2ag 后第一次拖滑块，状态机与磁盘都变了，
-			// 日志里却连一条推送记录都没有，宿主纹丝不动；第二次拖才生效。
-			// 这类「第一次不灵、第二次才对」的缺陷最容易被当成偶发而放过。
-			//
-			// 删掉它是安全的：lastSig 以空串起步，而 hostVisibleSignature 必定返回
-			// 非空（形如 "wp=...|blur=..."），因此首个事件必然被处理；
-			// 而即便某天真出现了与配置无关的重复事件，sig 相等那一条也会拦住它。
+			// 与启动配置比较；纯模式选择不会误触发首次外观推送。
 			if sig == lastSig {
 				continue
 			}

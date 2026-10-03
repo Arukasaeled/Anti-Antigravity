@@ -19,10 +19,10 @@ go build -o 2ag.exe .\cmd\2ag
 
 ```powershell
 # release 二进制 + staging + 安装包
-.\scripts\pack.ps1 -Version 0.2.1
+.\scripts\pack.ps1 -Version 0.2.2
 
 # 只出 staging（不生成安装包）
-.\scripts\pack.ps1 -Version 0.2.1 -SkipInstaller
+.\scripts\pack.ps1 -Version 0.2.2 -SkipInstaller
 ```
 
 ## `pack.ps1` 做什么
@@ -51,7 +51,7 @@ dist\Anti-Antigravity-Setup-x64.exe
 
 `dist\staging\` **本身就是便携形态** —— 自包含，双击 `2ag.exe` 即跑。安装包与它同源同一份 `2ag.exe`，区别只是多写注册表 + 开始菜单快捷方式。
 
-GitHub Release 提供安装包 `Anti-Antigravity-Setup-x64.exe` 与 `2Ag-v0.2.1-windows-x64-portable.zip`。便携包由完整 staging 目录生成，不能只复制 exe 后删除 companion modules。
+GitHub Release 提供安装包 `Anti-Antigravity-Setup-x64.exe` 与 `2Ag-v0.2.2-windows-x64-portable.zip`。便携包由完整 staging 目录生成，不能只复制 exe 后删除 companion modules。
 
 ## 可复现性
 
@@ -67,8 +67,8 @@ GitHub Release 提供安装包 `Anti-Antigravity-Setup-x64.exe` 与 `2Ag-v0.2.1-
 ## 发布
 
 ```powershell
-.\scripts\pack.ps1 -Version 0.2.1
-Compress-Archive -LiteralPath dist\staging -DestinationPath dist\2Ag-v0.2.1-windows-x64-portable.zip
+.\scripts\pack.ps1 -Version 0.2.2
+Compress-Archive -LiteralPath dist\staging -DestinationPath dist\2Ag-v0.2.2-windows-x64-portable.zip
 ```
 
 提交源码并推送对应 tag，再把安装包和 ZIP 上传到 GitHub Release。更新说明直接写在 Release 页面，使用临时正文文件传给 `gh release create --notes-file`，仓库不保留逐版本 release notes。

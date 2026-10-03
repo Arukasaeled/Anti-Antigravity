@@ -12,6 +12,7 @@ const (
 	HostExitedEvent   EventType = "host_exited"
 	ErrorEvent        EventType = "error"
 	CommandEvent      EventType = "command_dispatch"
+	PersistenceEvent  EventType = "persistence_changed"
 )
 
 type Event struct {

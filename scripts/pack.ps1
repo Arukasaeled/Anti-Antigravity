@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot '..\dist'),
-    [string]$Version = '0.2.1',
+    [string]$Version = '0.2.2',
     [string]$Go = 'go',
     [string]$ISCC = 'ISCC.exe',
     [switch]$SkipInstaller

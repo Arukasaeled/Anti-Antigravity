@@ -90,6 +90,9 @@
     language: 'zh-CN'
   }, INITIAL_CONFIG || {});
 
+  delete state.control_token;
+  delete state.manager_url;
+
   // 1.05 INITIAL_CONFIG 用的是后端 config.Config 的 snake_case 字段名（modal_opacity），
   // 而本文件内部一律用 modalOpacity —— 上面那句 Object.assign 于是只会多出一个
   // 永远没人读的 modal_opacity 键，state.modalOpacity 永远停在默认 0.9。
@@ -929,6 +932,19 @@
   let hubThemeSyncer = null;
   let hubDisposed = false;         // dispose() 之后彻底停摆，不再自愈/响应快捷键
   let contextSnapshot = null;
+  let sessionUsage = null;
+  let contextFull = false;
+  let contextFocus = '';
+  let contextApiRequest = null;
+  let openContextDetails = null;
+  let usageAbort = null;
+  let usagePending = false;
+  let composerHUD = null;
+  let composerRequest = null;
+  let composerSession = null;
+  let composerAnchor = null;
+  let composerResize = null;
+  let composerLayoutFrame = null;
   let contextTimer = null;
   let lastContextSample = 0;
   let runtimeFrame = null;
@@ -945,11 +961,127 @@
     const host = document.getElementById(SHADOW_HOST_ID);
     const shadow = host?.shadowRoot;
     const summary = shadow?.getElementById('hub-context-summary');
-    if (summary) summary.textContent = 'Context · ' + (contextSnapshot?.mode === 'estimated' ? '≈ ' : '') +
-      window.TwoAgContextView.tokens(contextSnapshot?.used_tokens) + ' · ' + (contextSnapshot?.activity || 'unknown');
+    if (summary) summary.textContent = '上下文与 Token';
+    const back = shadow?.getElementById('hub-context-compact');
+    if (back) back.style.display = contextFull ? '' : 'none';
     if (shadow?.getElementById('hub-context')?.open) {
-      window.TwoAgContextView.render(shadow.getElementById('hub-context-content'), contextSnapshot, contextTimeline, true);
+      window.TwoAgContextView.render(shadow.getElementById('hub-context-content'), contextSnapshot, contextTimeline, !contextFull, contextFocus);
     }
+    paintComposerControls();
+  }
+
+  // Resolve the control row relative to the editor, regardless of where the
+  // Composer is placed on screen. Local footer and viewport-bottom heuristics
+  // are not anchors. Never alter the model/microphone/send controls themselves.
+  function resolveComposerControlRow() {
+    const send = findSendButtonTiered().btn;
+    const input = findInputTargetTiered(send).el;
+    if (!input || input.closest('[data-twoag-owned],#'+SHADOW_HOST_ID)) return null;
+    const inputRect = input.getBoundingClientRect();
+    let composer = input.parentElement;
+    for (let hops=0; composer && composer!==document.body && hops<9; hops++,composer=composer.parentElement) {
+      const controls=[...composer.querySelectorAll('button,[role="button"],[role="combobox"]')].filter(n=>!n.closest('[data-twoag-owned]') && isUsableInput(n));
+      const model=controls.find(n=>/model|模型|gemini|claude|gpt/i.test([n.textContent,n.getAttribute('aria-label'),n.getAttribute('data-testid'),n.getAttribute('title')].join(' ')));
+      if(!model)continue;
+      const actions=controls.filter(n=>n!==model && (n===send || /microphone|voice|mic|send|submit|stop|麦克风|语音|发送|停止/i.test([n.getAttribute('aria-label'),n.getAttribute('data-testid'),n.getAttribute('title')].join(' '))));
+      const last=actions.at(-1);
+      if(!last)continue;
+      for(let row=model.parentElement;row && row!==composer.parentElement;row=row.parentElement){
+        if(row.contains(input))break;
+        if(!row.contains(last))continue;
+        const rect=row.getBoundingClientRect(),style=getComputedStyle(row);
+        if(!/flex|grid/.test(style.display) || rect.height>80 || rect.top<inputRect.top-12 || rect.top>inputRect.bottom+90)continue;
+        const branches=actions.filter(n=>row.contains(n)).map(n=>{
+          while(n.parentElement && n.parentElement!==row)n=n.parentElement;
+          return n;
+        }).filter(n=>!n.contains(model));
+        const trailing=[...row.children].find(n=>branches.includes(n));
+        if(!trailing)continue;
+        return {row,input,model,trailing};
+      }
+    }
+    return null;
+  }
+
+  function layoutComposerHUD() {
+    composerLayoutFrame=null;
+    if(!composerHUD?.isConnected || !composerAnchor)return;
+    const {row,model,trailing}=composerAnchor;
+    // Measure free space between native controls, with a small breathing gap.
+    const rowRect=row.getBoundingClientRect();
+    const nativeLeft=[...row.querySelectorAll('button,[role="button"],[role="combobox"]')].filter(n=>!n.closest('[data-twoag-owned]') && !trailing.contains(n) && n.getBoundingClientRect().left<trailing.getBoundingClientRect().left);
+    const leftEdge=Math.max(model.getBoundingClientRect().right,...nativeLeft.map(n=>n.getBoundingClientRect().right));
+    const nativeGap=parseFloat(getComputedStyle(row).columnGap)||0;
+    const free=Math.max(0,Math.min(rowRect.right,trailing.getBoundingClientRect().left)-leftEdge-Math.max(16,2*nativeGap+8));
+    const width=String(Math.floor(free))+'px';
+    if(composerHUD.style.maxWidth!==width)composerHUD.style.maxWidth=width;
+    const root=composerHUD.shadowRoot;
+    composerHUD.dataset.compact='false';
+    if(root.querySelector('.hud').scrollWidth>free)composerHUD.dataset.compact='true';
+    const desired=String(Math.floor(Math.min(free,root.querySelector('.hud').scrollWidth)))+'px';
+    if(composerHUD.style.width!==desired)composerHUD.style.width=desired;
+    composerHUD.style.visibility=free>12?'visible':'hidden';
+  }
+
+  function scheduleComposerHUDLayout() {
+    if(composerLayoutFrame===null && !hubDisposed)composerLayoutFrame=requestAnimationFrame(layoutComposerHUD);
+  }
+
+  function paintComposerControls() {
+    if (hubDisposed) return;
+    if(!composerHUD?.isConnected || !composerAnchor?.row.isConnected || !isUsableInput(composerAnchor?.input) || !composerAnchor.row.contains(composerAnchor.model) || !composerAnchor.row.contains(composerAnchor.trailing)){
+      composerResize?.disconnect();composerResize=null;
+      composerHUD?.remove();composerHUD=null;composerAnchor=resolveComposerControlRow();
+      if(!composerAnchor)return;
+      composerHUD=document.createElement('span');
+      composerHUD.dataset.twoagOwned='composer-tokens';
+      composerHUD.style.cssText='margin-left:auto;margin-right:8px;min-width:0;width:0;flex:0 0 auto;display:inline-flex;align-items:center;overflow:hidden;';
+      const root=composerHUD.attachShadow({mode:'open'});
+      root.innerHTML='<style>:host{color:inherit;font:inherit;min-width:0}.hud{display:inline-flex;align-items:center;gap:5px;min-width:0;white-space:nowrap;font-size:11px;font-variant-numeric:tabular-nums;color:inherit}button{font:inherit;color:inherit;border:0;background:transparent;padding:2px 0;cursor:pointer;opacity:.8;white-space:nowrap}button:hover,button:focus-visible{opacity:1;text-decoration:underline}button:focus-visible{outline:1px solid currentColor;outline-offset:2px}:host([data-compact="true"]) .caption{display:none}</style><span class="hud"><button type="button" data-request><span class="caption"></span><span class="value"></span></button><span aria-hidden="true">·</span><button type="button" data-session><span class="caption">Session </span><span class="value"></span></button></span>';
+      composerRequest=root.querySelector('[data-request]');composerSession=root.querySelector('[data-session]');
+      for (const [button, section] of [[composerRequest, 'request'], [composerSession, 'session']]) {
+        button.addEventListener('click', event => {
+          event.preventDefault(); event.stopPropagation();
+          openContextDetails?.(section);
+        });
+        button.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation(); });
+      }
+      composerAnchor.row.insertBefore(composerHUD,composerAnchor.trailing);
+      if(typeof ResizeObserver==='function'){
+        composerResize=new ResizeObserver(scheduleComposerHUDLayout);
+        for(const node of [composerAnchor.row,composerAnchor.model,composerAnchor.trailing])composerResize.observe(node);
+      }
+    }
+    const values = window.TwoAgContextView.footer(contextSnapshot);
+    const update = (button, caption, value, hover) => {
+      const label=button.querySelector('.caption'),amount=button.querySelector('.value');
+      if(label.textContent!==caption)label.textContent=caption;
+      if(amount.textContent!==value)amount.textContent=value;
+      button.title = hover; button.setAttribute('aria-label', caption+value+'\n'+hover);
+    };
+    update(composerRequest, values.contextLabel+' ', values.contextValue, values.contextHover);
+    update(composerSession, 'Session ', values.sessionValue, values.sessionHover);
+    scheduleComposerHUDLayout();
+  }
+
+  async function refreshSessionUsage() {
+    const id = contextSnapshot?.session_id;
+    if (!id || !contextApiRequest || usagePending || hubDisposed) return;
+    usagePending = true;
+    const controller = new AbortController(); usageAbort = controller;
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    try {
+      const response = await contextApiRequest('/api/v1/sessions/usage?id=' + encodeURIComponent(id), { signal: controller.signal });
+      const usage = await response.json();
+      if (hubDisposed || contextSnapshot?.session_id !== id) return;
+      sessionUsage = usage; contextSnapshot.session_usage = usage;
+      contextSnapshot.request=window.TwoAgContextView.normalizeRequest(contextSnapshot.request,usage);
+      paintContext();
+    } catch (_) {
+      if (!hubDisposed && contextSnapshot?.session_id === id) {
+        sessionUsage = null; contextSnapshot.session_usage = null; paintContext();
+      }
+    } finally { clearTimeout(timeout); usagePending = false; if (usageAbort === controller) usageAbort = null; }
   }
 
   function collectContext() {
@@ -959,6 +1091,11 @@
     try {
       const next = readContext();
       const previous = contextSnapshot;
+      if (previous?.session_id !== next.session_id) { sessionUsage = null; contextFull = false; contextFocus = ''; }
+      if (sessionUsage?.session_id === next.session_id) {
+        next.session_usage = sessionUsage;
+        next.request=window.TwoAgContextView.normalizeRequest(next.request,sessionUsage);
+      }
       if (previous?.session_id !== next.session_id || previous?.model !== next.model) contextTimeline.length = 0;
       if (next.used_tokens !== null && (!previous || previous.session_id !== next.session_id || previous.model !== next.model ||
           previous.used_tokens !== next.used_tokens || previous.mode !== next.mode || previous.usage_step !== next.usage_step)) {
@@ -971,6 +1108,7 @@
       if (previous?.activity !== next.activity) runtimeCounters.activity_events++;
       contextSnapshot = next;
       paintContext();
+      if (!sessionUsage) refreshSessionUsage();
     } catch (_) { runtimeCounters.failures++; }
   }
 
@@ -1003,6 +1141,8 @@
     }
     // Only repair missing owned layers. Normal streaming mutations never run a full-page tick.
     if (!document.getElementById(SHADOW_HOST_ID)?.isConnected) tick();
+    if(!composerHUD?.isConnected || !composerAnchor?.row.isConnected || !composerAnchor.row.contains(composerAnchor.model) || !composerAnchor.row.contains(composerAnchor.trailing))scheduleContext();
+    else scheduleComposerHUDLayout();
   }
 
   function enqueueRuntimeNode(raw) {
@@ -1045,6 +1185,7 @@
     const quotaTimer = window.setInterval(() => {
       if (hubDisposed) return;
       if (typeof hubQuotaRefresher === 'function') hubQuotaRefresher();
+      if (!document.hidden) { collectContext(); refreshSessionUsage(); }
     }, 4000);
     // capture:true —— 宿主自己的 pointerdown/keydown 处理器可能 stopPropagation，
     // 冒泡阶段注册会在那些页面上失效；捕获阶段先过我们这道闸。
@@ -1833,9 +1974,10 @@
       letter-spacing: 0.3px;
       padding: 2px 7px;
       border-radius: var(--2ag-r-pill);
-      background: var(--2ag-green-container);
-      color: var(--2ag-green);
+      background: var(--2ag-surface-2);
+      color: var(--2ag-text-secondary);
     }
+    .acct-provenance {font-size:10px;font-weight:400;color:var(--2ag-text-tertiary);white-space:nowrap;}
     .acct-caret {
       flex-shrink: 0;
       font-size: 10px;
@@ -3458,6 +3600,7 @@
     let restored = false;
     let showcase = null;
     let lastHostStatus = null;
+    let lastSelectedQuotaAccount = null;
     let draftStatus = null;
     let uiLanguage = state.language === 'en-US' ? 'en-US' : 'zh-CN';
     const languageListeners = new Set();
@@ -3513,6 +3656,7 @@
     const registrationStacks = new WeakMap();
     const extensionRecords = new Map();
     let commandIndex = 0, commandMatches = [], paletteFocus = null;
+    let restartPending = false;
     const b = (id, label, extra = '') => `<button type="button" id="${id}" ${extra}>${label}</button>`;
 
     const body = panel.querySelector('.cockpit-body');
@@ -3925,6 +4069,8 @@
       commandIndex = Math.max(0, Math.min(commandIndex, commandMatches.length - 1));
       for (const [index, command] of commandMatches.entries()) {
         const button = document.createElement('button'); button.type = 'button'; button.textContent = titleOf(command);
+        button.dataset.commandId = command.id;
+        if (command.id === 'host.restart' && restartPending) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
         button.setAttribute('role','option'); button.setAttribute('aria-selected', String(index === commandIndex)); button.id = 'il-command-option-' + index;
         button.onpointermove = () => { commandIndex = index; paintCommandSelection(); };
         button.onclick = () => run(() => executeCommand(command)); target.append(button);
@@ -4397,7 +4543,7 @@
       return new Promise((resolve,reject) => {
         const timer = setTimeout(() => { ipcPending.delete(id); reject(new Error('IPC request timed out')); }, 15000);
         ipcPending.set(id, { resolve, reject, timer });
-        try { window.__2AG_IPC__(JSON.stringify({ id, method, params })); } catch (error) { clearTimeout(timer); ipcPending.delete(id); reject(error); }
+        try { window.__2AG_IPC__(JSON.stringify({ id, method, params, control_token: INITIAL_CONFIG.control_token })); } catch (error) { clearTimeout(timer); ipcPending.delete(id); reject(error); }
       });
     }
     const deliver = raw => {
@@ -4435,10 +4581,26 @@
       if ($('il-prompt').value || activeDraft || $('il-draft-title').value) await saveDraft();
       persistRecovery();
     }
+    function setRestartButtonsPending(pending) {
+      for (const button of shadow.querySelectorAll('#il-restart, [data-command-id="host.restart"]')) {
+        button.disabled = pending;
+        button.setAttribute('aria-busy', String(pending));
+      }
+    }
     async function restart() {
-      await flushDraft();
-      await request('/api/v1/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'HOST_CTRL', payload: { cmd: 'restart' } }) });
-      showToast('[2Ag] '+t('Host restart requested'));
+      if (restartPending) return;
+      restartPending = true;
+      setRestartButtonsPending(true);
+      try {
+        await flushDraft();
+        const response = await request('/api/v1/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'HOST_CTRL', payload: { cmd: 'restart' } }) });
+        const result = await response.json();
+        if (!result.success) throw new Error(result.message || '宿主操作未完成');
+        showToast('[2Ag] '+(result.message || '宿主操作完成'));
+      } finally {
+        restartPending = false;
+        setRestartButtonsPending(false);
+      }
     }
     function openSettings(name) { showPage('home'); $('il-settings-' + name).open = true; layout(); $('il-settings-' + name).scrollIntoView({ block: 'nearest' }); }
     const builtins = [
@@ -4551,18 +4713,21 @@
     cleanups.push(() => { document.removeEventListener('pointerover', pointer, true); window.removeEventListener('scroll', positionHover, true); window.removeEventListener('resize', positionHover); clearTimeout(hoverTimer); pinHover.remove(); });
     cleanups.push(host.conversation.observe(() => { if (page === 'lens') refreshOutline(); if (hoveredMessage && !host.conversation.node(hoveredMessage.id)) pinHover.hidden = true; }));
 
-    function paintHostStatus(data) {
+    function paintHostStatus(data, selectedAccount=lastSelectedQuotaAccount) {
       lastHostStatus=data;
+      lastSelectedQuotaAccount=selectedAccount;
       const connected = !!data?.is_live;
       $('interaction-status').textContent = t(connected ? 'Connected' : 'Disconnected');
       header.querySelector('.pulse-dot').style.background = connected ? 'var(--2ag-green,#81c995)' : 'var(--2ag-text-secondary)';
-      const email = data?.identity_verified && data?.active_account?.email ? maskEmail(data.active_account.email) : t('Account unverified');
+      const email = selectedAccount?.email ? maskEmail(selectedAccount.email)+' · 已选择' : '未选择账号';
       $('interaction-account').textContent = email; $('il-home-account').textContent = email;
+      const identityVerified=!!data?.identity_verified && !!data?.is_live && data?.active_account?.email===selectedAccount?.email;
+      for(const node of [$('interaction-account'),$('il-home-account')])node.title=identityVerified?'宿主身份已验证':'宿主身份未验证：账号选择不等同于宿主内部身份确认';
       const percent = (pool, window) => {
         const value = pool?.[window + '_percent'], known = pool?.[window + '_known'];
         return pool?.available && known !== false && value !== undefined && value !== null && Number.isFinite(Number(value)) ? `${Number(value)}%${pool.stale ? ' '+t('(cache)') : ''}` : '—';
       };
-      const gp = data?.active_account?.gemini_pool, cp = data?.active_account?.claude_pool;
+      const gp = selectedAccount?.gemini_pool, cp = selectedAccount?.claude_pool;
       $('il-home-gemini').textContent = `5h ${percent(gp,'five_hour')} · ${t('Weekly quota')} ${percent(gp,'weekly')}`;
       $('il-home-claude').textContent = `5h ${percent(cp,'five_hour')} · ${t('Weekly quota')} ${percent(cp,'weekly')}`;
     }
@@ -4749,7 +4914,7 @@
                逐项对齐，保证「舱内换肤」与「2Ag 主窗口换肤」得到完全相同的外观。
                芯片为 Material 3 药丸形：左侧渐变圆点取 THEME_PRESETS[t].swatch（本身就是
                该主题主色调的 linear-gradient 字符串），右侧为名称。 -->
-          <div class="section-tag">THEME MATRIX</div>
+          <div class="section-tag">THEME MATRIX <span id="hub-persistence" role="status" style="font-size:10px;text-transform:none;float:right"></span></div>
           <div class="theme-row" id="theme-row">
             ${THEME_PRESETS.map((t) => `
               <div class="theme-chip" data-preset="${t.id}" data-active="false" title="${t.title}">
@@ -4803,7 +4968,8 @@
               <span class="acct-dot" id="acct-dot" data-off="true"></span>
               <span class="acct-head-mail" id="acct-head-mail">正在读取本机账号…</span>
               <span class="acct-head-eye" id="acct-head-eye"></span>
-              <span class="acct-pill" id="acct-head-pill">主账号</span>
+              <span class="acct-pill" id="acct-head-pill">下次启动</span>
+              <span class="acct-provenance" id="acct-head-provenance" title="账号选择和凭据归属不能证明宿主内部身份。">宿主身份未验证 ⓘ</span>
               <span class="acct-caret">▾</span>
             </div>
             <div class="acct-body">
@@ -4824,7 +4990,8 @@
                后端只会把「真的解析到该池的 5h / weekly 桶」标成可用，读不到就
                如实说「未载入」，绝不用默认值或另一个池的读数顶替。 -->
           <details id="hub-context" style="margin:16px 0;padding:12px;border:1px solid var(--border-color,#dadce0);border-radius:4px">
-            <summary id="hub-context-summary" style="cursor:pointer;font-weight:500">Context · 读取中</summary>
+            <summary id="hub-context-summary" style="cursor:pointer;font-weight:500">上下文与 Token</summary>
+            <button type="button" id="hub-context-compact" style="display:none;border:0;background:transparent;color:inherit;font-size:12px;cursor:pointer;margin-top:8px">返回概览</button>
             <div id="hub-context-content" style="margin-top:12px"></div>
           </details>
           <div class="quota-caps" id="quota-caps">
@@ -5326,7 +5493,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'SET_PRESET', payload: { preset: presetId } })
       }).then(() => {
-        showToast(`[2Ag] 已切换主题：${preset.title}（已写入配置）`);
+        showToast(`[2Ag] 已切换主题：${preset.title}（等待保存）`);
+        refreshHubPersistence();
       }).catch(() => {
         showToast(`[2Ag] 已切换主题：${preset.title}（仅当前会话，配置未落盘）`);
       });
@@ -5399,7 +5567,8 @@
             }
           })
         }).then(() => {
-          showToast('[2Ag] 微调参数已写入配置');
+          showToast('[2Ag] 微调已生效（等待保存）');
+          refreshHubPersistence();
         }).catch(() => {
           showToast('[2Ag] 微调已生效（仅当前会话，配置未落盘）');
         });
@@ -5449,7 +5618,7 @@
     let accountSwitchPending = false;
 
     function apiUrlFor(path) {
-      return API_PORTS.map((p) => `http://127.0.0.1:${p}${path}`);
+      return INITIAL_CONFIG.manager_url ? [INITIAL_CONFIG.manager_url + path] : API_PORTS.map((p) => `http://127.0.0.1:${p}${path}`);
     }
 
     // 依次尝试候选端口，返回第一个成功的 Response；全失败抛出最后一个错误。
@@ -5457,7 +5626,11 @@
       let lastErr = null;
       for (const url of apiUrlFor(path)) {
         try {
-          const res = await fetch(url, Object.assign({ cache: 'no-store' }, init || {}));
+          const options = Object.assign({ cache: 'no-store' }, init || {});
+          const headers = new Headers(options.headers || {});
+          headers.set('X-2Ag-Control-Token', INITIAL_CONFIG.control_token || '');
+          options.headers = headers;
+          const res = await fetch(url, options);
           if (!res.ok) {
             // 把响应体带进错误里：后端的 4xx/5xx 都是带原因的（例如
             // 「该账号不在本地账号文件中: x@y.z」「未能确认系统登录凭据已切换」），
@@ -5466,15 +5639,41 @@
             let detail = '';
             try { detail = (await res.text() || '').trim(); } catch (_) {}
             if (detail.length > 300) detail = detail.slice(0, 300) + '…';
-            lastErr = new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`);
-            continue;
+            throw new Error(detail ? `HTTP ${res.status}: ${detail}` : `HTTP ${res.status}`);
           }
           return res;
         } catch (err) {
           lastErr = err;
+          if (init && init.method && init.method !== 'GET') throw err;
         }
       }
       throw lastErr || new Error('网关不可达');
+    }
+
+    let lastPersistenceFailure = '';
+    let persistenceRevision = -1;
+    let persistenceUpdatedAt = 0;
+    async function refreshHubPersistence() {
+      const label = shadow.getElementById('hub-persistence');
+      if (!label) return;
+      try {
+        const response = await fetchFirstOk('/api/v1/persistence');
+        const status = await response.json();
+        if (status.revision < persistenceRevision || (status.revision === persistenceRevision && status.updated_at < persistenceUpdatedAt)) return;
+        persistenceRevision = status.revision;
+        persistenceUpdatedAt = status.updated_at;
+        const labels = { pending: '正在保存…', saved: '已保存', save_failed: '保存失败', idle: '' };
+        label.textContent = labels[status.status] ?? '保存状态未知';
+        label.title = status.error || '';
+        label.style.color = status.status === 'save_failed' ? '#d93025' : '';
+        const failure = String(status.revision) + status.error;
+        if (status.status === 'save_failed' && failure !== lastPersistenceFailure) {
+          lastPersistenceFailure = failure;
+          showToast('[2Ag] 配置保存失败：' + status.error);
+        }
+      } catch (_) {
+        label.textContent = '保存状态未知';
+      }
     }
 
     function setLoading(show) {
@@ -5491,7 +5690,7 @@
       const subEl = loadingEl.querySelector('.ghub-loading-sub');
       const target = email || '目标账号';
       if (textEl) textEl.textContent = `正在保存状态并切换至 ${target} 沙箱...`;
-      if (subEl) subEl.textContent = `宿主进程（taskkill /T 全树）将被终止，并以 ${target} 的 profile 目录重新拉起`;
+      if (subEl) subEl.textContent = `仅停止已拥有或明确接管的宿主，再应用 ${target} 的凭据；内部登录身份单独确认`;
     }
 
     // 遮罩兜底：宿主若在 T 秒内没有真的重启（页面还活着 = 重启没发生），
@@ -5502,30 +5701,26 @@
       loadingGuardTimer = setTimeout(() => {
         loadingGuardTimer = null;
         if (accountSwitchPending) {
-          accountSwitchPending = false;
           setLoading(false);
-          // 超时兜底必须把按钮一并解锁：否则用户面对的是「遮罩没了但按钮全灰」的死界面。
-          const btns = shadow.querySelectorAll('.acct-switch');
-          for (let i = 0; i < btns.length; i++) btns[i].disabled = false;
-          showToast('[2Ag] 切换超时：后端未在预期时间内重启宿主，请检查 2Ag 主进程状态');
+          // Hide the overlay without permitting a second in-flight submission.
+          showToast('[2Ag] 切换仍在等待后端结果；按钮将在请求完成或失败后恢复');
         }
       }, ms);
     }
 
     // 手风琴头部（折叠态那一行）同步：绿点 / 邮箱 / 胶囊标签
-    function paintAccountHead(accounts, activeEmail, identityVerified) {
+    function paintAccountHead(accounts, selectedEmail, identityVerified) {
       const headMail = shadow.getElementById('acct-head-mail');
       const headDot = shadow.getElementById('acct-dot');
       const headPill = shadow.getElementById('acct-head-pill');
+      const provenance = shadow.getElementById('acct-head-provenance');
       if (!headMail || !headDot || !headPill) return;
 
       const list = Array.isArray(accounts) ? accounts : [];
-      // 活跃账号：优先用后端 host/status 的 active_account.email（反映运行中的宿主），
-      // 其次退回账号 JSON 里的 is_active 标记，最后才退到主账号。
+      // Selection controls the displayed account and quota, not host identity.
       let current = null;
-      if (activeEmail) current = list.filter((a) => a && a.email === activeEmail)[0] || null;
-      if (!current) current = list.filter((a) => a && a.is_active)[0] || null;
-      if (!current) current = list.filter((a) => a && a.is_primary)[0] || null;
+      if (typeof selectedEmail==='string') current = list.find(a=>a?.email===selectedEmail) || null;
+      else current = list.find(a=>a?.is_primary) || null;
 
       if (current) {
         const mail = current.email || '(未知账号)';
@@ -5543,14 +5738,11 @@
         headMail.removeAttribute('title');
         const headEyeHost = shadow.getElementById('acct-head-eye');
         if (headEyeHost) headEyeHost.innerHTML = eyeBtnHtml(headShown, escapeHtml(mail));
-        // 身份未确证时不得声称「主账号/活跃」—— 那是一个未被验证的断言。
-        // 诚实标注为「待确认」，用户一眼就知道这个邮箱不是从宿主凭据读出来的。
-        if (!identityVerified) {
-          headPill.textContent = '待确认';
-          headDot.dataset.off = 'true';
-        } else {
-          headPill.textContent = current.is_primary ? '主账号' : '活跃';
-          headDot.dataset.off = 'false';
+        headPill.textContent='已选择';
+        headDot.dataset.off=identityVerified?'false':'true';
+        if(provenance){
+          provenance.textContent=identityVerified?'宿主身份已验证 ⓘ':'宿主身份未验证 ⓘ';
+          provenance.title='此处显示已选择账号。凭据归属与宿主内部身份分别记录；选择账号不能证明宿主已登录该账号。';
         }
       } else {
         headMail.textContent = list.length ? '未指定活跃账号' : '未检测到本机账号';
@@ -5560,7 +5752,8 @@
         headMail.dataset.shown = 'false';
         const headEyeHost2 = shadow.getElementById('acct-head-eye');
         if (headEyeHost2) headEyeHost2.innerHTML = '';
-        headPill.textContent = '无主控';
+        headPill.textContent = '未选择';
+        if(provenance)provenance.textContent='';
         headDot.dataset.off = 'true';
       }
     }
@@ -5604,26 +5797,16 @@
       }
     }
 
-    function renderAccountList(accounts, activeEmail, identityVerified) {
+    function renderAccountList(accounts, selectedEmail, identityVerified) {
       if (!acctListEl) return;
-      paintAccountHead(accounts, activeEmail, identityVerified);
+      paintAccountHead(accounts, selectedEmail, identityVerified);
       if (!accounts || accounts.length === 0) {
         acctListEl.innerHTML = '<div class="acct-empty">未检测到本机账号</div>' + vaultRowHtml();
         return;
       }
-      // 折叠态那一行已经把「当前主控」显示完了（邮箱 + 主账号胶囊）。
-      // 展开区若再画一遍同一个账号，既占垂直高度（面板在矮视口里本就要滚动），
-      // 又只能给出一个置灰不可点的「已激活」按钮 —— 纯冗余。
-      // 因此这里只渲染「可切换的备选」，主控自身从候选中剔除。
-      //
-      // 判定口径必须与 paintAccountHead 一致（否则会出现「头部显示 A、列表里 A 又出现」
-      // 的不一致）：优先用后端 host/status 的 active_account.email，
-      // 拿不到再退回账号 JSON 的 is_active 标记。
-      const currentEmail = (function () {
-        if (activeEmail) return activeEmail;
-        const hit = accounts.filter((a) => a && a.is_active)[0];
-        return hit && hit.email ? hit.email : '';
-      })();
+      // The selected account is in the header; list the other candidates.
+      // This is a selection boundary, never an assertion of host identity.
+      const currentEmail=typeof selectedEmail==='string'?selectedEmail:accounts.find(a=>a?.is_primary)?.email || '';
 
       const candidates = accounts.filter((acc) => {
         if (!acc || !acc.email) return false;
@@ -5640,8 +5823,8 @@
         const emailRaw = acc.email || '(未知账号)';
         const email = escapeHtml(emailRaw);
         const name = escapeHtml(acc.name || '');
-        const tag = acc.is_primary
-          ? '<span class="acct-tag" style="color:var(--2ag-blue);">主账号</span>'
+        const tag = acc.email===currentEmail
+          ? '<span class="acct-tag" style="color:var(--2ag-blue);">下次启动</span>'
           : '';
         const subParts = [];
         if (name) subParts.push(name);
@@ -5649,7 +5832,7 @@
         // 后端算出的诚实提示（「缓存配额（非实时）」「未载入配额 (离线)」…）
         // 原样透出：面板上原本只有四个百分比，读不到与读到缓存长得一样。
         if (acc.cooldown_msg) subParts.push(escapeHtml(String(acc.cooldown_msg)));
-        const btn = `<button class="acct-switch" type="button" data-email="${email}">切换</button>`;
+        const btn = `<button class="acct-switch" type="button" data-email="${email}" ${accountSwitchPending ? 'disabled aria-busy="true"' : ''}>切换</button>`;
         // 第二段：该账号自己的双池 × 双窗口共四个配额微读。
         // 键与面板顶部的四个大圆环完全同源，只是尺寸缩小到 13px；池名跟着
         // 每个数字一起出场，用户不必靠位置去猜某个百分比属于谁。
@@ -5672,84 +5855,81 @@
       }).join('') + vaultRowHtml();
     }
 
-    async function refreshAccountList() {
+    let accountRefreshPending=null;
+    function refreshAccountList() {
+      if(accountRefreshPending)return accountRefreshPending;
+      accountRefreshPending=readAccountQuotaState().finally(()=>{accountRefreshPending=null;});
+      return accountRefreshPending;
+    }
+    async function readAccountQuotaState() {
       if (!acctListEl) return;
       try {
-        const res = await fetchFirstOk('/api/v1/accounts');
-        const data = await res.json();
+        const [accountResult,hostResult]=await Promise.allSettled([
+          fetchFirstOk('/api/v1/accounts').then(r=>r.json()),
+          fetchFirstOk('/api/v1/host/status').then(r=>r.json())
+        ]);
+        if(accountResult.status!=='fulfilled')throw accountResult.reason;
+        const data=accountResult.value;
         const accounts = Array.isArray(data) ? data : (data.accounts || []);
-        // 活跃账号以 host/status 的 active_account 为准（accounts 里的 is_active
-        // 是磁盘扫描结果，可能与运行中的宿主不一致）。
-        //
-        // 关键修正：active_account 在 /api/v1/host/status 里是 toAccountQuotaDTO
-        // 产出的**对象**（{email, gemini_pool, claude_pool, …}），不是字符串。
-        // 早期实现写 `activeEmail = stJson.active_account || ''`，于是这里拿到一个
-        // 对象，下面的 `acc.email === activeEmail` 永远为假 —— 「当前主控」高亮
-        // 从未生效过。这里只接受 .email 字符串，拿不到就留空走 is_active 回退。
-        let activeEmail = '';
-        let identityVerified = false;
-        try {
-          const st = await fetchFirstOk('/api/v1/host/status');
-          const stJson = await st.json();
-          const acc = stJson ? stJson.active_account : null;
-          if (acc && typeof acc === 'object' && typeof acc.email === 'string') activeEmail = acc.email;
-          else if (typeof acc === 'string') activeEmail = acc;
-          // 后端只在真的从系统凭据（Windows 凭据管理器 gemini:antigravity）读出、
-          // 且宿主存活时才置 true。为假意味着「宿主当前登录着谁」这件事没有确证，
-          // 界面必须照实说，否则又把 active_account.txt 里的旧值伪装成事实。
-          identityVerified = !!(stJson && stJson.identity_verified) && !!(stJson && stJson.is_live);
-        } catch (_) {}
-        renderAccountList(accounts, activeEmail, identityVerified);
+        const hostStatus=hostResult.status==='fulfilled'?hostResult.value:null;
+        const selectedEmail=typeof hostStatus?.selected_account==='string'?hostStatus.selected_account:accounts.find(a=>a?.is_primary)?.email || '';
+        const selected=accounts.find(a=>a?.email===selectedEmail) || null;
+        const identityVerified=!!hostStatus?.identity_verified && !!hostStatus?.is_live && hostStatus?.active_account?.email===selectedEmail;
+        renderAccountList(accounts, selectedEmail, identityVerified);
+        updateQuotaPools(selected);
+        interaction.paintHostStatus(hostStatus,selected);
         accountListLoaded = true;
       } catch (err) {
         // 网关不可达：如实告知，绝不留一行永远停在「正在读取本机账号…」的假加载态。
         acctListEl.innerHTML = `<div class="acct-empty">网关未连接（${escapeHtml(err && err.message ? err.message : 'unknown')}）</div>`;
         paintAccountHead(null, '');
+        updateQuotaPools(null);
+        interaction.paintHostStatus(null,null);
       }
     }
 
     async function switchAccount(email, btn) {
       if (accountSwitchPending) return;
       accountSwitchPending = true;
-      try { await interaction.flushDraft(); } catch (error) { accountSwitchPending = false; showToast('[2Ag] 草稿尚未保存，切号已暂缓：' + error.message); return; }
       // 锁定全部备选行的「切换」按钮（不只是被点的那个），
       // 否则用户可以在请求飞行途中从另一行再点一次，制造两次并发重启。
-      const allSwitchBtns = shadow.querySelectorAll('.acct-switch');
-      for (let i = 0; i < allSwitchBtns.length; i++) allSwitchBtns[i].disabled = true;
-
-      paintLoadingTarget(email);
-      setLoading(true);
-      showToast(`[2Ag] 正在切换至 ${email} 并重启宿主沙箱...`);
-      // 宿主被 taskkill 后本页面会随之销毁 —— 遮罩正是给这段「黑屏空窗」用的。
-      // 20s 后若页面仍存活，说明重启没有发生，必须把遮罩撤掉。
-      armLoadingGuard(20000);
-
+      for (const button of shadow.querySelectorAll('.acct-switch')) {
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+      }
       try {
+        try { await interaction.flushDraft(); }
+        catch (error) {
+          showToast('[2Ag] 草稿尚未保存，切号已暂缓：' + error.message);
+          return;
+        }
+        paintLoadingTarget(email);
+        setLoading(true);
+        showToast(`[2Ag] 正在应用 ${email} 的凭据并切换托管宿主；内部身份将单独报告`);
+        // The overlay can time out; pending lasts until this request settles.
+        armLoadingGuard(20000);
         const res = await fetchFirstOk('/api/v1/host/switch-and-restart', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: email })
         });
         const data = await res.json().catch(() => ({}));
-        // 走到这里说明宿主还活着，即重启窗口尚未关闭：保持遮罩，只报状态。
-        showToast(`[2Ag] ${data && data.message ? data.message : '切换指令已被接受，宿主正在重启...'}`);
+        showToast(`[2Ag] ${data.code ? data.code + ': ' : ''}${data.message || '执行结果尚未确认'}`);
       } catch (err) {
-        // 请求失败有两种成因，必须区分对待：
-        //   (a) 宿主已被杀掉 —— 连接中断（TypeError: Failed to fetch），此时重启其实成功了，遮罩应保持；
-        //   (b) 后端拒绝（HTTP 4xx/5xx）—— 重启根本没发生，必须立刻撤遮罩并把原因原样报给用户。
-        // 判据是 err.message 是否以 "HTTP " 开头：fetchFirstOk 只在这个形态里塞了状态码与响应体。
-        // 此前不区分，把后端的明确拒绝也显示成「切换请求中断」，用户会以为正在重启而干等。
+        // A lost connection is an unknown outcome, never proof of a restart.
         const detail = err && err.message ? err.message : 'unknown';
         const rejected = /^HTTP \d/.test(detail);
         showToast(rejected
           ? `[2Ag] 切换被拒绝：${detail}`
-          : `[2Ag] 切换请求中断：${detail}（若宿主已重启则本页面即将重载）`);
-        if (rejected) {
-          // 后端拒绝 ⇒ 宿主仍在运行 ⇒ 页面不会重载 ⇒ 必须由这里收尾，否则遮罩永远盖着。
-          setLoading(false);
-          accountSwitchPending = false;
-          if (loadingGuardTimer) { clearTimeout(loadingGuardTimer); loadingGuardTimer = null; }
-          for (let i = 0; i < allSwitchBtns.length; i++) allSwitchBtns[i].disabled = false;
+          : `[2Ag] 切换请求中断：${detail}（执行结果未知，请重新读取宿主状态）`);
+      } finally {
+        setLoading(false);
+        accountSwitchPending = false;
+        if (loadingGuardTimer) { clearTimeout(loadingGuardTimer); loadingGuardTimer = null; }
+        // Query again: a background account refresh may have replaced the rows.
+        for (const button of shadow.querySelectorAll('.acct-switch')) {
+          button.disabled = false;
+          button.setAttribute('aria-busy', 'false');
         }
       }
     }
@@ -5835,7 +6015,7 @@
 
     // ------------------------------------------------------------------
     // 真实剩余配额（Live Remaining Quota）
-    // 数据源：/api/v1/host/status 的 active_account.gemini_pool / claude_pool，
+    // 数据源：/api/v1/accounts 中 selected account 的 gemini_pool / claude_pool，
     // 后端由 queryCacheFor 解析授权缓存（remainingFraction / resetTime）得到，
     // 每个池带 available 标志 —— 只有真的读到 bucket 才为 true。
     //
@@ -5907,11 +6087,11 @@
       if (!known) {
         arcEl.style.strokeDashoffset = String(QUOTA_RING_C);
         arcEl.style.stroke = '#9aa0a6';
-        valueEl.textContent = '--';
+        valueEl.textContent = '—';
         valueEl.style.color = '#9aa0a6';
         resetEl.textContent = bucketKnown
           ? buildBucketResetText(pool, resetKey, bucketKnown, bucketLabel)
-          : `${bucketLabel} · 未载入`;
+          : `${bucketLabel} · —`;
         return false;
       }
 
@@ -6000,7 +6180,7 @@
       const known = available && bucketKnown && isFinite(pct);
       const color = known ? quotaColorForRemaining(pct) : '#9aa0a6';
       const offset = known ? ACCT_RING_C * (1 - pct / 100) : ACCT_RING_C;
-      const text = known ? `${pct}%` : '--';
+      const text = known ? `${pct}%` : '—';
       return `<span class="acct-quota-item">
           <svg class="acct-mini-ring" viewBox="0 0 13 13" aria-hidden="true">
             <circle class="acct-mini-track" cx="6.5" cy="6.5" r="5.5"></circle>
@@ -6023,7 +6203,7 @@
       // 同一个字段，若只有大圆环上方那行小字说「这是缓存」，用户在列表里
       // 扫一眼四个百分比时仍然会把缓存当实时。
       const nonLive = !!(pool && pool.stale === true);
-      const tag = nonLive ? `${poolTag}（非实时）` : poolTag;
+      const tag = nonLive ? `${poolTag}（缓存）` : poolTag;
       return `<span class="acct-quota-pool" data-stale="${nonLive ? 'true' : 'false'}">
           <span class="acct-quota-pool-tag">${escapeHtml(tag)}</span>
           ${accountQuotaItemHtml(pool, 'five_hour_percent', 'five_hour_known', '5h')}
@@ -6031,15 +6211,15 @@
         </span>`;
     }
 
-    // 把 active_account 的两个池 × 两个窗口共四个桶全部画出来，并渲染出处行。
+    // Render the selected account's four buckets and their quota provenance.
     //
     // 桶绑定（与后端 queryCacheFor 的组判定逐字对应）：
     //   gemini_pool.5h / gemini_pool.weekly   ← 组「Gemini Models」的两个 bucket
     //   claude_pool.5h / claude_pool.weekly   ← 组「Claude and GPT models」的两个 bucket
     // 四个桶各自只读自己那三个字段，不存在任何跨池跨桶取值 —— 这是「面板读数
     // 与 Manager 读数必然一致」的结构性保证（两端都来自同一份 DTO）。
-    function updateQuotaPools(activeAccount) {
-      const acc = activeAccount && typeof activeAccount === 'object' ? activeAccount : null;
+    function updateQuotaPools(selectedAccount) {
+      const acc = selectedAccount && typeof selectedAccount === 'object' ? selectedAccount : null;
       const gp = acc ? acc.gemini_pool : null;
       const cp = acc ? acc.claude_pool : null;
 
@@ -6087,7 +6267,7 @@
       // 绝不用「刚刚」顶上 —— 那是把「未知」渲染成「最新」。
       if (!updatedAt) {
         el.dataset.stale = nonLive ? 'true' : 'false';
-        el.textContent = translateHub(nonLive?'Cached quota · not live':source?'Quota sample time unknown':'Quota unavailable')+(source?' · '+source:'');
+        el.textContent = (nonLive?translateHub('Cached quota · not live'):source?translateHub('Quota sample time unknown'):'配额 —')+(source?' · '+source:'');
         return;
       }
 
@@ -6110,18 +6290,8 @@
     }
 
     async function refreshQuotas() {
-      try {
-        const res = await fetchFirstOk('/api/v1/host/status');
-        const json = await res.json();
-        /* active_account 是 toAccountQuotaDTO 产出的对象；早期实现把它当字符串读，
-           导致账号高亮与配额展示双双失效。这里只接受对象形态，否则如实置为未载入。 */
-        updateQuotaPools(json ? json.active_account : null);
-        interaction.paintHostStatus(json);
-      } catch (_) {
-        // 网关不可达：与「未载入配额」同样处理 —— 空环 + 明确文案，不编造数值。
-        updateQuotaPools(null);
-        interaction.paintHostStatus(null);
-      }
+      refreshHubPersistence();
+      await refreshAccountList();
     }
 
     const interaction = mountInteractionLayer({
@@ -6136,6 +6306,18 @@
     ensureHubRuntimeHooks();
 
     const contextPanel = shadow.getElementById('hub-context');
+    contextApiRequest = fetchFirstOk;
+    openContextDetails = section => {
+      contextFull = true; contextFocus = section || 'request';
+      shadow.getElementById('hub-context-compact').style.display = '';
+      toggleCockpit(true); contextPanel.open = true; paintContext();
+      updateCockpitLayout();
+      shadow.querySelector('[data-section="' + contextFocus + '"]')?.scrollIntoView({ block: 'nearest' });
+    };
+    shadow.getElementById('hub-context-content').addEventListener('twoag-context-details', () => openContextDetails('request'));
+    shadow.getElementById('hub-context-compact').addEventListener('click', () => {
+      contextFull = false; contextFocus = ''; shadow.getElementById('hub-context-compact').style.display = 'none'; paintContext();
+    });
     contextPanel.open = !!readUiOpenState().context;
     contextPanel.addEventListener('toggle', () => {
       rememberUiOpenState('context', contextPanel.open);
@@ -6153,6 +6335,10 @@
     hubDisposed = true;
     if (runtimeFrame !== null) cancelAnimationFrame(runtimeFrame);
     if (contextTimer !== null) clearTimeout(contextTimer);
+    usageAbort?.abort(); composerResize?.disconnect(); composerHUD?.remove(); composerHUD=null;composerAnchor=null;
+    if(composerLayoutFrame!==null)cancelAnimationFrame(composerLayoutFrame);
+    composerLayoutFrame=null;
+    contextApiRequest = null; openContextDetails = null;
     pendingRuntimeNodes.clear();
     if (interactionCleanup) { interactionCleanup(); interactionCleanup = null; }
     clearHubRuntimeHandles();
@@ -6186,6 +6372,7 @@
 
   window.__2ag = {
     version: '2.3',
+    controlSessionMatches: token => token === INITIAL_CONFIG.control_token,
     runtimeSnapshot: () => ({ context: !contextSnapshot || Date.now() - contextSnapshot.sampled_at > 6000 ? readContext() : contextSnapshot, hub: !!document.getElementById(SHADOW_HOST_ID)?.isConnected,
       features: { 'G-Hub': !!document.getElementById(SHADOW_HOST_ID)?.shadowRoot, 'DOM Observer': domObserverReady,
         'Context Reader': typeof readContext === 'function', 'Activity Observer': domObserverReady },

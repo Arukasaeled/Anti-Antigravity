@@ -128,7 +128,7 @@ func restoreBrokerRecovery(stop func() error, write func([]byte) error, read fun
 		return false, err
 	}
 	if !bytes.Equal(current, raw) {
-		if owner, ok := credentialUsableEmail(current); ok {
+		if owner, ok := BrokerFreshCredentialValidation(current); ok {
 			if _, err := StoreVaultCredential(owner, displayNameFromCredentialPayload(current), current); err != nil {
 				return false, fmt.Errorf("保存中断前的新账号失败，恢复记录已保留")
 			}

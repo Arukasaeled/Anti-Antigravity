@@ -260,36 +260,24 @@ func StoreVaultCredential(email, displayName string, raw []byte) (VaultAccount, 
 
 // ReadVaultCredential 取出某个账号的明文凭据（仅本机当前用户可解）。
 //
-// 读到未加密的旧文件时会就地迁移：读完 → DPAPI 加密 → 原子替换 → 更新索引。
-// 迁移失败不影响本次读取（凭据已经拿到了），但会如实记日志。
+// This read never changes Vault data. Legacy migration has its own explicit path.
 func ReadVaultCredential(email string) ([]byte, error) {
 	dir := vaultDirPath()
 	idx, err := loadVaultIndex(dir)
 	if err != nil {
-		return nil, err
+		return nil, credentialError(CredentialParseFailed, "保险库索引读取或解析失败")
 	}
 	meta, ok := findVaultMeta(idx, email)
 	if !ok {
-		return nil, fmt.Errorf("保险库里没有账号 %s", email)
+		return nil, credentialError(CredentialMissing, "保险库里没有账号 "+email)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, meta.File))
 	if err != nil {
-		return nil, fmt.Errorf("读取保险库文件失败: %w", err)
+		return nil, credentialError(CredentialMissing, "无法读取账号的保险库文件")
 	}
-	plain, legacy, err := decryptVaultPayload(data)
+	plain, _, err := decryptVaultPayload(data)
 	if err != nil {
-		return nil, err
-	}
-	if legacy {
-		if sealed, encErr := encryptVaultPayload(plain); encErr == nil {
-			if wErr := writeFileAtomic(filepath.Join(dir, meta.File), sealed, 0o600); wErr == nil {
-				meta.Encrypted = true
-				meta.UpdatedAt = nowRFC3339()
-				idx.Accounts[meta.ID] = meta
-				_ = writeVaultIndexV2(dir, idx)
-				log.Printf("[2ag] 保险库：账号 %s 的旧明文文件已就地迁移为 DPAPI 密文", meta.Email)
-			}
-		}
+		return nil, credentialError(CredentialDecryptFailed, "保险库凭据解密失败")
 	}
 	return plain, nil
 }

@@ -13,19 +13,21 @@ import (
 )
 
 type SessionItem struct {
-	Provider          string `json:"provider"`
-	Summary           string `json:"summary,omitempty"`
-	ProjectDir        string `json:"project_dir,omitempty"`
-	CreatedAt         string `json:"created_at,omitempty"`
-	MessagesAvailable bool   `json:"messages_available"`
-	CanDelete         bool   `json:"can_delete"`
-	ID                string `json:"id"`
-	Project           string `json:"project"`
-	Title             string `json:"title"`
-	UpdatedAt         string `json:"updated_at"`
-	Turns             int    `json:"turns"`
-	Source            string `json:"source"`
-	Path              string `json:"path,omitempty"`
+	Store             string        `json:"store"`
+	Storage           SessionSource `json:"storage"`
+	Provider          string        `json:"provider"`
+	Summary           string        `json:"summary,omitempty"`
+	ProjectDir        string        `json:"project_dir,omitempty"`
+	CreatedAt         string        `json:"created_at,omitempty"`
+	MessagesAvailable bool          `json:"messages_available"`
+	CanDelete         bool          `json:"can_delete"`
+	ID                string        `json:"id"`
+	Project           string        `json:"project"`
+	Title             string        `json:"title"`
+	UpdatedAt         string        `json:"updated_at"`
+	Turns             int           `json:"turns"`
+	Source            string        `json:"source"`
+	Path              string        `json:"path,omitempty"`
 }
 
 type SessionsResult struct {
@@ -121,76 +123,90 @@ func resolveProjectName(rawPath string) string {
 
 // ScanLocalSessions 扫描 Antigravity 宿主真实本地持久化数据
 func ScanLocalSessions() SessionsResult {
-	environment := DetectAntigravityEnvironment()
 	sessionMap := make(map[string]SessionItem)
-	if environment.BrainRoot != "" {
-		if entries, err := os.ReadDir(environment.BrainRoot); err == nil {
-			for _, entry := range entries {
-				id := entry.Name()
-				if !entry.IsDir() || !validSessionID(id) || id == "tempmediaStorage" {
-					continue
-				}
-				path := filepath.Join(environment.BrainRoot, id)
-				info, err := entry.Info()
-				if err != nil {
-					continue
-				}
-				item := SessionItem{ID: id, Provider: "antigravity", Project: "未分类项目", Title: "Antigravity #" + id[:min(8, len(id))], UpdatedAt: info.ModTime().Format("2006-01-02 15:04:05"), Source: "Brain metadata", Path: path}
-				logPath := filepath.Join(path, ".system_generated", "logs", "transcript.jsonl")
-				if logInfo, err := os.Stat(logPath); err == nil {
-					item.MessagesAvailable = true
-					item.UpdatedAt = logInfo.ModTime().Format("2006-01-02 15:04:05")
-				}
-				// Native metadata is optional. Never scan transcript bodies during list loading.
-				if raw, err := os.ReadFile(filepath.Join(path, ".system_generated", "metadata.json")); err == nil && len(raw) < 65536 {
-					var meta struct {
-						Title      string `json:"title"`
-						Summary    string `json:"summary"`
-						ProjectDir string `json:"project_dir"`
-						CreatedAt  string `json:"created_at"`
-					}
-					if json.Unmarshal(raw, &meta) == nil {
-						if meta.Title != "" {
-							item.Title = CleanSessionTitle(meta.Title)
-						}
-						item.Summary, item.ProjectDir, item.CreatedAt = meta.Summary, meta.ProjectDir, meta.CreatedAt
-						if meta.ProjectDir != "" {
-							item.Project = resolveProjectName(meta.ProjectDir)
-						}
-					}
-				}
-				sessionMap[id] = item
-			}
-		}
-	}
-	if environment.ConversationsRoot != "" {
-		if files, err := os.ReadDir(environment.ConversationsRoot); err == nil {
-			for _, file := range files {
-				extension := strings.ToLower(filepath.Ext(file.Name()))
-				if file.IsDir() || extension != ".pb" && extension != ".db" && extension != ".jsonl" {
-					continue
-				}
-				id := strings.TrimSuffix(file.Name(), filepath.Ext(file.Name()))
-				if !validSessionID(id) {
-					continue
-				}
-				info, err := file.Info()
-				if err != nil {
-					continue
-				}
-				item, exists := sessionMap[id]
-				if !exists {
-					item = SessionItem{ID: id, Provider: "antigravity", Project: "未分类项目", Title: "Antigravity #" + id[:min(8, len(id))], Source: "Conversations " + extension, Path: filepath.Join(environment.ConversationsRoot, file.Name())}
-				}
-				updated := info.ModTime().Format("2006-01-02 15:04:05")
-				if updated > item.UpdatedAt {
-					item.UpdatedAt = updated
-				}
-				sessionMap[id] = item
-			}
-		}
-	}
+	processes, processErr := CheckedHostProcesses()
+	canDelete := processErr == nil && len(processes) == 0
 	targets, _ := RuntimeManager.Snapshot()
+	for _, target := range targets {
+		if target.Connected {
+			canDelete = false
+		}
+	}
+	for _, root := range sessionStoreRoots() {
+		ids := make(map[string]bool)
+		if entries, err := os.ReadDir(filepath.Join(root, "brain")); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() && validSessionID(entry.Name()) && entry.Name() != "tempmediaStorage" {
+					ids[entry.Name()] = true
+				}
+			}
+		}
+		if entries, err := os.ReadDir(filepath.Join(root, "conversations")); err == nil {
+			for _, entry := range entries {
+				extension := strings.ToLower(filepath.Ext(entry.Name()))
+				id := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+				if !entry.IsDir() && validSessionID(id) && (extension == ".db" || extension == ".pb" || extension == ".jsonl") {
+					ids[id] = true
+				}
+			}
+		}
+		for id := range ids {
+			// Pick a whole authoritative source. Never combine Brain from one root
+			// with metadata/tokens from a backup that happens to share the same ID.
+			if _, exists := sessionMap[id]; exists {
+				continue
+			}
+			source, err := sessionSourceInRoot(id, root)
+			if err != nil {
+				continue
+			}
+			path := source.ConversationPath
+			if path == "" {
+				path = source.BrainPath
+			}
+			item := SessionItem{ID: id, Provider: "antigravity", Store: source.Store, Storage: source,
+				Project: "未分类项目", Title: "Antigravity #" + id[:min(8, len(id))], Source: source.Store, Path: path,
+				MessagesAvailable: source.TranscriptPath != "", CanDelete: canDelete}
+			if info, err := os.Stat(path); err == nil {
+				item.UpdatedAt = info.ModTime().UTC().Format(time.RFC3339Nano)
+			}
+			if source.BrainPath != "" {
+				metadata := filepath.Join(source.BrainPath, ".system_generated", "metadata.json")
+				if sessionPathWithin(root, metadata) {
+					if raw, err := os.ReadFile(metadata); err == nil && len(raw) < 65536 {
+						var meta struct {
+							Title      string `json:"title"`
+							Summary    string `json:"summary"`
+							ProjectDir string `json:"project_dir"`
+							CreatedAt  string `json:"created_at"`
+						}
+						if json.Unmarshal(raw, &meta) == nil {
+							if meta.Title != "" {
+								item.Title = CleanSessionTitle(meta.Title)
+							}
+							item.Summary, item.ProjectDir, item.CreatedAt = meta.Summary, meta.ProjectDir, meta.CreatedAt
+						}
+					}
+				}
+			}
+			if filepath.Ext(source.ConversationPath) == ".db" {
+				project, created, updated := readNativeSessionMetadata(source.ConversationPath)
+				if project != "" {
+					item.ProjectDir = project
+				}
+				if created != nil {
+					item.CreatedAt = time.UnixMilli(*created).UTC().Format(time.RFC3339Nano)
+				}
+				if updated != nil {
+					item.UpdatedAt = time.UnixMilli(*updated).UTC().Format(time.RFC3339Nano)
+				}
+			}
+			if item.ProjectDir != "" {
+				item.Project = resolveProjectName(item.ProjectDir)
+			}
+			sessionMap[id] = item
+		}
+	}
 	for _, target := range targets {
 		if target.Context == nil {
 			continue
@@ -210,22 +226,31 @@ func ScanLocalSessions() SessionsResult {
 		projects[item.Project] = true
 	}
 	sort.Slice(sessions, func(i, j int) bool { return sessions[i].UpdatedAt > sessions[j].UpdatedAt })
-	projectNames := []string{}
+	names := []string{}
 	for project := range projects {
 		if project != "" {
-			projectNames = append(projectNames, project)
+			names = append(names, project)
 		}
 	}
-	sort.Strings(projectNames)
-	return SessionsResult{Total: len(sessions), Projects: projectNames, Sessions: sessions}
+	sort.Strings(names)
+	return SessionsResult{Total: len(sessions), Projects: names, Sessions: sessions}
 }
 
 // DeleteSession 物理删除指定会话目录与数据
-func DeleteSession(id string) error {
+func DeleteSession(id string, stores ...string) error {
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return err
+	}
+	defer release()
 	if !validSessionID(id) {
 		return fmt.Errorf("无效会话 ID；当前仅支持 Antigravity")
 	}
-	if ProbeRealHost().ProcessFound {
+	processes, processErr := CheckedHostProcesses()
+	if processErr != nil {
+		return processErr
+	}
+	if len(processes) > 0 {
 		return fmt.Errorf("宿主运行期间禁用会话删除，以保护正在进行的任务")
 	}
 	targets, _ := RuntimeManager.Snapshot()
@@ -234,46 +259,73 @@ func DeleteSession(id string) error {
 			return fmt.Errorf("检测到活动宿主页面，禁用会话删除")
 		}
 	}
-	environment := DetectAntigravityEnvironment()
-	if environment.BrainRoot == "" || environment.ConversationsRoot == "" {
-		return fmt.Errorf("存储目录不可用")
+	store := ""
+	if len(stores) > 0 {
+		store = stores[0]
 	}
-	brainPath := filepath.Join(environment.BrainRoot, id)
-	// A symlink/junction must never make recursive deletion escape the discovered storage root.
-	resolvedRoot, rootErr := filepath.EvalSymlinks(environment.BrainRoot)
-	resolvedPath, pathErr := filepath.EvalSymlinks(brainPath)
-	if rootErr == nil && pathErr == nil {
-		relative, err := filepath.Rel(resolvedRoot, resolvedPath)
-		if err != nil || relative != id {
+	source, err := resolveSessionSource(id, store)
+	if err != nil {
+		return err
+	}
+	if source.BrainPath != "" {
+		if !sessionPathWithin(source.Root, source.BrainPath) {
 			return fmt.Errorf("会话路径超出存储根目录")
 		}
-		if err := os.RemoveAll(brainPath); err != nil {
-			return err
-		}
-	} else if pathErr != nil && !os.IsNotExist(pathErr) {
-		return pathErr
-	}
-	for _, suffix := range []string{".pb", ".db", ".db-wal", ".db-shm"} {
-		if err := os.Remove(filepath.Join(environment.ConversationsRoot, id+suffix)); err != nil && !os.IsNotExist(err) {
+		if err := os.RemoveAll(source.BrainPath); err != nil {
 			return err
 		}
 	}
+	for _, suffix := range []string{".pb", ".db", ".db-wal", ".db-shm", ".jsonl"} {
+		path := filepath.Join(source.Root, "conversations", id+suffix)
+		if _, err := os.Lstat(path); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if !sessionPathWithin(source.Root, path) {
+			return fmt.Errorf("会话文件超出存储根目录")
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+	}
+	verify := []string{filepath.Join(source.Root, "brain", id)}
+	for _, suffix := range []string{".pb", ".db", ".db-wal", ".db-shm", ".jsonl"} {
+		verify = append(verify, filepath.Join(source.Root, "conversations", id+suffix))
+	}
+	for _, path := range verify {
+		if _, err := os.Lstat(path); err == nil {
+			return fmt.Errorf("会话删除未完成")
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	nativeUsageCache.Lock()
+	delete(nativeUsageCache.entries, id+"|"+source.Store)
+	nativeUsageCache.Unlock()
 	return nil
 }
 
 // ExportSessionMarkdown 将指定会话日志导出为 Markdown 内容
-func ExportSessionMarkdown(id string) (string, error) {
+func ExportSessionMarkdown(id string, stores ...string) (string, error) {
 	if strings.HasPrefix(id, "codex:") {
-		return exportCodexSession(strings.TrimPrefix(id, "codex:"))
+		return "", fmt.Errorf("主会话审计仅支持 Antigravity")
 	}
 	if !validSessionID(id) {
 		return "", fmt.Errorf("无效会话 ID")
 	}
-	homeDir, _ := os.UserHomeDir()
-	if homeDir == "" {
-		return "", fmt.Errorf("无法获取用户主目录")
+	store := ""
+	if len(stores) > 0 {
+		store = stores[0]
 	}
-	logPath := filepath.Join(DetectAntigravityEnvironment().BrainRoot, id, ".system_generated", "logs", "transcript.jsonl")
+	source, err := resolveSessionSource(id, store)
+	if err != nil {
+		return "", err
+	}
+	if source.TranscriptPath == "" {
+		return "", fmt.Errorf("此来源没有可导出的消息记录")
+	}
+	logPath := source.TranscriptPath
 	f, err := os.Open(logPath)
 	if err != nil {
 		return "", fmt.Errorf("找不到该会话日志: %w", err)

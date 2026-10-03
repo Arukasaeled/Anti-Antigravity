@@ -10,9 +10,9 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078d4?style=flat-square)
 
-**[⬇ Download v0.2.1](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.1)** · [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.1)
+**[⬇ Download v0.2.2](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.2)** · [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.2)
 
-**v0.2.1** 加入 Context Inspector、Runtime 可观察性、额度历史、Doctor，以及 Sessions / Skills 基础浏览。更新说明统一放在 [GitHub Release](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.1)，可按 [构建指南](docs/BUILD.md) 打包源码。
+**v0.2.2** 改进 Context / Session Token、Composer 读数、账号凭据恢复、运行模式与进程 ownership，并收紧本地 Control API。更新说明统一放在 [GitHub Release](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.2)，可按 [构建指南](docs/BUILD.md) 打包源码。
 
 <img src="docs/screenshots/01-overview-light.png" alt="2Ag Manager 概览" width="880">
 
@@ -42,7 +42,7 @@ Google Antigravity 是一个很强的 AI 工作台，但它没有给你一个"�
 **概览** 宿主状态与模型配额 · **账号** 账号矩阵与保险库 · **会话** 本地会话索引与导出 ·
 **视觉工坊** 壁纸/模糊/主题 · **重力加倍** 运行时开关 · **环境诊断** 探针与兼容性报告。
 
-**Context** 展示最近请求的原生 token 字段、明确标记的估算、已加载组成与变化时间线；上限不可得时显示未知。**Skills** 区分 Global / Workspace，并按需查看 SKILL.md。数据边界见 [OBSERVABILITY.md](docs/OBSERVABILITY.md)。
+当前源码的 **Context / Token** 区分最近请求、Context Window 和 Antigravity 会话累计；Composer control row 提供 Request / Session 快速读数。上限与缓存字段不可得时保持未知，未分类输入单独列出，已加载历史单独折叠。模式选择仅保存下次启动配置。**Skills** 区分 Global / Workspace，并按需查看 SKILL.md。数据边界见 [OBSERVABILITY.md](docs/OBSERVABILITY.md)。
 
 ### 🪟 G-Hub
 
@@ -125,7 +125,7 @@ v0.2.0 提供中英文界面，顶部始终保留账号选择器和 Gemini / Cla
 3. **安装并启动** —— 开始菜单或桌面快捷方式里的 `2Ag`。
 4. **挑一个形态** —— 首次用**增强形态**时，2Ag 会从你的官方安装复制一份冻结宿主（约 570 MB，需要数十秒）；之后一直用它。
 
-> 便携版：下载 Release 中的 `2Ag-v0.2.1-windows-x64-portable.zip`，解压整个目录后运行 `2ag.exe`，保留同级 `assets/`、`themes/`、`plugins/`。
+> 便携版：下载 Release 中的 `2Ag-v0.2.2-windows-x64-portable.zip`，解压整个目录后运行 `2ag.exe`，保留同级 `assets/`、`themes/`、`plugins/`。
 
 系统要求：**Windows 10/11 x64** · WebView2 运行时（Win11 自带；Win10 若缺，微软官网可单独装）。
 
@@ -202,7 +202,7 @@ v0.2.0 提供中英文界面，顶部始终保留账号选择器和 Gemini / Cla
 
 ## 最新版本
 
-**v0.2.1** —— Context Inspector 与运行态可观察性，保留现有 Interaction Layer。
+**v0.2.2** —— Token 可观察性与运行状态一致性修复，保留现有 Interaction Layer。
 
 **[下载](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)** ·
 [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)

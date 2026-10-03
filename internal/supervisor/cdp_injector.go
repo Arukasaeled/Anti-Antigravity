@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/2ag/2ag/internal/config"
+	"github.com/2ag/2ag/internal/control"
 	"github.com/2ag/2ag/internal/patcher"
 )
 
@@ -230,6 +231,8 @@ func hubConfigFromConfig(cfg config.Config) patcher.HubConfig {
 	opacity := cfg.Opacity
 
 	return patcher.HubConfig{
+		ControlToken:  control.Token(),
+		ManagerURL:    control.APIURL(),
 		Language:      "zh-CN",
 		Preset:        "Dark Dream",
 		Blur:          blur,
@@ -346,6 +349,7 @@ func HotReloadCDP(targetAddr string) (HotReloadReport, error) {
 
 	var firstErr error
 	for _, t := range valid {
+		control.RegisterHostPage(t.URL)
 		if err := performCDPInject(ctx, t.WebSocketDebuggerURL, expression); err != nil {
 			log.Printf("[2ag] 热重载注入视窗 %q 失败: %v", t.Title, err)
 			if firstErr == nil {
@@ -464,6 +468,7 @@ func WatchAndInjectCDP(targetAddr string, timeout time.Duration) error {
 
 			injectedCount := 0
 			for _, t := range validTargets {
+				control.RegisterHostPage(t.URL)
 				key := t.ID
 				if key == "" {
 					key = t.WebSocketDebuggerURL
@@ -532,7 +537,8 @@ func runMaintainLoop(targetAddr string, expression string) {
 	// 而补丁真实挂载的宿主 id 是 'twoag-injected-root' —— 该 id 永远不存在，
 	// 于是 needsInject 恒为 true，每 3 秒无脑重注入一次（既浪费又掩盖真实状态）。
 	// 这里改为检测真实宿主并且要求它仍在文档树内，才能真正判断补丁是否存活。
-	probeExpr := `Boolean((function(){var h=document.getElementById('twoag-injected-root');return !!h && h.isConnected && !!h.shadowRoot && typeof window.__2ag?.runtimeSnapshot === 'function';})())`
+	secret, _ := json.Marshal(control.Token())
+	probeExpr := `Boolean((function(){var h=document.getElementById('twoag-injected-root');return !!h && h.isConnected && !!h.shadowRoot && typeof window.__2ag?.runtimeSnapshot === 'function' && window.__2ag.controlSessionMatches?.(` + string(secret) + `);})())`
 
 	for {
 		select {
@@ -574,6 +580,8 @@ func runMaintainLoop(targetAddr string, expression string) {
 			if !IsRealWorkbenchTarget(t) {
 				continue
 			}
+
+			control.RegisterHostPage(t.URL)
 
 			// 优先复用该目标的持久会话：它既是探针通道，也是补丁注册的载体。
 			session := lookupLiveSession(t.WebSocketDebuggerURL)
@@ -678,29 +686,8 @@ func performCDPInject(ctx context.Context, wsURL string, expression string) (inj
 		return fmt.Errorf("Runtime.evaluate 失败: %w", err)
 	}
 
-	// 4. 确认宿主真实登录身份。
-	//
-	// 权威来源是 Windows 凭据管理器里的 gemini:antigravity —— 宿主每次登录/刷新
-	// 都会改写它，所以它永远比任何缓存或配置文件新。
-	// 历史实现走 HostAccountProbeExpr（在宿主页面里扫 localStorage / sessionStorage / DOM
-	// 找邮箱）。真机实测该探针长期返回空：宿主工作台的 localStorage 里只有
-	// 2ag.subsystems.config.v1 一个键，DOM 里也没有任何邮箱痕迹 —— 登录身份根本不在
-	// 渲染进程里。于是「自动认领主控」从未生效，界面显示的一直是 active_account.txt
-	// 里的旧值，与宿主实际身份脱节。
-	identifyHostOwner := func() {
-		if realEmail, err := ReadHostLoginEmail(); err == nil && realEmail != "" {
-			log.Printf("[2ag] 已确认宿主真实登录身份（Windows 凭据管理器 target=%s）: %s", antigravityCredTarget, realEmail)
-			SetActiveAccount(realEmail)
-			return
-		}
-		// 凭据不可用时才退回 CDP 探针 —— 它在某些宿主版本里仍可能读到东西，
-		// 但绝不能反过来让探针结果覆盖凭据（凭据才是宿主登录的唯一物理依据）。
-		if realEmail, err := session.evalString(10, HostAccountProbeExpr); err == nil && realEmail != "" && strings.Contains(realEmail, "@") {
-			log.Printf("[2ag] 凭据管理器未给出身份，退回 CDP 探针识别到: %s", realEmail)
-			SetActiveAccount(realEmail)
-		}
-	}
-	identifyHostOwner()
+	// Shared credential ownership is not proof of this process's login.
+	// No active-account commit is made by injection or an arbitrary DOM email.
 
 	return nil
 }

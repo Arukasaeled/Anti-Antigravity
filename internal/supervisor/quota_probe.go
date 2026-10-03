@@ -549,7 +549,7 @@ type refreshedAccess struct {
 
 func refreshQuotaAccessToken(ctx context.Context, tok quotaToken) (refreshedAccess, error) {
 	if !tok.canRefresh() {
-		return refreshedAccess{}, fmt.Errorf("access_token 已过期，且凭据里没有可用于刷新的 OAuth 客户端字段；请用官方 Antigravity 重新登录")
+		return refreshedAccess{}, fmt.Errorf("2Ag 缺少 OAuth 客户端字段，无法自行刷新；请由 Antigravity 宿主恢复短期 token，尚未判定 refresh_token 失效")
 	}
 	form := "grant_type=refresh_token&refresh_token=" + urlQueryEscape(tok.RefreshToken) +
 		"&client_id=" + urlQueryEscape(tok.ClientID) +
@@ -561,19 +561,26 @@ func refreshQuotaAccessToken(ctx context.Context, tok quotaToken) (refreshedAcce
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := quotaHTTPClient.Do(req)
 	if err != nil {
-		return refreshedAccess{}, fmt.Errorf("刷新 access_token 失败: %w", err)
+		return refreshedAccess{}, credentialError(CredentialRefreshFailed, "刷新请求未完成；未确认 refresh_token 是否有效")
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return refreshedAccess{}, fmt.Errorf("刷新 access_token 被拒绝（HTTP %d）", resp.StatusCode)
+		var failure struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(body, &failure)
+		if failure.Error == "invalid_grant" {
+			return refreshedAccess{}, credentialError(CredentialRefreshFailed, "OAuth 拒绝 refresh_token（invalid_grant）；需要重新登录该账号")
+		}
+		return refreshedAccess{}, credentialError(CredentialRefreshFailed, fmt.Sprintf("刷新请求被拒绝（HTTP %d）；未确认 refresh_token 失效", resp.StatusCode))
 	}
 	var parsed struct {
 		AccessToken string `json:"access_token"`
 		ExpiresIn   int64  `json:"expires_in"`
 	}
 	if json.Unmarshal(body, &parsed) != nil || strings.TrimSpace(parsed.AccessToken) == "" {
-		return refreshedAccess{}, fmt.Errorf("刷新响应里没有 access_token")
+		return refreshedAccess{}, credentialError(CredentialRefreshFailed, "刷新响应缺少有效 access_token；未确认 refresh_token 失效")
 	}
 	out := refreshedAccess{AccessToken: parsed.AccessToken}
 	if parsed.ExpiresIn > 0 {

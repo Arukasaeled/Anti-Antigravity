@@ -96,6 +96,11 @@ func Start(ctx context.Context, opts HostOptions) (*ManagedProcess, error) {
 	if opts.Executable == "" {
 		return nil, errors.New("host executable is empty")
 	}
+	if strings.EqualFold(filepath.Base(opts.Executable), "antigravity.exe") {
+		if err := RequireManagedHosts(); err != nil {
+			return nil, err
+		}
+	}
 	args := append([]string(nil), opts.Args...)
 	job, err := createKillOnCloseJob()
 	if err != nil {
@@ -122,6 +127,15 @@ func Start(ctx context.Context, opts HostOptions) (*ManagedProcess, error) {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return nil, fmt.Errorf("assign host to job: %w", err)
+	}
+	if strings.EqualFold(filepath.Base(opts.Executable), "antigravity.exe") {
+		if err := registerHost(cmd.Process.Pid, HostOwned); err != nil {
+			closeHandle(proc)
+			closeHandle(job)
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return nil, fmt.Errorf("record host ownership: %w", err)
+		}
 	}
 	return &ManagedProcess{cmd: cmd, job: job, proc: proc}, nil
 }

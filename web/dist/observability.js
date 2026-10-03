@@ -2,7 +2,7 @@
   'use strict';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const active = id => document.querySelector('.sidebar-tab.active')?.dataset.target === id;
-  const get = async path => { const response = await fetch(path); if (!response.ok) throw new Error(await response.text()); return response.json(); };
+  const get = async path => { const response = await twoAgFetch(path); if (!response.ok) throw new Error(await response.text()); return response.json(); };
   const pending = new Set();
   async function once(name, fn) {
     if (pending.has(name)) return;
@@ -107,9 +107,37 @@
   }
   window.previewAISession = async id => {
     try {
-      const data = await get('/api/v1/sessions/preview?id=' + encodeURIComponent(id));
+      const data = await get('/api/v1/sessions/preview?id=' + encodeURIComponent(id) + '&store=' + encodeURIComponent((currentSessions.find(s=>s.id===id)||{}).store || ''));
       showTextPreview(data.provider + ' · ' + data.id, data.messages.map(m => '## ' + m.role + (m.at ? ' · ' + m.at : '') + '\n\n' + m.content).join('\n\n') + (data.truncated ? '\n\n[预览已截断；未加载完整消息]' : ''));
     } catch (error) { showTextPreview('消息不可用', error.message); }
+  };
+  // Read usage for visible Antigravity rows only, with a small concurrency bound.
+  let usageObserver = null, usageQueue = [], usageWorkers = 0;
+  const usageCache = new Map();
+  function drainUsageQueue() {
+    while (usageWorkers < 3 && usageQueue.length) {
+      const element = usageQueue.shift(), id = element.dataset.sessionUsage;
+      if (!element.isConnected) continue;
+      const store = (currentSessions.find(s=>s.id===id)||{}).store || '';
+      const key=id+'|'+store;
+      const cached = usageCache.get(key);
+      if (cached && Date.now() - cached.at < 5000) { window.TwoAgContextView.renderSession(element, cached.value); continue; }
+      usageWorkers++;
+      get('/api/v1/sessions/usage?id=' + encodeURIComponent(id) + '&store=' + encodeURIComponent((currentSessions.find(s=>s.id===id)||{}).store || '')).then(value => {
+        if (usageCache.size > 128) usageCache.clear();
+        usageCache.set(key, {at:Date.now(),value});
+        if (element.isConnected) window.TwoAgContextView.renderSession(element,value);
+      }).catch(() => { if (element.isConnected) element.textContent = 'Token · — · Unavailable'; })
+        .finally(() => { usageWorkers--; drainUsageQueue(); });
+    }
+  }
+  window.loadVisibleSessionUsage = list => {
+    usageObserver?.disconnect(); usageQueue = [];
+    usageObserver = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.isIntersecting) { usageObserver.unobserve(entry.target); usageQueue.push(entry.target); }
+      drainUsageQueue();
+    }, {rootMargin:'100px'});
+    list.querySelectorAll('[data-session-usage]').forEach(el => usageObserver.observe(el));
   };
   document.querySelectorAll('.sidebar-tab[data-target="context"], .sidebar-tab[data-target="skills"]').forEach(tab => {
     tab.setAttribute('role', 'button'); tab.tabIndex = 0;
@@ -121,7 +149,6 @@
     if (tab.dataset.target === 'skills') window.loadSkillsHub();
     if (tab.dataset.target === 'dashboard') window.loadQuotaIntelligence();
   }));
-  document.getElementById('session-provider')?.addEventListener('change', () => { if (typeof renderFilteredSessions === 'function') renderFilteredSessions(); });
   setInterval(() => {
     if (document.hidden) return;
     if (active('context')) window.loadContextInspector();

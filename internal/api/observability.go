@@ -25,6 +25,16 @@ func (s *Server) handleContext(w http.ResponseWriter, r *http.Request) {
 	}
 	supervisor.ObserveContextReadOnly(r.Context())
 	targets, counters := supervisor.RuntimeManager.Snapshot()
+	for i := range targets {
+		if targets[i].Context == nil {
+			continue
+		}
+		copy := *targets[i].Context
+		usage := supervisor.ReadAntigravitySessionUsage(copy.SessionID)
+		copy.SessionUsage = &usage
+		copy.Request = supervisor.ReconcileRequestUsage(copy.Request, usage)
+		targets[i].Context = &copy
+	}
 	getJSON(w, r, map[string]any{"targets": targets, "counters": counters})
 }
 
@@ -75,12 +85,20 @@ func (s *Server) handleSessionPreview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	preview, err := supervisor.PreviewAISession(r.URL.Query().Get("id"))
+	preview, err := supervisor.PreviewAISession(r.URL.Query().Get("id"), r.URL.Query().Get("store"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	getJSON(w, r, preview)
+}
+
+func (s *Server) handleSessionUsage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	getJSON(w, r, supervisor.ReadAntigravitySessionUsage(r.URL.Query().Get("id"), r.URL.Query().Get("store")))
 }
 
 func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {

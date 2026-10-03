@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/2ag/2ag/assets"
+	"github.com/2ag/2ag/internal/control"
 )
 
 const (
@@ -212,6 +213,7 @@ func (i *CDPInjector) Inject(ctx context.Context, wallpaperPath string, blur int
 	if err != nil {
 		return err
 	}
+	control.RegisterHostPage(target.URL)
 	conn, reader, err := openWebSocket(ctx, target.WebSocketDebuggerURL)
 	if err != nil {
 		return err

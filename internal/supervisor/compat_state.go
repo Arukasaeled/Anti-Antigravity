@@ -335,14 +335,16 @@ func ListVaultAccounts() []string {
 
 // CredentialRestoreResult 是凭据恢复的真实回执。
 type CredentialRestoreResult struct {
-	Email           string `json:"email"`
-	Bytes           int    `json:"bytes"`
-	PreviousOwner   string `json:"previous_owner"`
-	PreviousSaved   bool   `json:"previous_saved"`
-	PreviousSavedAs string `json:"previous_saved_as,omitempty"`
-	VerifiedOwner   string `json:"verified_owner"`
-	Verified        bool   `json:"verified"`
-	Message         string `json:"message"`
+	Email              string `json:"email"`
+	Bytes              int    `json:"bytes"`
+	PreviousOwner      string `json:"previous_owner"`
+	PreviousSaved      bool   `json:"previous_saved"`
+	PreviousSavedAs    string `json:"previous_saved_as,omitempty"`
+	VerifiedOwner      string `json:"verified_owner"`
+	Verified           bool   `json:"verified"`
+	CredentialState    string `json:"credential_state,omitempty"`
+	CredentialRecovery string `json:"credential_recovery,omitempty"`
+	Message            string `json:"message"`
 }
 
 // RestoreAntigravityCredential 把归档里的某一份凭据原样写回 Windows 凭据管理器。
@@ -353,8 +355,8 @@ type CredentialRestoreResult struct {
 //     refresh_token，而那是全世界唯一的一份。覆盖前无条件先 Snapshot 一次，
 //     失败就中止 —— 「恢复」绝不能以「先毁掉现状」开头。
 //  2. **写完要真读一遍核对。** CredWriteW 返回成功不等于凭据管理器里现在
-//     就是那个账号（凭据写入与读取之间有系统级缓存）。这里用 ReadHostLoginEmail
-//     复核，不一致就如实报告失败，而不是宣布成功。
+//     就是那个账号。这里对原始回读使用 StoredCredentialValidation，
+//     仅确认凭据所属账号；过期短期 token 留待用户下一次启动宿主恢复。
 func RestoreAntigravityCredential(email string) (CredentialRestoreResult, error) {
 	release, err := lockCredentialOperation()
 	if err != nil {
@@ -362,6 +364,16 @@ func RestoreAntigravityCredential(email string) (CredentialRestoreResult, error)
 	}
 	defer release()
 	var out CredentialRestoreResult
+	if err := RequireManagedHosts(); err != nil {
+		return out, err
+	}
+	processes, err := CheckedHostProcesses()
+	if err != nil {
+		return out, err
+	}
+	if len(processes) != 0 {
+		return out, fmt.Errorf("请先明确停止宿主，再恢复系统凭据；当前宿主未被停止")
+	}
 	email = strings.TrimSpace(email)
 	if email == "" {
 		return out, fmt.Errorf("恢复凭据需要明确的目标邮箱")
@@ -372,16 +384,13 @@ func RestoreAntigravityCredential(email string) (CredentialRestoreResult, error)
 		return out, fmt.Errorf("无法定位归档目录")
 	}
 
-	// 读取走保险库读路径：它会自动辨认并就地迁移旧明文文件。
+	// Reading and validation do not migrate or rewrite the Vault.
 	blob, err := ReadVaultCredential(email)
 	if err != nil {
-		if len(ListVaultAccounts()) == 0 {
-			return out, fmt.Errorf("归档中没有 %s 的凭据快照（归档为空；先在账号面板归档一次当前登录态）", email)
-		}
-		return out, fmt.Errorf("归档中没有 %s 的凭据快照（可恢复：%s）", email, strings.Join(ListVaultAccounts(), "、"))
+		return out, err
 	}
-	if len(blob) == 0 {
-		return out, fmt.Errorf("归档文件为空，拒绝写入: %s", email)
+	if _, err := StoredCredentialValidation(blob, email); err != nil {
+		return out, err
 	}
 
 	// 规则 1：先保住现状。
@@ -402,13 +411,17 @@ func RestoreAntigravityCredential(email string) (CredentialRestoreResult, error)
 	out.Bytes = len(blob)
 
 	// 规则 2：写完真读一遍核对。
-	if got, err := ReadHostLoginEmail(); err == nil {
-		out.VerifiedOwner = strings.TrimSpace(got)
-		out.Verified = strings.EqualFold(out.VerifiedOwner, email)
+	back, err := readAntigravityCredentialRaw()
+	if err != nil {
+		return out, fmt.Errorf("凭据回读失败: %w", err)
 	}
-	if !out.Verified {
-		return out, fmt.Errorf("凭据已写入但复核显示归属仍为「%s」，未确认恢复成功（要求：%s）", orUnknown(out.VerifiedOwner), email)
+	status, err := StoredCredentialValidation(back, email)
+	out.VerifiedOwner = status.Owner
+	if err != nil {
+		return out, fmt.Errorf("凭据回读校验失败: %w", err)
 	}
+	out.Verified = true
+	out.CredentialState, out.CredentialRecovery = status.State, status.Recovery
 
 	// 复核通过后也要清一次身份缓存，让界面立刻看到新值。
 	hostLoginCacheMu <- struct{}{}
@@ -417,6 +430,9 @@ func RestoreAntigravityCredential(email string) (CredentialRestoreResult, error)
 	<-hostLoginCacheMu
 
 	out.Message = fmt.Sprintf("已把 %s 的凭据快照写回系统凭据管理器（%d B）并复核通过", email, len(blob))
+	if status.Recovery != "" {
+		out.Message += "；等待用户启动宿主恢复短期 token，刷新结果与内部身份尚未确认"
+	}
 	log.Printf("[2ag] %s", out.Message)
 	return out, nil
 }

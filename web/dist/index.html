@@ -3062,6 +3062,19 @@
     gap: 4px;
   }
 </style>
+<script>
+// The server supplies the per-process capability in this document only.
+function twoAgFetch(path, init) {
+  const target = new URL(typeof path === 'string' ? path : path.url, location.href);
+  const options = Object.assign({}, init || {});
+  if (target.origin === location.origin) {
+    const headers = new Headers(options.headers || {});
+    headers.set('X-2Ag-Control-Token', window.__2AG_CONTROL_TOKEN || '');
+    options.headers = headers;
+  }
+  return window.fetch(path, options);
+}
+</script>
 </head>
 <body>
 
@@ -3100,7 +3113,7 @@
     </div>
     <div class="sidebar-tab" data-target="sessions">
       <span class="tab-icon-stack"><svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm2 4v1.8h10V8H7Zm0 3.6v1.8h10v-1.8H7Zm0 3.6v1.8h6.5v-1.8H7Z"/></svg><img class="tab-star" src="assets/gemini_logo.png" onerror="this.src='/dist/assets/gemini_logo.png'" alt="" aria-hidden="true"></span>
-      <span class="tab-text">会话审计<span class="tab-latin">Sessions</span></span>
+      <span class="tab-text">会话用量<span class="tab-latin">Sessions</span></span>
     </div>
 
     <div class="nav-group-title">EXTENSIONS</div>
@@ -3206,10 +3219,10 @@
         </div>
 
         <div class="section-actions">
-          <button class="btn btn-tonal" id="btn-host-launch" onclick="launchHost()">启动宿主</button>
-          <button class="btn btn-tonal" onclick="restartHost()">重启</button>
+          <button class="btn btn-tonal" id="btn-host-launch" data-host-operation onclick="launchHost()">启动宿主</button>
+          <button class="btn btn-tonal" data-host-operation onclick="restartHost()">重启</button>
           <!-- destructive 只在文字色与 hover 底上表达，不做整块红胶囊 -->
-          <button class="btn btn-quiet-danger" style="margin-left:auto" onclick="stopHost()">停止</button>
+          <button class="btn btn-quiet-danger" data-host-operation style="margin-left:auto" onclick="stopHost()">停止</button>
         </div>
       </section>
 
@@ -3371,7 +3384,7 @@
             <span class="status-pill pill-blue">DPAPI 加密</span>
           </div>
           <div class="flex-gap">
-            <span id="vault-current" class="vault-mail-row" style="font-size:11px; color:var(--text-secondary);">当前登录身份：--</span>
+            <span id="vault-current" class="vault-mail-row" style="font-size:11px; color:var(--text-secondary);">系统凭据归属：--</span>
             <button class="btn btn-tonal" style="padding:4px 10px;" onclick="loadVault()">刷新</button>
           </div>
         </div>
@@ -3409,15 +3422,14 @@
       <div id="skills-list" class="session-list">点击刷新读取已安装 Skills。</div>
     </div>
 
-    <!-- 03 SESSIONS AUDIT (真实会话审计 - 项目树与 Codex++ 级管控中枢) -->
+    <!-- Antigravity Session Usage -->
     <div id="sessions" class="content-panel">
       <div class="panel-header-wrap">
         <div>
           <h2 class="panel-title">会话</h2>
-          <div class="panel-subtitle">Antigravity / Codex 本地元数据索引；点击预览后才加载消息</div>
+          <div class="panel-subtitle">Antigravity Session Usage · 原生会话与 Token 统计</div>
         </div>
         <div class="flex-gap">
-          <select id="session-provider" class="modal-input" aria-label="会话 Provider"><option value="all">全部 Agent</option><option value="antigravity">Antigravity</option><option value="codex">Codex</option></select>
           <span class="runtime-state" id="sessions-total-badge" data-state="off">
             <span class="runtime-dot"></span><span class="runtime-state-text">正在读取…</span>
           </span>
@@ -3810,7 +3822,7 @@
       </div>
 
       <div class="subsection" style="margin-bottom:24px">
-        <div class="row"><span class="card-title-text">2Ag Doctor</span><div class="flex-gap"><button class="btn btn-tonal" onclick="loadDoctor()">刷新诊断</button><a class="btn btn-tonal" href="/api/v1/doctor?export=1" download>Export Diagnostic Report</a></div></div>
+        <div class="row"><span class="card-title-text">2Ag Doctor</span><div class="flex-gap"><button class="btn btn-tonal" onclick="loadDoctor()">刷新诊断</button><button class="btn btn-tonal" onclick="downloadDiagnosticReport()">Export Diagnostic Report</button></div></div>
         <div id="doctor-checks" class="status-cluster" style="margin-top:16px">等待只读诊断…</div>
         <details style="margin-top:16px"><summary style="cursor:pointer">Developer / Runtime counters</summary><div id="runtime-counters" class="status-cluster"></div><div id="runtime-targets" class="observation-scroll"></div></details>
         <div class="compat-detail" style="margin-top:12px">导出仅含状态与计数；不包含凭据、账号身份、路径或会话正文。</div>
@@ -4133,16 +4145,15 @@ function logMsg(msg, cls) {
 
 // REST Action Dispatcher
 function postAction(type, payload) {
-  fetch('/api/v1/action', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({type: type, payload: payload})
-  })
-  .then(function(r) {
-    if (!r.ok) logMsg("执行失败: " + type, "term-err");
-    else logMsg("动作派发成功: " + type, "term-ok");
-  })
-  .catch(function(e) { logMsg("通信异常: " + e, "term-err"); });
+	if (type === 'HOST_CTRL') return operateHost(payload.cmd === 'start' ? 'launch' : payload.cmd);
+  return twoAgFetch('/api/v1/action', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({type:type,payload:payload})
+  }).then(async function(r) {
+    if (!r.ok) throw new Error(await r.text());
+    logMsg('配置已更新，等待保存: '+type,'term-info');
+    refreshPersistenceStatus();
+  }).catch(function(err) { logMsg('执行失败: '+err.message,'term-err'); });
 }
 
 // 热重载补丁：直接打真实的注入端点，并把后端回执（含补丁来源与字节数）显示出来。
@@ -4151,7 +4162,7 @@ function postAction(type, payload) {
 function hotReloadPatch(btn) {
   if (btn) { btn.disabled = true; }
   logMsg("正在从磁盘读取最新补丁并热注入宿主...", "term-cyan");
-  fetch('/api/v1/hot/reload', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
+  twoAgFetch('/api/v1/hot/reload', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}' })
   .then(function(r) { return r.json().then(function(j) { return { ok: r.ok, data: j }; }); })
   .then(function(res) {
     if (btn) { btn.disabled = false; }
@@ -4183,79 +4194,57 @@ function toggleSkinInjection(enabled) {
 }
 
 // Host Physical Launcher & Lifecycle Control
-function launchHost() {
-  const primary = (currentAccounts && currentAccounts.find(function(a) { return a.is_primary || a.is_active; })) || (currentAccounts && currentAccounts[0]);
-  const email = primary ? primary.email : '';
-  logMsg("正在物理拉起 Antigravity 宿主进程 (账号沙箱: " + (email || "默认") + ", CDP 端口自动分配)...", "term-ok");
-  fetch('/api/v1/host/launch', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ email: email })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(res) {
-    if (res.success) {
-      logMsg("宿主拉起成功！CDP 注入监听已就绪，正在物理变身为 anti-Antigravity...", "term-ok");
-    } else {
-      logMsg("拉起宿主失败: " + (res.message || "未知错误"), "term-err");
-    }
-    setTimeout(probeRealHost, 300);
-    setTimeout(probeRealHost, 800);
-    setTimeout(probeRealHost, 1500);
-    setTimeout(probeRealHost, 2500);
-  })
-  .catch(function() {
-    postAction('HOST_CTRL', {cmd: 'start', email: email});
-    setTimeout(probeRealHost, 400);
-    setTimeout(probeRealHost, 1200);
+let hostOperationPending = false;
+let accountSelectionPending = false;
+let vaultSwitchPending = false;
+function setActionButtonsPending(selector, pending) {
+  document.querySelectorAll(selector).forEach(button => {
+    button.disabled = pending;
+    button.setAttribute('aria-busy', String(pending));
   });
 }
-
-function restartHost() {
-  logMsg("正在重启 Antigravity 宿主进程...", "term-ok");
-  postAction('HOST_CTRL', {cmd: 'restart'});
-  setTimeout(probeRealHost, 600);
-  setTimeout(probeRealHost, 1400);
+function chosenLaunchEmail() {
+  const account = (currentAccounts || []).find(a => a.is_primary);
+  return account ? account.email : '';
 }
-
-function takeoverHost() {
-  const primary = (currentAccounts && currentAccounts.find(function(a) { return a.is_primary || a.is_active; })) || (currentAccounts && currentAccounts[0]);
-  const email = primary ? primary.email : '';
-  logMsg("正在物理强杀现有宿主孤儿进程并携带当前沙箱与 CDP 调试端口热接管...", "term-ok");
-  fetch('/api/v1/host/takeover', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ email: email })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(res) {
-    if (res.success) {
-      logMsg("宿主一键热接管成功！CDP 调试端口已接入，anti-Antigravity 正在秒级点亮...", "term-ok");
-    } else {
-      logMsg("热接管宿主失败: " + (res.message || "未知错误"), "term-err");
+async function operateHost(command) {
+  if (hostOperationPending) return;
+  hostOperationPending = true;
+  setActionButtonsPending('[data-host-operation]', true);
+  const path = '/api/v1/host/' + command;
+  const request = {email: chosenLaunchEmail()};
+  try {
+    let response = await twoAgFetch(path, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
+    let result = await response.json();
+    if (command === 'takeover' && result.code === 'external_confirmation_required') {
+      const instances = result.external_instances || [];
+      if (!confirm('发现用户自行启动的 Antigravity。\n接管将关闭以下实例及其任务，再按所选模式启动：\n'+instances.map(p=>p.exe+' (PID '+p.pid+')').join('\n')+'\n确认授权 2Ag 接管并关闭这些实例？')) {
+        logMsg('未授权接管；外部实例保持运行','term-warn'); return;
+      }
+      request.confirm_external = true;
+      request.external_instances = instances;
+      response = await twoAgFetch(path, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
+      result = await response.json();
     }
-    setTimeout(probeRealHost, 300);
-    setTimeout(probeRealHost, 800);
-    setTimeout(probeRealHost, 1500);
-    setTimeout(probeRealHost, 2500);
-  })
-  .catch(function(err) {
-    logMsg("热接管请求失败: " + err, "term-err");
-    postAction('HOST_CTRL', {cmd: 'restart', email: email});
-    setTimeout(probeRealHost, 500);
-    setTimeout(probeRealHost, 1500);
-  });
+    if (!response.ok || !result.success) throw new Error((result.code ? result.code+': ' : '')+(result.message || '宿主操作未完成'));
+    logMsg(result.message || '宿主操作完成','term-ok');
+  } catch (err) { logMsg('宿主操作失败: '+err.message,'term-err'); }
+  finally {
+    hostOperationPending=false;
+    setActionButtonsPending('[data-host-operation]', false);
+    probeRealHost(); loadAccounts(); loadActiveAccount();
+  }
 }
+function launchHost() { return operateHost('launch'); }
+function restartHost() { return operateHost('restart'); }
+function takeoverHost() { return operateHost('takeover'); }
 
 function restartAndAttachHost() {
   takeoverHost();
 }
 
 function stopHost() {
-  logMsg("正在终止 Antigravity 宿主进程树...", "term-warn");
-  postAction('HOST_CTRL', {cmd: 'stop'});
-  setTimeout(probeRealHost, 400);
-  setTimeout(probeRealHost, 1000);
+  return operateHost('stop');
 }
 
 // Value Sliders
@@ -4294,7 +4283,7 @@ function pickWallpaper(btn) {
 
   // 对话框是模态的，这个 await 会一直挂到用户选完或取消 —— 期间按钮保持
   // 「等待选择…」是正确的反馈，而不是卡死。
-  fetch('/api/v1/wallpaper/pick', { method: 'POST' })
+  twoAgFetch('/api/v1/wallpaper/pick', { method: 'POST' })
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; }); })
     .then(function(res) {
       const d = res.data || {};
@@ -4328,7 +4317,7 @@ function pickWallpaper(btn) {
 // 后端补丁对空值会移除皮肤层，所以是即时可见的，不需要重载宿主。
 function clearWallpaper(btn) {
   if (btn) btn.disabled = true;
-  fetch('/api/v1/wallpaper/clear', { method: 'POST' })
+  twoAgFetch('/api/v1/wallpaper/clear', { method: 'POST' })
     .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
     .then(function(res) {
       const d = res.data || {};
@@ -4366,17 +4355,35 @@ function setWallpaperStatus(text, tone) {
 // 缩略图：由后端喂字节（页面本身读不了 file://）。
 // 加一个 cache-buster 参数，否则换了图但路径没变时，
 // WebView2 会拿缓存里那张旧图，用户会以为「换了没反应」。
-function refreshWallpaperPreview(hasFile) {
+let wallpaperPreviewURL = '';
+let wallpaperPreviewRevision = 0;
+async function refreshWallpaperPreview(hasFile) {
+	const revision = ++wallpaperPreviewRevision;
   const box = document.getElementById('wp-preview-box');
   const img = document.getElementById('wp-preview-img');
   if (!box || !img) return;
   if (!hasFile) {
+    if (wallpaperPreviewURL) URL.revokeObjectURL(wallpaperPreviewURL);
+    wallpaperPreviewURL = '';
     box.setAttribute('data-empty', 'true');
     img.removeAttribute('src');
     return;
   }
   box.setAttribute('data-empty', 'false');
-  img.src = '/api/v1/wallpaper/preview?t=' + Date.now();
+  try {
+    const response = await twoAgFetch('/api/v1/wallpaper/preview?t=' + Date.now());
+    if (!response.ok) throw new Error('Preview HTTP ' + response.status);
+    const blob = await response.blob();
+    if (revision !== wallpaperPreviewRevision) return;
+    if (wallpaperPreviewURL) URL.revokeObjectURL(wallpaperPreviewURL);
+    wallpaperPreviewURL = URL.createObjectURL(blob);
+    img.src = wallpaperPreviewURL;
+  } catch (error) {
+    if (revision !== wallpaperPreviewRevision) return;
+    box.setAttribute('data-empty', 'true');
+    img.removeAttribute('src');
+    setWallpaperStatus('预览读取失败：' + error.message, 'error');
+  }
 }
 
 // 把 /api/v1/wallpaper 的回执渲染成「预览 + 元信息 + 状态」三块。
@@ -4423,7 +4430,7 @@ function renderWallpaperStatus(d) {
 // 读取当前壁纸并回显。加载时调一次，SSE 收到状态变更后再调一次
 // （换壁纸正是通过 state_changed 事件回到这里的）。
 function refreshWallpaperStatus() {
-  fetch('/api/v1/wallpaper').then(function(r) { return r.json(); }).then(function(d) {
+  twoAgFetch('/api/v1/wallpaper').then(function(r) { return r.json(); }).then(function(d) {
     renderWallpaperStatus(d);
   }).catch(function() {
     setWallpaperStatus('读取失败（网关未连接）', 'error');
@@ -4439,7 +4446,7 @@ function applyWallpaper(btn) {
   if (!path) { setWallpaperStatus('请先选择图片', 'warn'); return; }
   const original = btn ? btn.innerText : '';
   if (btn) { btn.disabled = true; btn.innerText = '应用中…'; }
-  fetch('/api/v1/wallpaper', {
+  twoAgFetch('/api/v1/wallpaper', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path: path })
@@ -4559,7 +4566,7 @@ function bindActiveAccountToDashboard(currentAcc, isLive) {
     const haveRaw = have ? (have.dataset.raw || '') : null;
     const haveShown = have ? have.dataset.shown === 'true' : null;
     if (haveRaw !== want || haveShown !== wantShown) {
-      emailEl.innerHTML = emailCellHtml(currentAcc.email);
+      emailEl.innerHTML = currentAcc.email ? emailCellHtml(currentAcc.email) : '宿主身份未验证';
     }
   }
 
@@ -4567,8 +4574,10 @@ function bindActiveAccountToDashboard(currentAcc, isLive) {
   if (liveBadge) {
     if (isLive) {
       setRuntimeStateBadge(liveBadge, 'on', '实时在线');
+      liveBadge.title='宿主内部身份已验证';
     } else {
-      setRuntimeStateBadge(liveBadge, 'warn', '预设主控 · 待挂钩');
+      setRuntimeStateBadge(liveBadge, 'off', '宿主身份未验证 ⓘ');
+      liveBadge.title='账号选择与凭据归属不能证明宿主内部身份；此状态仅表示尚未取得验证来源。';
     }
   }
 
@@ -4714,17 +4723,17 @@ function renderQuotaSource(pool) {
 }
 
 function loadActiveAccount() {
-  fetch('/api/v1/dashboard')
+  twoAgFetch('/api/v1/dashboard')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       const isLive = !!data.is_live;
       if (data.active_account) {
-        bindActiveAccountToDashboard(data.active_account, isLive);
+        bindActiveAccountToDashboard(data.active_account, isLive && data.identity_verified);
       }
       renderGatewayStatus(data.gateway_status);
     })
     .catch(function() {
-      fetch('/api/v1/accounts/active')
+      twoAgFetch('/api/v1/accounts/active')
         .then(function(r) { return r.json(); })
         .then(function(data) {
           const acc = data.active_account || data.account;
@@ -4780,7 +4789,7 @@ function renderGatewayStatus(gw) {
 const startTime = Date.now();
 function probeRealHost() {
   const t0 = performance.now();
-  fetch('/api/v1/host/status')
+  twoAgFetch('/api/v1/host/status')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       const rtt = (performance.now() - t0).toFixed(1);
@@ -4900,7 +4909,7 @@ function probeRealHost() {
       }
 
       if (data.active_account) {
-        bindActiveAccountToDashboard(data.active_account, isLive);
+        bindActiveAccountToDashboard(data.active_account, isLive && data.identity_verified);
       }
     })
     .catch(function(err) {
@@ -4928,14 +4937,14 @@ let archivedSessionCount = 0;
 
 function loadSessions(showToast) {
   if (showToast) logMsg("正在扫描 Antigravity 宿主真实本地持久化会话与项目归类...", "term-cyan");
-  fetch('/api/v1/sessions')
+  twoAgFetch('/api/v1/sessions')
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      currentSessions = data.sessions || [];
-      currentProjects = data.projects || [];
+      currentSessions = (data.sessions || []).filter(s => s.provider === 'antigravity');
+      currentProjects = [...new Set(currentSessions.map(s => s.project).filter(Boolean))].sort();
       const badge = document.getElementById('sessions-total-badge');
       if (badge) {
-        setRuntimeStateBadge(badge, 'on', '真实会话 ' + (data.total !== undefined ? data.total : currentSessions.length) + ' 条');
+        setRuntimeStateBadge(badge, 'on', 'Antigravity ' + currentSessions.length + ' 条');
       }
       renderSessionMetrics(currentSessions, currentProjects);
       renderProjectPills(currentProjects, currentSessions);
@@ -5037,8 +5046,7 @@ function onSearchSessions(query) {
 
 function getFilteredSessions() {
   return currentSessions.filter(function(s) {
-    const provider = document.getElementById('session-provider').value;
-    if (provider !== 'all' && s.provider !== provider) return false;
+    if (s.provider !== 'antigravity') return false;
     // 项目胶囊过滤
     if (activeProjectFilter !== 'ALL') {
       const proj = s.project || '未分类项目';
@@ -5185,11 +5193,12 @@ function renderSessions(sessions) {
         '<div class="session-meta">',
           '<span class="session-proj">' + escapeHtml(projName) + '</span>',
           '<span class="session-time">' + escapeHtml(sessionTimeLabel(s.updated_at)) + '</span>',
-          '<span class="session-tech">#' + escapeHtml(shortId) + ' · ' + (s.turns ? s.turns + ' 步' : '消息未加载') + ' · ' + escapeHtml(s.provider || s.source || '') + '</span>',
+          '<span class="session-tech">#' + escapeHtml(shortId) + (s.turns ? ' · '+s.turns+' 步' : '') + ' · ' + escapeHtml(s.provider || s.source || '') + '</span>',
         '</div>',
+        '<div class="session-usage" data-session-usage="' + escapeHtml(s.id) + '">Token · — <span class="ctx-source">Unavailable</span></div>',
       '</div>',
       '<div class="session-actions">',
-        '<button class="btn btn-tonal session-act" onclick="previewAISession(\'' + escapeHtml(s.id) + '\')" ' + (s.messages_available ? '' : 'disabled title="此会话尚无可读消息格式"') + '>预览</button>',
+        '<button class="btn btn-tonal session-act" onclick="previewAISession(\'' + escapeHtml(s.id) + '\')" ' + (s.messages_available ? '' : 'disabled title="消息尚未载入或格式不可读；不影响独立的 Token 统计"') + '>预览</button>',
         '<button class="btn btn-tonal session-act" onclick="downloadSessionMD(\'' + escapeHtml(s.id) + '\')" ' + (s.messages_available ? '' : 'disabled title="此会话尚无可读消息格式"') + '>导出</button>',
         (s.can_delete ? '<button class="btn btn-quiet-danger session-act" onclick="deleteSessionSingle(\'' + escapeHtml(s.id) + '\')">删除</button>' : ''),
       '</div>'
@@ -5197,6 +5206,7 @@ function renderSessions(sessions) {
     list.appendChild(item);
   });
   updateBatchButtons();
+  if (window.loadVisibleSessionUsage) window.loadVisibleSessionUsage(list);
 }
 
 function onSessionCheckChange(id, checked) {
@@ -5236,15 +5246,15 @@ function deleteSessionSingle(id) {
     return;
   }
   logMsg("正在物理删除会话 #" + id.slice(0, 8) + " ...", "term-warn");
-  fetch('/api/v1/sessions/delete', {
+  twoAgFetch('/api/v1/sessions/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: id })
+    body: JSON.stringify({ id: id, store: (currentSessions.find(s => s.id === id) || {}).store })
   })
-  .then(function(r) { return r.json(); })
+  .then(async function(r) { if(!r.ok) throw new Error(await r.text()); const result=await r.json(); if(!result.success) throw new Error(result.message || "删除未完成"); return result; })
   .then(function() {
     selectedSessionIds.delete(id);
-    logMsg("会话 #" + id.slice(0, 8) + " 已彻底删除", "term-ok");
+    logMsg("会话 #" + id.slice(0, 8) + " 已从所选来源删除", "term-ok");
     loadSessions(false);
   })
   .catch(function(err) {
@@ -5261,26 +5271,43 @@ function batchDeleteSessions() {
   }
   logMsg("正在批量删除 " + ids.length + " 个会话...", "term-warn");
   let completed = 0;
+  let failed = 0;
   ids.forEach(function(id) {
-    fetch('/api/v1/sessions/delete', {
+    twoAgFetch('/api/v1/sessions/delete', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: id })
+      body: JSON.stringify({ id: id, store: (currentSessions.find(s => s.id === id) || {}).store })
     })
+    .then(async function(r) {
+      if(!r.ok) throw new Error(await r.text());
+      const result=await r.json(); if(!result.success) throw new Error(result.message || '删除未完成');
+      selectedSessionIds.delete(id);
+    }).catch(function(err) { failed++; logMsg('删除未完成: '+err.message,'term-err'); })
     .finally(function() {
       completed++;
       if (completed >= ids.length) {
-        selectedSessionIds.clear();
-        logMsg("批量删除已完成", "term-ok");
+        logMsg(failed ? "批量删除结束，失败 " + failed + " 项" : "选中来源删除完成", failed ? "term-err" : "term-ok");
         loadSessions(false);
       }
     });
   });
 }
 
+async function downloadDiagnosticReport() {
+  try {
+    const response = await twoAgFetch('/api/v1/doctor?export=1');
+    if (!response.ok) throw new Error(await response.text());
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url; link.download = '2ag-diagnostics.json';
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (error) { logMsg('诊断导出失败: ' + error.message, 'term-err'); }
+}
+
 async function downloadSessionMD(id) {
   try {
-    const response = await fetch('/api/v1/sessions/export?id=' + encodeURIComponent(id));
+    const response = await twoAgFetch('/api/v1/sessions/export?id=' + encodeURIComponent(id) + '&store=' + encodeURIComponent((currentSessions.find(s => s.id === id) || {}).store || ''));
     if (!response.ok) throw new Error(await response.text());
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
@@ -5342,7 +5369,7 @@ function exportAllSessions() {
 // 真实双配额池加载与健康色渲染
 let currentAccounts = [];
 function loadAccounts() {
-  fetch('/api/v1/accounts')
+  twoAgFetch('/api/v1/accounts')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       currentAccounts = data.accounts || [];
@@ -5362,7 +5389,7 @@ function loadAccounts() {
 let vaultAccounts = [];
 
 function loadVault() {
-  fetch('/api/v1/accounts/vault')
+  twoAgFetch('/api/v1/accounts/vault')
     .then(function(r) { return r.json(); })
     .then(function(data) { renderVault(data); })
     .catch(function(err) { console.error(err); });
@@ -5372,7 +5399,7 @@ function renderVault(data) {
   const box = document.getElementById('vault-container');
   const cur = document.getElementById('vault-current');
   const current = (data && data.current) || '';
-  if (cur) cur.innerHTML = '当前登录身份：' + (current ? emailCellHtml(current) : '--');
+  if (cur) cur.innerHTML = '系统凭据归属：' + (current ? emailCellHtml(current) : '--');
 
   vaultAccounts = (data && data.accounts) || [];
   if (!box) return;
@@ -5393,11 +5420,11 @@ function renderVault(data) {
       '<div class="row" style="border:1px solid var(--md-sys-color-outline); border-radius:12px; padding:8px 12px;">',
         '<div class="flex-gap">',
           '<span class="vault-mail-row">' + emailCellHtml(a.email) + '</span>',
-          isCurrent ? '<span class="status-pill pill-green">当前身份</span>' : '',
+          isCurrent ? '<span class="status-pill pill-green">当前凭据</span>' : '',
         '</div>',
         '<div class="flex-gap">',
           '<span style="font-size:11px; color:var(--text-tertiary);">' + meta.join(' · ') + '</span>',
-          '<button class="btn btn-tonal" style="padding:4px 10px;" onclick="switchVaultAccount(' + idx + ')">切换</button>',
+          '<button class="btn btn-tonal" data-account-switch ' + (vaultSwitchPending ? 'disabled aria-busy="true" ' : '') + 'style="padding:4px 10px;" onclick="switchVaultAccount(' + idx + ')">切换</button>',
           '<button class="btn btn-quiet-danger" style="padding:4px 10px;" onclick="deleteVaultAccount(' + idx + ')">删除</button>',
         '</div>',
       '</div>'
@@ -5408,12 +5435,15 @@ function renderVault(data) {
 // 切换账号：事务化（后端负责停宿主 → 写凭据 → 重启 → 校验 → 失败回滚）。
 // 前端只负责如实展示结果，特别是**回滚是否成功** —— 用户必须知道自己现在在哪个账号上。
 function switchVaultAccount(idx) {
+  if (vaultSwitchPending) return;
   const a = vaultAccounts[idx];
   if (!a || !a.email) return;
-  if (!confirm('切换到 ' + a.email + ' ？\n宿主会被重启，系统登录身份会切换到这个账号（失败会自动回滚）。')) return;
+    if (!confirm('切换到 ' + a.email + ' ？\n将应用该账号凭据并重启托管宿主；内部登录身份未确认时会明确提示。失败将尝试恢复原凭据。')) return;
 
+  vaultSwitchPending = true;
+  setActionButtonsPending('[data-account-switch]', true);
   logMsg('正在切换账号到 ' + a.email + '（停宿主 → 写凭据 → 重启 → 校验）...', 'term-cyan');
-  fetch('/api/v1/host/switch-and-restart', {
+  twoAgFetch('/api/v1/host/switch-and-restart', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: a.email })
@@ -5427,12 +5457,13 @@ function switchVaultAccount(idx) {
     if (res.ok && body.success) {
       logMsg('已切换到 ' + (body.email || a.email) + '：' + (body.message || ''), 'term-ok');
     } else {
-      let msg = body.message || '未知原因';
-      if (result.rolled_back) {
-        msg += '（已回滚，当前身份：' + (result.verified_owner || result.previous_owner || '未知') + '）';
+      let msg = (body.code ? body.code+': ' : '')+(body.message || '未知原因');
+      if (result.rollback_credential_verified) {
+        msg += '（原凭据已恢复；宿主内部身份未确认）';
       }
-      logMsg('切换失败：' + msg, 'term-err');
-      alert('切换失败：' + msg);
+      const label = body.code === 'identity_unverified' ? '身份待确认：' : '切换未完成：';
+      logMsg(label + msg, 'term-warn');
+      alert(label + msg);
     }
     loadAccounts();
     loadVault();
@@ -5440,6 +5471,9 @@ function switchVaultAccount(idx) {
   .catch(function(err) {
     logMsg('切换请求异常: ' + err.message, 'term-err');
     alert('切换请求异常: ' + err.message);
+  }).finally(function() {
+    vaultSwitchPending = false;
+    setActionButtonsPending('[data-account-switch]', false);
   });
 }
 
@@ -5449,7 +5483,7 @@ function deleteVaultAccount(idx) {
   if (!a || !a.email) return;
   if (!confirm('从保险库删除 ' + a.email + ' ？\n（只删除 2Ag 保存的加密副本，不会改变当前登录状态）')) return;
 
-  fetch('/api/v1/accounts/vault/delete', {
+  twoAgFetch('/api/v1/accounts/vault/delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: a.email })
@@ -5469,22 +5503,9 @@ function deleteVaultAccount(idx) {
 }
 
 function updateDashboardPools(accounts) {
-  if (!accounts || accounts.length === 0) return;
-  fetch('/api/v1/accounts/active')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      const active = data.active_account || data.account;
-      if (active) {
-        bindActiveAccountToDashboard(active);
-        return;
-      }
-      const primary = accounts.find(function(a) { return a.is_primary || a.is_active; }) || accounts[0];
-      bindActiveAccountToDashboard(primary);
-    })
-    .catch(function() {
-      const primary = accounts.find(function(a) { return a.is_primary || a.is_active; }) || accounts[0];
-      bindActiveAccountToDashboard(primary);
-    });
+  twoAgFetch('/api/v1/accounts/active').then(r=>r.json())
+    .then(data=>bindActiveAccountToDashboard(data.active_account || {},!!data.identity_verified))
+    .catch(()=>bindActiveAccountToDashboard({},false));
 }
 
 function renderAccounts(accounts) {
@@ -5523,8 +5544,8 @@ function renderAccounts(accounts) {
 
     // 状态点走语义色，而不是三套不同颜色的 pill：
     // 绿=正在干活，黄=待命，灰=离线。
-    const dotCls = isPrimary ? 'is-on' : (isOffline ? 'is-off' : 'is-idle');
-    const stateText = isPrimary ? '正在运行' : (isOffline ? '离线 · 未载入配额' : '待命');
+    const dotCls = acc.is_active ? 'is-on' : (isOffline ? 'is-off' : 'is-idle');
+    const stateText = acc.is_active ? '身份已确认' : isPrimary ? '已选择 · 下次启动' : (isOffline ? '离线 · 未载入配额' : '待命');
 
     // 权重只对备选账号有意义（主控永远是满权重 10）。
     const weightPill = isPrimary
@@ -5590,13 +5611,13 @@ function renderAccounts(accounts) {
           '</div>',
         '</div>',
         // ── 动作区：三级权重 ─────────────────────────────────────
-        // 主操作（设为主控 / 主控活跃）—— 唯一实心按钮
+        // 主操作：选择下次启动账号，不代表当前宿主内部身份。
         // 次操作（探活测试）—— tonal
         // 危险操作（移除）—— 红色，且与次操作之间有间距隔离
         '<div class="acct-actions">',
           (isPrimary
-            ? '<span class="acct-badge-primary">主控活跃</span>'
-            : '<button class="btn btn-primary" onclick="setPrimaryAccount(\'' + escapeHtml(acc.email) + '\')">设为主控</button>'),
+            ? '<span class="acct-badge-primary">已选择 · 下次启动</span>'
+            : '<button class="btn btn-primary" data-account-select ' + (accountSelectionPending ? 'disabled aria-busy="true" ' : '') + 'onclick="setPrimaryAccount(\'' + escapeHtml(acc.email) + '\')">选择账号</button>'),
           '<button class="btn btn-tonal" onclick="testAccount(\'' + escapeHtml(acc.email) + '\')">探活测试</button>',
           '<button class="btn btn-quiet-danger acct-danger" onclick="removeAccount(\'' + escapeHtml(acc.email) + '\')">移除</button>',
         '</div>',
@@ -5694,7 +5715,7 @@ function importCurrentOfficialAccount() {
   const text = document.getElementById('broker-status-text');
   btn.disabled = true;
   text.textContent = '正在读取当前官方账号…';
-  fetch('/api/v1/accounts/snapshot', { method: 'POST' })
+  twoAgFetch('/api/v1/accounts/snapshot', { method: 'POST' })
     .then(function(r) { return r.json().then(function(j) { if (!r.ok || !j.success) throw new Error(j.message || '导入失败'); return j; }); })
     .then(function(j) { text.textContent = '已导入当前官方账号：' + j.email; logMsg(text.textContent, 'term-ok'); loadAccounts(); })
     .catch(function(err) { text.textContent = err.message; logMsg('导入当前官方账号失败：' + err.message, 'term-err'); })
@@ -5713,7 +5734,7 @@ function startBrokerLogin() {
   text.innerText = '正在备份当前凭据并启动官方 Antigravity…';
   logMsg('开始「添加账号」：Google 授权将由本机官方 Antigravity 原生完成', 'term-cyan');
 
-  fetch('/api/v1/accounts/broker/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ network_mode: document.getElementById('broker-network-mode').value }) })
+  twoAgFetch('/api/v1/accounts/broker/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ network_mode: document.getElementById('broker-network-mode').value }) })
     .then(function(r) {
       return r.json().then(function(j) { return { ok: r.ok, body: j }; });
     })
@@ -5738,7 +5759,7 @@ function cancelBrokerLogin() {
   const cancel = document.getElementById('btn-cancel-broker');
   if (cancel) cancel.disabled = true;
   logMsg('已请求取消添加账号流程，2Ag 将恢复原账号...', 'term-cyan');
-  fetch('/api/v1/accounts/broker/cancel', { method: 'POST' })
+  twoAgFetch('/api/v1/accounts/broker/cancel', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data && data.status) renderBrokerStatus(data.status);
@@ -5747,7 +5768,7 @@ function cancelBrokerLogin() {
 }
 
 function pollBrokerStatus() {
-  fetch('/api/v1/accounts/broker/status')
+  twoAgFetch('/api/v1/accounts/broker/status')
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data && data.status) renderBrokerStatus(data.status);
@@ -5779,7 +5800,7 @@ function renderBrokerStatus(st) {
   if (st.original_email) facts.push('原账号: ' + st.original_email);
   if (st.account_email) facts.push('本次新增: ' + st.account_email);
   if (st.vault_saved) facts.push('保险库: 已加密写入');
-  if (st.restored) facts.push('原账号: 已恢复');
+  if (st.restored) facts.push('原凭据: 已恢复；宿主内部身份未确认');
   if (st.host_restarted) facts.push('宿主: 已按原形态重启');
   if (st.failure_reason) facts.push('原因: ' + st.failure_reason);
   const lines = facts.concat(st.steps || []);
@@ -5837,7 +5858,7 @@ function submitJsonImport() {
     return;
   }
   logMsg("正在解析并导入凭据数据...", "term-cyan");
-  fetch('/api/v1/accounts/import-json', {
+  twoAgFetch('/api/v1/accounts/import-json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: content
@@ -5874,7 +5895,7 @@ function saveManualAccount() {
     name: alias || email.split('@')[0]
   }];
 
-  fetch('/api/v1/accounts/import-json', {
+  twoAgFetch('/api/v1/accounts/import-json', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
@@ -5900,7 +5921,7 @@ function saveManualAccount() {
 // 现在改为向真实的本地授权缓存扫描接口取数，并按该账号是否真有配额数据如实回报。
 function testAccount(email) {
   logMsg("正在查询 " + email + " 的配额读数 ...", "term-cyan");
-  fetch('/api/v1/accounts')
+  twoAgFetch('/api/v1/accounts')
     .then(function(r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
@@ -5926,37 +5947,23 @@ function testAccount(email) {
     });
 }
 function setPrimaryAccount(email) {
-  logMsg("正在切换主控激活账号至: " + email, "term-cyan");
-  fetch('/api/v1/accounts/primary', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ email: email })
-  })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    // 只改本地数组会让界面说谎：主控身份与「本地授权缓存里到底有没有这个账号的额度」
-    // 是两件独立的事，历史实现无条件把 cooldown_msg 清空，等于把「未载入」伪装成「额度正常」。
-    // 这里以服务端返回的 active_account 为准回填，再重新拉一次完整清单同步其余账号。
-    if (data.active_account) {
-      currentAccounts.forEach(function(a) {
-        if (a.email.toLowerCase() !== email.toLowerCase()) return;
-        Object.keys(data.active_account).forEach(function(k) { a[k] = data.active_account[k]; });
-      });
-    }
-    renderAccounts(currentAccounts);
-    if (data.active_account) {
-      bindActiveAccountToDashboard(data.active_account);
-    } else {
-      updateDashboardPools(currentAccounts);
-    }
-    loadAccounts();
-    loadActiveAccount();
-    logMsg("主控账号切换生效 (物理沙箱已绑定): " + email, "term-ok");
-  })
-  .catch(function(err) {
-    logMsg("主控切换失败: " + err, "term-err");
-  });
+  if (accountSelectionPending) return;
+  accountSelectionPending = true;
+  setActionButtonsPending('[data-account-select]', true);
+  return twoAgFetch('/api/v1/accounts/primary', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email})})
+    .then(async r => {
+      const data = await r.json();
+      if (!r.ok || !data.success) throw new Error((data.code ? data.code+': ' : '')+(data.message || '选择失败'));
+      return data;
+    })
+    .then(data => { logMsg(data.message+'：'+email,'term-info'); loadAccounts(); loadActiveAccount(); })
+    .catch(err => logMsg('账号选择失败: '+err.message,'term-err'))
+    .finally(() => {
+      accountSelectionPending = false;
+      setActionButtonsPending('[data-account-select]', false);
+    });
 }
+
 function removeAccount(email) {
   if (confirm("确定移除账号 " + email + " 吗？")) {
     currentAccounts = currentAccounts.filter(function(a) { return a.email !== email; });
@@ -5968,7 +5975,7 @@ function removeAccount(email) {
 function refreshQuotas() {
   // 这里刷新的是账号配额读数：优先 2Ag 自己的 live 探测，失败时才回落到本地缓存。
   logMsg("正在重新探测账号配额 ...", "term-cyan");
-  fetch('/api/v1/accounts/refresh', { method: 'POST' })
+  twoAgFetch('/api/v1/accounts/refresh', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       currentAccounts = data.accounts || [];
@@ -5985,8 +5992,63 @@ function refreshQuotas() {
     });
 }
 
+let lastSaveFailure = '';
+let persistenceRevision = -1;
+let persistenceUpdatedAt = 0;
+function renderPersistenceStatus(status) {
+  const node=document.getElementById('persistence-status');
+  if(!node || !status) return;
+  if(status.revision < persistenceRevision || (status.revision === persistenceRevision && status.updated_at < persistenceUpdatedAt)) return;
+  persistenceRevision = status.revision;
+  persistenceUpdatedAt = status.updated_at;
+  const labels={pending:'正在保存…',saved:'已保存',save_failed:'保存失败',idle:'尚无保存操作'};
+  node.textContent=labels[status.status] || '保存状态未知';
+  node.title=status.error || '';
+  node.style.color=status.status==='save_failed'?'var(--google-red)':'var(--text-secondary)';
+  if(status.status==='save_failed' && lastSaveFailure!==String(status.revision)+status.error) {
+    lastSaveFailure=String(status.revision)+status.error;
+    logMsg('配置保存失败：'+status.error+'；当前改动尚未持久化','term-err');
+  }
+}
+function refreshPersistenceStatus() {
+  twoAgFetch('/api/v1/persistence').then(r=>r.json()).then(renderPersistenceStatus).catch(()=>{});
+}
+setInterval(refreshPersistenceStatus,5000);
+refreshPersistenceStatus();
+
 // SSE Listener
-const eventSource = new EventSource('/api/v1/events');
+function managerEvents() {
+  const listeners=new Map();
+  const abort=new AbortController();
+  window.addEventListener('beforeunload',()=>abort.abort());
+  async function connect() {
+    while(!abort.signal.aborted) {
+      try {
+        const response=await twoAgFetch('/api/v1/events',{signal:abort.signal});
+        if(response.status===401) { logMsg('Manager 控制会话已失效，请重新打开 Manager','term-err'); return; }
+        if(!response.ok) throw new Error('SSE '+response.status);
+        const reader=response.body.getReader(); const decoder=new TextDecoder(); let buffer='';
+        while(true) {
+          const part=await reader.read(); if(part.done) break;
+          buffer+=decoder.decode(part.value,{stream:true});
+          let end;
+          while((end=buffer.indexOf('\n\n'))>=0) {
+            const block=buffer.slice(0,end); buffer=buffer.slice(end+2);
+            const lines=block.split('\n');
+            const name=(lines.find(line=>line.startsWith('event:'))||'event: message').slice(6).trim();
+            const data=lines.filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trimStart()).join('\n');
+            (listeners.get(name)||[]).forEach(listener=>listener({data:data}));
+          }
+        }
+      } catch(err) { if(abort.signal.aborted) return; }
+      await new Promise(resolve=>setTimeout(resolve,1500));
+    }
+  }
+  setTimeout(connect,0);
+  return {addEventListener(name,listener){ if(!listeners.has(name))listeners.set(name,[]); listeners.get(name).push(listener); }};
+}
+const eventSource = managerEvents();
+eventSource.addEventListener('persistence_changed', function(e) { try { renderPersistenceStatus(JSON.parse(e.data)); } catch(_) {} });
 eventSource.addEventListener('state_changed', function(e) {
   try {
     globalState = JSON.parse(e.data);
@@ -6053,13 +6115,7 @@ function renderState() {
 // 运行形态（Runtime Mode）
 // ============================================================================
 //
-// 这个切换不能走普通开关那条路：普通开关是「改一个字段、增量推给宿主」，
-// 而形态是「2Ag 用什么身份启动 Antigravity」——它决定宿主用不用私有沙箱、
-// 要不要写 Windows 凭据、注入不注入。改完必须重启宿主才生效，
-// 后端所以在 manager.go 里为它单开一条通道，而不是塞进 hostVisibleSignature。
-//
-// 这里只做两件事：把用户的点击变成 SET_RUNTIME_MODE 动作，以及把
-// 「配置说的形态」与「实际跑的形态」并排显示出来。
+// 选择只保存下次启动配置；当前运行形态由只读宿主探针显示。
 function setRuntimeMode(mode) {
   if (mode !== 'enhanced' && mode !== 'official') return;
   const row = document.getElementById('runtime-mode-row');
@@ -6069,26 +6125,23 @@ function setRuntimeMode(mode) {
   // 乐观 UI：先把选中态挪过去。单选控件若等 1 秒才动，用户会以为没点中而再点一次。
   paintModeSelection(mode);
   const note = document.getElementById('mode-note');
-  if (note) note.innerText = '正在切换为「' + (mode === 'official' ? '官方形态' : '2Ag 增强形态') + '」，宿主将随之重启…';
+  if (note) note.innerText = '正在保存下次启动模式…';
 
-  fetch('/api/v1/action', {
+  twoAgFetch('/api/v1/action', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({type: 'SET_RUNTIME_MODE', payload: {mode: mode}})
   })
   .then(function(r) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    logMsg('运行形态已切换为 ' + (mode === 'official' ? 'OFFICIAL CLEAN' : '2AG ENHANCED') + '，正在重启宿主', 'term-warn');
-    // 主控形态变化后配额/账号的来源也会变，稍后让探针自己刷新。
-    setTimeout(probeRealHost, 1200);
-    // 形态切换会重启宿主，能力读数的来源随之整个换掉（增强→官方 或 反之），
-    // 所以这一张必须跟着重取，不能等 30s 的轮询。
-    setTimeout(loadCapability, 3000);
+    logMsg('已选择 ' + (mode === 'official' ? 'Official' : '2Ag Enhanced') + '；下次启动使用该模式', 'term-ok');
+    if (note) note.innerText = '已选择：' + (mode === 'official' ? 'Official' : '2Ag Enhanced') + '。下次启动将使用该模式。';
+    probeRealHost();
   })
   .catch(function(e) {
     logMsg('运行形态切换失败: ' + e, 'term-err');
     // 失败就退回真实状态，不留一个点不动也退不回的假选中。
-    fetch('/api/v1/host/status').then(function(r) { return r.json(); }).then(function(d) {
+    twoAgFetch('/api/v1/host/status').then(function(r) { return r.json(); }).then(function(d) {
       if (d && d.runtime_mode) renderRuntimeMode(d.runtime_mode);
     }).catch(function() {});
   })
@@ -6139,7 +6192,7 @@ function renderRuntimeMode(facts) {
     pill.innerText = '实际运行的是 ' + (effective === 'official' ? '官方形态' : '2Ag 增强形态') + '，需要重启宿主才会切换到所选形态';
   } else if (effective === 'official') {
     pill.setAttribute('data-tone', 'ok');
-    pill.innerText = '当前以官方形态运行 · 无注入、无 CDP、不改凭据';
+    pill.innerText = '当前运行：Official';
   } else {
     pill.setAttribute('data-tone', 'neutral');
     pill.innerText = '当前以 2Ag 增强形态运行';
@@ -6164,7 +6217,7 @@ function setRuntimeStateBadge(el, state, text) {
 // 后端 ProbeOfficialCompatibility() 在读数失败时返回空串，这里就显示空串，
 // 绝不替换成「未知」以外的任何像结论的东西。
 function loadCompat() {
-  fetch('/api/v1/compat')
+  twoAgFetch('/api/v1/compat')
     .then(function(r) { return r.json(); })
     .then(function(c) { renderCompat(c); })
     .catch(function() {
@@ -6245,7 +6298,7 @@ function renderCompat(c) {
 // 前端只负责把用户的确认传下去。
 function onCompatAction(action) {
   if (action !== 'restore_credential') return;
-  fetch('/api/v1/compat')
+  twoAgFetch('/api/v1/compat')
     .then(function(r) { return r.json(); })
     .then(function(c) {
       const accounts = c.vault_accounts || [];
@@ -6260,7 +6313,7 @@ function onCompatAction(action) {
       if (!confirm('确定把系统凭据管理器（gemini:antigravity）恢复为 ' + target + ' 的归档吗？\n\n这会改变官方 Antigravity 下次启动时的登录身份。当前凭据会先被归档一次，不会丢失。')) return;
 
       logMsg('正在恢复凭据：' + target + ' …', 'term-info');
-      fetch('/api/v1/compat/restore-credential', {
+      twoAgFetch('/api/v1/compat/restore-credential', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({email: target})
@@ -6286,7 +6339,7 @@ function onCompatAction(action) {
 // updater 有没有已经下载好待安装的包。它不下载、不替换、不拦截 ——
 // 界面上那句「约 557 MB」是代价说明，不是可点的承诺（后端 CanSync 恒为 false）。
 function loadGuardian() {
-  fetch('/api/v1/update-guardian')
+  twoAgFetch('/api/v1/update-guardian')
     .then(function(r) { return r.json(); })
     .then(function(g) { renderGuardian(g); })
     .catch(function() {
@@ -6377,7 +6430,7 @@ function renderCompatSummary(d) {
 //   official_probe 官方宿主上的只读锚点探测（只在官方恰好开着时可读）
 //   shared_data    .gemini\antigravity 的 SQLite 格式指纹
 function loadCapability() {
-  fetch('/api/v1/capability')
+  twoAgFetch('/api/v1/capability')
     .then(function(r) { return r.json(); })
     .then(function(d) { renderCapability(d); })
     .catch(function() {
@@ -6490,7 +6543,7 @@ function renderCapability(d) {
 }
 
 // Initial state fetch
-fetch('/api/v1/state').then(function(r) { return r.json(); }).then(function(s) {
+twoAgFetch('/api/v1/state').then(function(r) { return r.json(); }).then(function(s) {
   globalState = s;
   renderState();
   // 真实 API 端口从当前页面来源解析，不再硬编码 28472（那是宿主 CDP 的历史占位符，
@@ -6636,5 +6689,6 @@ setInterval(loadCapability, 30000);
 setInterval(probeRealHost, 1500);
 </script>
 <script src="/observability.js"></script>
+<div id="persistence-status" role="status" style="position:fixed;right:18px;bottom:12px;z-index:50;font-size:11px;color:var(--text-secondary);background:var(--bg-primary);padding:4px 8px">尚无保存操作</div>
 </body>
 </html>

@@ -88,82 +88,42 @@ func getProcessExePath(pid int) string {
 }
 
 // IsProtectedIDEProcess 检查 PID 是否属于受保护的自身进程、父级祖先链、或外部独立运行的 IDE 进程
-func IsProtectedIDEProcess(pid int) bool {
-	if pid <= 0 {
+func isManagerAncestor(pid int) bool {
+	if pid <= 0 || pid == os.Getpid() {
 		return true
 	}
-	if pid == os.Getpid() {
-		return true
-	}
-
 	handle, _, _ := procCreateToolhelp32Snap.Call(th32csSnapProcess, 0)
 	if handle == uintptr(syscall.InvalidHandle) || handle == 0 {
 		return true
 	}
 	defer procCloseHandle.Call(handle)
-
 	var entry processEntry32W
 	entry.Size = uint32(unsafe.Sizeof(entry))
-
 	ret, _, _ := procProcess32FirstW.Call(handle, uintptr(unsafe.Pointer(&entry)))
 	if ret == 0 {
 		return true
 	}
-
-	parentMap := make(map[int]int)
-	for {
-		p := int(entry.ProcessID)
-		pp := int(entry.ParentProcessID)
-		parentMap[p] = pp
+	parents := make(map[int]int)
+	for ret != 0 {
+		parents[int(entry.ProcessID)] = int(entry.ParentProcessID)
 		ret, _, _ = procProcess32NextW.Call(handle, uintptr(unsafe.Pointer(&entry)))
-		if ret == 0 {
-			break
-		}
 	}
-
-	// 1. 自身进程的祖先链判定：自身及所有父进程、祖先进程绝对受保护
-	curr := os.Getpid()
+	current := os.Getpid()
 	for i := 0; i < 30; i++ {
-		p, exists := parentMap[curr]
-		if !exists || p <= 0 || p == curr {
+		parent := parents[current]
+		if parent <= 0 || parent == current {
 			break
 		}
-		if p == pid {
+		if parent == pid {
 			return true
 		}
-		curr = p
+		current = parent
 	}
-
-	// 2. 如果该 pid 恰好是 2Ag 显式记录并拉起的托管 PID，则不作为受保护的外部 IDE
-	managedPID := GetManagedHostPID()
-	if managedPID > 0 && pid == managedPID {
-		return false
-	}
-
-	// 3. 向上追溯该 PID 及其父链的可执行文件路径
-	checkPID := pid
-	for i := 0; i < 10; i++ {
-		exePath := getProcessExePath(checkPID)
-		if exePath != "" {
-			lowerExe := strings.ToLower(filepath.Clean(exePath))
-			// IsFrozenHostPath 而不是朴素前缀：进程路径是 junction 解析后的落点，
-			// 与 2Ag 根目录的字符串前缀对不上（本机 app/ 就是 junction）。
-			if IsFrozenHostPath(lowerExe) {
-				return false
-			}
-			localApp := strings.ToLower(os.Getenv("LOCALAPPDATA"))
-			if localApp != "" && strings.HasPrefix(lowerExe, localApp) {
-				return true
-			}
-		}
-		p, exists := parentMap[checkPID]
-		if !exists || p <= 0 || p == checkPID {
-			break
-		}
-		checkPID = p
-	}
-
 	return false
+}
+
+func IsProtectedIDEProcess(pid int) bool {
+	return isManagerAncestor(pid) || !CanManageHostPID(pid)
 }
 
 func findProcessInsensitive(targetExe string) (int, float64) {
@@ -332,7 +292,16 @@ func ProbeHostStatus() RealHostMetrics {
 	cdpAddr := CDPAddrForPort(metrics.CDPPort)
 
 	// 1. 系统快照不区分大小写匹配 "antigravity.exe"
-	pid, mem := findProcessInsensitive("antigravity.exe")
+	pid, mem := 0, float64(0)
+	preferred := GetManagedHostPID()
+	for _, proc := range scanAntigravityProcesses() {
+		if pid == 0 || proc.PID == preferred {
+			pid, mem = proc.PID, proc.MemMB
+		}
+		if proc.PID == preferred {
+			break
+		}
+	}
 	if pid > 0 {
 		metrics.PID = pid
 		metrics.MemoryMB = mem

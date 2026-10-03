@@ -19,6 +19,7 @@ import (
 
 	"github.com/2ag/2ag/internal/api"
 	"github.com/2ag/2ag/internal/config"
+	"github.com/2ag/2ag/internal/control"
 	"github.com/2ag/2ag/internal/core"
 	"github.com/2ag/2ag/internal/mcp"
 	"github.com/2ag/2ag/internal/netproxy"
@@ -192,6 +193,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 	if apiErr != nil {
 		return apiErr
 	}
+	control.SetAPIURL("http://" + apiListener.Addr().String())
 	go func() {
 		log.Printf("[2ag] starting local API on %s", apiListener.Addr().String())
 		if err := apiServer.Serve(apiListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -234,7 +236,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 				}
 			}
 		}
-		injector.Initial = patcher.HubConfig{Language: cfg.Language, WallpaperPath: cfg.WallpaperPath, GlobalRules: cfg.GlobalRules, Network: cfg.Network, Privacy: cfg.Privacy, Plugins: pluginState, PluginURL: "http://" + sidecars.Address(), CDPPort: cdpPort, HostPID: managed.PID(), Env: cfg.EnvOverrides, GravityBoost: cfg.GravityBoost}
+		injector.Initial = patcher.HubConfig{ControlToken: control.Token(), ManagerURL: control.APIURL(), Language: cfg.Language, WallpaperPath: cfg.WallpaperPath, GlobalRules: cfg.GlobalRules, Network: cfg.Network, Privacy: cfg.Privacy, Plugins: pluginState, PluginURL: "http://" + sidecars.Address(), CDPPort: cdpPort, HostPID: managed.PID(), Env: cfg.EnvOverrides, GravityBoost: cfg.GravityBoost}
 		injector.BridgeHandlers = coreBridgeHandlers(runtimeConfig, sidecars, injector.SetWallpaperPath, func(ctx context.Context) (any, error) { return openDevTools(ctx, cdpPort) }, func(ctx context.Context) (any, error) { return probeGateway(ctx, injector.ProxyURL) }, sm)
 
 		currentState := sm.GetState()
@@ -271,13 +273,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 					case core.OpenDevtoolsAction:
 						openDevTools(ctx, cdpPort)
 					case core.HostCtrlAction:
-						payload, ok := action.Payload.(map[string]any)
-						if ok {
-							cmd, _ := payload["cmd"].(string)
-							if cmd == "stop" {
-								managed.Stop()
-							}
-						}
+						log.Printf("[2ag] 拒绝旧 EventBus 生命周期命令；请使用同步宿主控制入口")
 					}
 				}
 			case <-time.After(5 * time.Second):
@@ -345,6 +341,15 @@ func coreBridgeHandlers(runtimeConfig *config.Runtime, sidecars *supervisor.Side
 				return nil, errors.New("missing action type")
 			}
 			if sm != nil {
+				if core.ActionType(actionTypeStr) == core.HostCtrlAction {
+					payload, ok := params["payload"].(map[string]any)
+					if !ok {
+						return nil, errors.New("invalid host payload")
+					}
+					command, _ := payload["cmd"].(string)
+					email, _ := payload["email"].(string)
+					return supervisor.ExecuteHostLifecycle(command, sm.GetState().RuntimeMode, "", email, nil)
+				}
 				return nil, sm.ApplyAction(core.StateAction{
 					Type:    core.ActionType(actionTypeStr),
 					Payload: params["payload"],

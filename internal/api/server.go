@@ -1,11 +1,11 @@
 package api
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/2ag/2ag/internal/control"
 	"github.com/2ag/2ag/internal/core"
 	"github.com/2ag/2ag/internal/netproxy"
 	"github.com/2ag/2ag/internal/supervisor"
@@ -41,27 +42,29 @@ func NewServer(sm *core.StateMachine, bus *core.EventBus) *Server {
 	// 它要 fetch 的是本服务 http://127.0.0.1:<apiPort> —— 端口不同即跨源。
 	// 历史实现全文件没有任何 Access-Control-* 响应头，浏览器在预检阶段就把
 	// /api/v1/accounts 与舱内账号切换全部拒掉，于是面板只能常年显示「网关未连接」。
-	s.handler = corsMiddleware(s.mux)
+	_ = control.Token()
+	s.handler = corsMiddleware(s.controlMiddleware(s.mux))
 	return s
 }
 
-// corsMiddleware 给所有响应补上 CORS 头，并对 OPTIONS 预检直接短路 204。
-//
-// 为什么需要它：注入补丁运行在宿主 Webview 的页面源上（形如 https://127.0.0.1:<port>），
-// 而 2Ag 的 API 服务监听另一个端口。浏览器按同源策略判定为跨源，凡「非简单请求」
-// 或带自定义头的请求都要先发预检；服务端不回 Access-Control-Allow-* 时预检失败，
-// fetch 直接抛 TypeError，请求根本到不了业务 handler。
-//
-// 为什么不是 "*" + 无脑放行：本服务绑定在 127.0.0.1 上，只服务于本机宿主页面；
-// 判据取 Origin 的 host，只认 127.0.0.1 / localhost / ::1 三种本机形态，
-// 避免任意远端页面靠跨源读走账号与配额。无 Origin 头的请求（curl / 同源导航）不涉及 CORS，直接放行。
+// Reject unregistered origins before any handler runs. Missing Origin is not
+// authentication: API requests still need the process-scoped control token.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if origin := r.Header.Get("Origin"); origin != "" && isTrustedLocalOrigin(origin) {
+		if !isTrustedLocalOrigin("http://" + r.Host) {
+			http.Error(w, "invalid loopback Host", http.StatusForbidden)
+			return
+		}
+		if origin := r.Header.Get("Origin"); origin != "" {
+			if !control.TrustedOrigin(origin) {
+				http.Error(w, "untrusted Origin", http.StatusForbidden)
+				return
+			}
 			h := w.Header()
-			h.Set("Access-Control-Allow-Origin", "*")
-			h.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-2Ag-Source")
+			h.Set("Access-Control-Allow-Origin", origin)
+			h.Add("Vary", "Origin")
+			h.Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			h.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-2Ag-Control-Token")
 			// 预检结果缓存 10 分钟，减少轮询期间无谓的 OPTIONS 往返。
 			h.Set("Access-Control-Max-Age", "600")
 		}
@@ -74,9 +77,27 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// isTrustedLocalOrigin 判定 Origin 是否属于本机形态。
-// 只解析 host（丢弃端口与 scheme），因为宿主与 API 的端口必然不同，
-// 按完整 Origin 比对会把唯一的合法来源也一起挡掉。
+func (s *Server) controlMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// This script contains no control capability. All other API routes,
+		// including CDP proxy discovery and future mutation routes, fail closed.
+		readOnly := r.Method == http.MethodGet && r.URL.Path == "/api/v1/context/view.js"
+		if !readOnly && (strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/json" || r.URL.Path == "/json/list") {
+			token := r.Header.Get("X-2Ag-Control-Token")
+			if token == "" {
+				token = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			}
+			if subtle.ConstantTimeCompare([]byte(token), []byte(control.Token())) != 1 {
+				http.Error(w, "Manager control token required", http.StatusUnauthorized)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isTrustedLocalOrigin rejects non-loopback HTTP Host values only.
+// Origin authorization separately requires exact registration in control.
 func isTrustedLocalOrigin(origin string) bool {
 	u, err := url.Parse(origin)
 	if err != nil {
@@ -103,16 +124,20 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/extensions/local", s.handleLocalExtensions)
 	s.mux.HandleFunc("/api/v1/workspace/", s.handleWorkspace)
 	s.mux.HandleFunc("/api/v1/state", s.handleGetState)
+	s.mux.HandleFunc("/api/v1/persistence", func(w http.ResponseWriter, r *http.Request) { getJSON(w, r, s.stateMachine.Persistence()) })
 	s.mux.HandleFunc("/api/v1/action", s.handlePostAction)
 	s.mux.HandleFunc("/api/v1/events", s.handleEvents)
 	s.mux.HandleFunc("/api/v1/dashboard", s.handleGetDashboard)
 	s.mux.HandleFunc("/api/v1/host/status", s.handleGetHostStatus)
 	s.mux.HandleFunc("/api/v1/host/launch", s.handleHostLaunch)
+	s.mux.HandleFunc("/api/v1/host/stop", func(w http.ResponseWriter, r *http.Request) { s.handleHostOperation(w, r, "stop") })
+	s.mux.HandleFunc("/api/v1/host/restart", func(w http.ResponseWriter, r *http.Request) { s.handleHostOperation(w, r, "restart") })
 	s.mux.HandleFunc("/api/v1/host/takeover", s.handleHostTakeover)
 	// 舱内账号轮转：G-Cockpit 不切回 2Ag 主窗口就能换账号并重启宿主沙箱。
 	s.mux.HandleFunc("/api/v1/host/switch-and-restart", s.handleHostSwitchAndRestart)
 	s.mux.HandleFunc("/api/v1/sessions", s.handleSessionsRoute)
 	s.mux.HandleFunc("/api/v1/sessions/preview", s.handleSessionPreview)
+	s.mux.HandleFunc("/api/v1/sessions/usage", s.handleSessionUsage)
 	s.mux.HandleFunc("/api/v1/sessions/export", s.handleExportSession)
 	s.mux.HandleFunc("/api/v1/sessions/delete", s.handleDeleteSession)
 	s.mux.HandleFunc("/api/v1/accounts", s.handleGetAccounts)
@@ -175,11 +200,49 @@ func (s *Server) routes() {
 }
 
 func (s *Server) HandleStatic(prefix string, fs http.FileSystem) {
+	files := http.FileServer(fs)
+	serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			// Registered opaque workbench Origins must never read the HTML token.
+			origin := r.Header.Get("Origin")
+			site := r.Header.Get("Sec-Fetch-Site")
+			if (origin != "" && origin != "http://"+r.Host) || (site != "" && site != "none" && site != "same-origin") {
+				http.Error(w, "Manager navigation must be same-origin", http.StatusForbidden)
+				return
+			}
+			f, err := fs.Open("index.html")
+			if err != nil {
+				http.NotFound(w, r)
+				return
+			}
+			defer f.Close()
+			body, err := io.ReadAll(f)
+			if err != nil {
+				http.Error(w, "cannot read Manager", http.StatusInternalServerError)
+				return
+			}
+			secret, _ := json.Marshal(control.Token())
+			bootstrap := "<script>window.__2AG_CONTROL_TOKEN=" + string(secret) + ";</script>"
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			_, _ = w.Write([]byte(strings.Replace(string(body), "<head>", "<head>"+bootstrap, 1)))
+			return
+		}
+		files.ServeHTTP(w, r)
+	})
 	if prefix == "/" {
-		s.mux.Handle("/", http.FileServer(fs))
+		s.mux.Handle("/", serve)
 		return
 	}
-	s.mux.Handle(prefix, http.StripPrefix(prefix, http.FileServer(fs)))
+	s.mux.Handle(prefix, http.StripPrefix(prefix, serve))
 }
 
 func (s *Server) handleGetState(w http.ResponseWriter, r *http.Request) {
@@ -202,15 +265,23 @@ func (s *Server) handlePostAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	// 这里严禁直接执行 HOST_CTRL 的物理动作（拉起/重启/停止宿主）。
-	//
-	// ApplyAction 对 HOST_CTRL 的处理是「发布 CommandEvent，不改状态」（见 internal/core/state.go
-	// 的命令型 action 分支），命令由订阅者统一消费：图形模式下是 cmd/2ag/manager.go 的
-	// CommandEvent 订阅者，CLI 模式下是 cmd/2ag/main.go 的 cmdCh 订阅者。
-	// 历史实现在 ApplyAction 之前又直接调了一次 supervisor，于是同一次点击
-	// 会先被 api 层执行一遍、再被订阅者执行一遍 —— start 会拉起两个宿主，
-	// restart 会互相踩掉对方刚建好的沙箱，stop 会在宿主已死后对空 PID 再查杀一次。
-	// 命令型 action 的唯一执行点是 CommandEvent 订阅者。
+	if action.Type == core.HostCtrlAction {
+		payload, ok := action.Payload.(map[string]any)
+		if !ok {
+			http.Error(w, "invalid HOST_CTRL payload", http.StatusBadRequest)
+			return
+		}
+		command, _ := payload["cmd"].(string)
+		email, _ := payload["email"].(string)
+		result, err := supervisor.ExecuteHostLifecycle(command, s.currentRuntimeMode(), "", email, nil)
+		if err != nil {
+			writeOperationError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": result, "message": result.Message})
+		return
+	}
 	if err := s.stateMachine.ApplyAction(action); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -231,15 +302,26 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	ch := s.bus.Subscribe(core.StateChangedEvent)
 	defer s.bus.Unsubscribe(core.StateChangedEvent, ch)
+	persistCh := s.bus.Subscribe(core.PersistenceEvent)
+	defer s.bus.Unsubscribe(core.PersistenceEvent, persistCh)
 
 	// Send initial state
 	state := s.stateMachine.GetState()
 	data, _ := json.Marshal(state)
 	fmt.Fprintf(w, "event: state_changed\ndata: %s\n\n", data)
 	flusher.Flush()
+	persistData, _ := json.Marshal(s.stateMachine.Persistence())
+	fmt.Fprintf(w, "event: persistence_changed\ndata: %s\n\n", persistData)
+	flusher.Flush()
 
 	for {
 		select {
+		case event := <-persistCh:
+			data, err := json.Marshal(event.Payload)
+			if err == nil {
+				fmt.Fprintf(w, "event: persistence_changed\ndata: %s\n\n", data)
+				flusher.Flush()
+			}
 		case event := <-ch:
 			data, err := json.Marshal(event.Payload)
 			if err == nil {
@@ -252,19 +334,20 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Mux 返回裸路由表（不含 CORS 包装）。
-// 供单元测试用 httptest 直接驱动路由，不经过中间件。
-func (s *Server) Mux() *http.ServeMux {
-	return s.mux
+// Mux returns the protected handler; callers cannot bypass control checks.
+func (s *Server) Mux() http.Handler {
+	return s.handler
 }
 
 func (s *Server) Serve(l net.Listener) error {
+	control.SetAPIURL("http://" + l.Addr().String())
 	// 用 s.handler（mux + CORS）而非 s.mux：注入补丁的所有 fetch 都靠这层带响应头。
 	s.server = &http.Server{Handler: s.handler}
 	return s.server.Serve(l)
 }
 
 func (s *Server) Start(addr string) error {
+	control.SetAPIURL("http://" + addr)
 	s.server = &http.Server{
 		Addr:    addr,
 		Handler: s.handler,
@@ -325,34 +408,10 @@ func toAccountQuotaDTO(acc supervisor.AccountInstance) AccountQuotaDTO {
 	}
 }
 
-// resolveActiveHostAccount 返回「宿主当前真实在跑的账号」，并让 2Ag 的记录与之一致。
-//
-// 为什么需要它（真机实证，见 scripts/audit/probe_real_identity.js）：
-//
-//	Antigravity 2.x 的登录身份存在 Windows 凭据管理器的 gemini:antigravity 里
-//	（CRED_PERSIST_LOCAL_MACHINE ⇒ 机器级，所有 --user-data-dir 共享），
-//	而 ~/.2ag/active_account.txt 只是 2Ag 自己记的「上次让谁上」的便签。
-//	历史实现单向信任这张便签，于是出现「宿主跑着 A 账号的沙箱，
-//	面板却显示 arukas 的邮箱与配额」—— 用户看到的每个数字都属于另一个账号。
-//
-// 只在宿主存活时采信凭据：宿主不在时凭据是上一轮登录留下的旧值，此时面板显示的
-// 应当是 2Ag 的「预设主控」（live_status 也正是这么标的），而不是一个没有活体
-// 在维护的历史身份。hostLive 由调用方按 ProbeRealHost() 的结果传入。
+// A GET never commits identity from shared credentials. Unknown stays unknown.
 func resolveActiveHostAccount(hostLive bool) (supervisor.AccountInstance, bool) {
-	if !hostLive {
-		return supervisor.GetActiveAccountInstance(), false
-	}
-	if email, err := supervisor.ReadHostLoginEmailCached(); err == nil && email != "" {
-		if !strings.EqualFold(email, supervisor.GetActiveAccountEmail()) {
-			log.Printf("[2ag] 宿主真实登录身份为 %s，与本地记录不一致，已按系统凭据修正主控账号", email)
-			supervisor.SetActiveAccount(email)
-		}
-		return supervisor.GetActiveAccountInstance(), true
-	}
-	// 宿主活着却读不出身份：这是「未知」，不是「已确认」。第二个返回值为 false，
-	// 调用方必须把它如实报给界面 —— 否则界面会把 active_account.txt 里的旧值
-	// 当成宿主当前身份展示，这正是历史缺陷（显示的是另一个账号）。
-	return supervisor.GetActiveAccountInstance(), false
+	account := supervisor.GetActiveAccountInstance()
+	return account, hostLive && account.Email != "" && account.IsActive
 }
 
 func (s *Server) handleGetDashboard(w http.ResponseWriter, r *http.Request) {
@@ -365,9 +424,12 @@ func (s *Server) handleGetDashboard(w http.ResponseWriter, r *http.Request) {
 
 	activeAcc, identityVerified := resolveActiveHostAccount(isLive)
 
-	liveText := "● 预设主控 (待挂钩)"
+	liveText := "宿主未确认在线"
 	if isLive {
-		liveText = "● 实时在线 (已挂钩)"
+		liveText = "宿主在线 · 登录身份未确认"
+		if identityVerified {
+			liveText = "宿主在线 · 登录身份已确认"
+		}
 	}
 
 	// 协议网关真实状态。
@@ -384,6 +446,9 @@ func (s *Server) handleGetDashboard(w http.ResponseWriter, r *http.Request) {
 		"is_live":           isLive,
 		"live_status":       liveText,
 		"identity_verified": identityVerified,
+		"credential_owner":  credentialOwner(),
+		"host_processes":    supervisor.HostProcesses(),
+		"selected_account":  supervisor.GetSelectedAccountEmail(),
 		"gateway_status":    gatewayStatus,
 	}
 
@@ -438,9 +503,12 @@ func (s *Server) handleGetHostStatus(w http.ResponseWriter, r *http.Request) {
 	isLive := status.ProcessFound && status.CDPConnected
 
 	activeAcc, identityVerified := resolveActiveHostAccount(isLive)
-	liveText := "● 预设主控 (待挂钩)"
+	liveText := "宿主未确认在线"
 	if isLive {
-		liveText = "● 实时在线 (已挂钩)"
+		liveText = "宿主在线 · 登录身份未确认"
+		if identityVerified {
+			liveText = "宿主在线 · 登录身份已确认"
+		}
 	}
 	// 形态读数与宿主读数同源返回：界面上「现在是 OFFICIAL CLEAN 还是 2Ag ENHANCED」
 	// 和「宿主在不在」是同一屏里的同一件事，分两个请求拿会让它们短暂不一致，
@@ -457,6 +525,9 @@ func (s *Server) handleGetHostStatus(w http.ResponseWriter, r *http.Request) {
 		"is_live":           isLive,
 		"live_status":       liveText,
 		"identity_verified": identityVerified,
+		"credential_owner":  credentialOwner(),
+		"host_processes":    supervisor.HostProcesses(),
+		"selected_account":  supervisor.GetSelectedAccountEmail(),
 		"runtime_mode":      modeFacts,
 	})
 }
@@ -491,6 +562,8 @@ func (s *Server) handleGetActiveAccount(w http.ResponseWriter, r *http.Request) 
 	dto := toAccountQuotaDTO(activeAcc)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
+		"identity_verified":   activeAcc.IsActive && activeAcc.Email != "",
+		"credential_owner":    credentialOwner(),
 		"account":             dto,
 		"active_account":      dto,
 		"email":               activeAcc.Email,
@@ -547,16 +620,26 @@ func (s *Server) handleSetPrimaryAccount(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	if !known {
-		http.Error(w, "该账号不在本地账号文件中: "+req.Email, http.StatusNotFound)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"code":    supervisor.CredentialMissing,
+			"message": "该账号不在本地账号文件中: " + req.Email,
+		})
 		return
 	}
-	supervisor.SetActiveAccount(req.Email)
+	if err := supervisor.SetSelectedAccount(req.Email); err != nil {
+		writeOperationError(w, err)
+		return
+	}
 	activeAcc := supervisor.GetActiveAccountInstance()
 	dto := toAccountQuotaDTO(activeAcc)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"success":        true,
-		"email":          supervisor.GetActiveAccountEmail(),
+		"email":          supervisor.GetSelectedAccountEmail(),
+		"message":        "已选择下次启动账号；当前宿主身份未改变",
 		"active_account": dto,
 	})
 }
@@ -597,7 +680,7 @@ func (s *Server) handleBrokerStart(w http.ResponseWriter, r *http.Request) {
 			"success": false,
 			"message": err.Error(),
 			"status":  supervisor.LoginBrokerStatusNow(),
-			"code":    supervisor.AccountFailureCode(err.Error()),
+			"code":    operationErrorCode(err),
 		})
 		return
 	}
@@ -804,6 +887,11 @@ func (s *Server) handleRestoreCredential(w http.ResponseWriter, r *http.Request)
 
 	result, err := supervisor.RestoreAntigravityCredential(email)
 	if err != nil {
+		var external *supervisor.ExternalHostsError
+		if errors.As(err, &external) {
+			writeOperationError(w, err)
+			return
+		}
 		// 归还 result 而不是只报错：即使复核失败，用户也需要看到「当前归属是谁」，
 		// 否则他不知道自己是回到了官方账号还是停在一个中间态。
 		w.Header().Set("Content-Type", "application/json")
@@ -811,6 +899,7 @@ func (s *Server) handleRestoreCredential(w http.ResponseWriter, r *http.Request)
 		json.NewEncoder(w).Encode(map[string]any{
 			"success": false,
 			"message": err.Error(),
+			"code":    operationErrorCode(err),
 			"result":  result,
 		})
 		return
@@ -882,18 +971,21 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.URL.Query().Get("id")
+	store := r.URL.Query().Get("store")
 	if id == "" {
 		var req struct {
-			ID string `json:"id"`
+			Store string `json:"store"`
+			ID    string `json:"id"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		id = req.ID
+		store = req.Store
 	}
 	if id == "" {
 		http.Error(w, "缺少会话 ID", http.StatusBadRequest)
 		return
 	}
-	if err := supervisor.DeleteSession(id); err != nil {
+	if err := supervisor.DeleteSession(id, store); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -914,7 +1006,7 @@ func (s *Server) handleExportSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "缺少会话 ID", http.StatusBadRequest)
 		return
 	}
-	md, err := supervisor.ExportSessionMarkdown(id)
+	md, err := supervisor.ExportSessionMarkdown(id, r.URL.Query().Get("store"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
@@ -928,65 +1020,76 @@ func (s *Server) handleExportSession(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(md))
 }
 
+func credentialOwner() string {
+	owner, _ := supervisor.ReadHostLoginEmailCached()
+	return owner
+}
+
+func operationErrorCode(err error) string {
+	var external *supervisor.ExternalHostsError
+	if errors.As(err, &external) {
+		return "external_confirmation_required"
+	}
+	code := supervisor.AccountErrorCode(err)
+	if code == "" {
+		return "operation_failed"
+	}
+	return code
+}
+
+func writeOperationError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	body := map[string]any{"success": false, "message": err.Error(), "code": operationErrorCode(err)}
+	var external *supervisor.ExternalHostsError
+	var pending *supervisor.IdentityUnverifiedError
+	if errors.As(err, &external) {
+		status = http.StatusConflict
+		body["code"], body["external_instances"] = "external_confirmation_required", external.Instances
+	} else if errors.As(err, &pending) {
+		status = http.StatusAccepted
+		body["code"], body["identity_verified"] = "identity_unverified", false
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
 func (s *Server) handleHostLaunch(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		CustomPath string `json:"custom_path"`
-		Email      string `json:"email"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	if req.Email != "" {
-		supervisor.SetActiveAccount(req.Email)
-	}
-	if err := supervisor.LaunchEnhancedHost(req.CustomPath, req.Email); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"success": true,
-		"message": "宿主已成功拉起并附加 CDP 沙箱",
-	})
+	s.handleHostOperation(w, r, "start")
 }
-
 func (s *Server) handleHostTakeover(w http.ResponseWriter, r *http.Request) {
+	s.handleHostOperation(w, r, "takeover")
+}
+
+func (s *Server) handleHostOperation(w http.ResponseWriter, r *http.Request, command string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var req struct {
-		CustomPath string `json:"custom_path"`
-		Email      string `json:"email"`
+	var request struct {
+		CustomPath      string                   `json:"custom_path"`
+		Email           string                   `json:"email"`
+		ConfirmExternal bool                     `json:"confirm_external"`
+		Instances       []supervisor.HostProcess `json:"external_instances"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	if req.Email != "" {
-		supervisor.SetActiveAccount(req.Email)
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	if err := supervisor.TakeoverHost(req.CustomPath, req.Email); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if !request.ConfirmExternal {
+		request.Instances = nil
+	}
+	result, err := supervisor.ExecuteHostLifecycle(command, s.currentRuntimeMode(), request.CustomPath, strings.TrimSpace(request.Email), request.Instances)
+	if err != nil {
+		writeOperationError(w, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"success": true,
-		"message": "宿主已成功热接管，CDP 调试端口与账号沙箱已就绪",
-	})
+	_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "result": result, "message": result.Message})
 }
 
-// handleHostSwitchAndRestart 舱内账号轮转：切主控 + 换真实登录凭据 + 重启宿主沙箱。
-//
-// 与 /api/v1/accounts/primary 的区别在于「物理动作」：那条路由只改内存里的主控标记，
-// 宿主进程仍挂着旧账号的沙箱目录；这条会清掉旧宿主整棵进程树、把目标账号的凭据
-// 写进 Windows 凭据管理器，再用新账号专属的 profile 目录重新拉起 —— 三者齐备，
-// 「换号」才在磁盘与系统凭据层面真正发生。
-//
-// 诚实性要求：过去这条路由只改 active_account.txt 与 --user-data-dir，宿主原生
-// Settings 里显示的仍是旧账号（凭据在机器级凭据管理器里，profile 隔离改不到它），
-// 而接口却回 success:true —— 用户看到的就是「虚假切换」。现在切换后必须回读系统
-// 凭据确认身份，读不到就如实报错，绝不用请求里的 email 冒充结果。
+// Switching returns credential/lifecycle results separately from native login
+// confirmation. Unknown identity is a pending result, never success:true.
 func (s *Server) handleHostSwitchAndRestart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -1005,23 +1108,32 @@ func (s *Server) handleHostSwitchAndRestart(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// 切换是事务：停宿主 → 写凭据 → 按原形态启动 → 校验实际身份 → 失败自动回滚。
-	//
-	// 与 0.1.1 之前那版的区别有两点，都是被真机证伪过的：
-	//  1. 凭据来源不再是 cockpit 账号库，而是 2Ag 自己的 DPAPI 保险库 ——
-	//     账号是用户通过官方原生登录加进来的，不再依赖第三方工具的数据目录。
-	//  2. 不再「先设主控标记、依赖 LaunchEnhancedHost 顺手写凭据」：那条路径里
-	//     ApplyAntigravityCredential 失败只记日志，于是「沙箱换了、身份没换」会
-	//     以 success:true 收场。现在写凭据与校验都是显式的，且必须回读一致。
+	// Target credentials and startup are verified separately; native identity may remain unknown.
 	result, err := supervisor.SwitchAccountTransactional(email, s.currentRuntimeMode())
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
+		status := http.StatusInternalServerError
+		code := operationErrorCode(err)
+		var external *supervisor.ExternalHostsError
+		var pending *supervisor.IdentityUnverifiedError
+		if errors.As(err, &external) {
+			status, code = http.StatusConflict, "external_confirmation_required"
+		}
+		if errors.As(err, &pending) {
+			status, code = http.StatusAccepted, "identity_unverified"
+		}
+		var instances []supervisor.HostProcess
+		if external != nil {
+			instances = external.Instances
+		}
+		w.WriteHeader(status)
 		json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"email":   email,
-			"message": err.Error(),
-			"result":  result,
+			"code":               code,
+			"external_instances": instances,
+			"success":            false,
+			"email":              email,
+			"message":            err.Error(),
+			"result":             result,
 		})
 		return
 	}

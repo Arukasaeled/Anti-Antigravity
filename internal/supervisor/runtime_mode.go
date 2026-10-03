@@ -16,8 +16,8 @@ import (
 //	二是「忘记判」会成为默认失误 —— 只要有一条路径漏了，官方形态下就会照样往宿主
 //	里打补丁，而这恰恰是本轮要根除的那类静默越界。
 //
-// 所以形态由 Manager 在启动时与每次状态变更后显式推入（SetRuntimeMode），
-// 四个链路入口统一问 IsOfficialRuntime()。默认值是 enhanced：与 config.Normalize()
+// 形态由 Manager 按实际宿主初始化，只有明确启动/重启动作才应用配置。
+// 选择状态不更新该镜像。四个链路入口统一问 IsOfficialRuntime()。默认值是 enhanced：与 config.Normalize()
 // 对老配置的回填保持一致，也保证任何「没人推过形态」的极端情况下退回历史行为。
 var (
 	runtimeModeMu sync.RWMutex
@@ -31,7 +31,7 @@ var (
 // 本来就该在两侧各写一次，改的时候一起改。
 const RuntimeModeOfficialValue = "official"
 
-// SetRuntimeMode 由 Manager 在启动与状态变更后调用。
+// SetRuntimeMode 更新当前注入/启动策略；不得由配置模式的 StateChanged 调用。
 func SetRuntimeMode(mode string) {
 	mode = strings.TrimSpace(mode)
 	if mode == "" {

@@ -127,6 +127,8 @@ func HubSourceInfo() (source string, size int) {
 // HubConfig is the small state bridge shared by Go's initial injection and the
 // in-app localStorage controls. The renderer owns subsequent changes.
 type HubConfig struct {
+	ControlToken  string            `json:"control_token,omitempty"`
+	ManagerURL    string            `json:"manager_url,omitempty"`
 	Wallpaper     string            `json:"wallpaper"`
 	LogoURL       string            `json:"logo_url"`
 	WallpaperPath string            `json:"wallpaper_path"`

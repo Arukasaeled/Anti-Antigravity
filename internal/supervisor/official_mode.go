@@ -93,9 +93,14 @@ type antigravityProc struct {
 // findProcessInsensitive 刻意排除掉的那一类（LOCALAPPDATA 下的受保护进程）。
 // 用错误的口径去回答「官方 Antigravity 在不在跑」，答案必然是错的。
 func scanAntigravityProcesses() []antigravityProc {
+	processes, _ := scanAntigravityProcessesChecked()
+	return processes
+}
+
+func scanAntigravityProcessesChecked() ([]antigravityProc, error) {
 	handle, _, _ := procCreateToolhelp32Snap.Call(th32csSnapProcess, 0)
 	if handle == uintptr(syscall.InvalidHandle) || handle == 0 {
-		return nil
+		return nil, fmt.Errorf("无法读取进程快照，宿主状态未知")
 	}
 	defer procCloseHandle.Call(handle)
 
@@ -103,7 +108,7 @@ func scanAntigravityProcesses() []antigravityProc {
 	entry.Size = uint32(unsafe.Sizeof(entry))
 	first, _, _ := procProcess32FirstW.Call(handle, uintptr(unsafe.Pointer(&entry)))
 	if first == 0 {
-		return nil
+		return nil, fmt.Errorf("无法读取进程快照，宿主状态未知")
 	}
 
 	var out []antigravityProc
@@ -127,7 +132,7 @@ func scanAntigravityProcesses() []antigravityProc {
 			break
 		}
 	}
-	return out
+	return out, nil
 }
 
 // isUnderOfficialInstall 判定一个 exe 路径是否位于官方安装根目录之下。
@@ -326,7 +331,7 @@ func RuntimeModeFactsNow(configured string) RuntimeModeFacts {
 				facts.Effective, facts.HostPID, facts.HostExe = "enhanced", p.PID, p.Exe
 			}
 		case isUnderOfficialInstall(p.Exe):
-			if facts.Effective == "" {
+			if facts.Effective != "enhanced" && (facts.Effective == "" || p.PID == managedPID || (facts.HostPID != managedPID && p.PID < facts.HostPID)) {
 				facts.Effective, facts.HostPID, facts.HostExe = "official", p.PID, p.Exe
 			}
 		}
@@ -397,6 +402,15 @@ func idleHostNote(configured string, bootstrap HostBootstrapStatus) string {
 // 它必须真的能被结束，否则界面上的按钮就成了空头承诺。登记的 PID 同样让
 // findProcessInsensitive 把它视作可查杀进程，而不是受保护的外部 IDE。
 func LaunchOfficialHost(exePath string) error {
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return err
+	}
+	defer release()
+	return launchOfficialHost(exePath)
+}
+
+func launchOfficialHost(exePath string) error {
 	if exePath == "" {
 		exePath = FindOfficialAntigravity()
 	}
@@ -407,7 +421,12 @@ func LaunchOfficialHost(exePath string) error {
 		return fmt.Errorf("官方形态拒绝启动 2Ag 的冻结宿主副本（%s）—— 那会得到一个界面说官方、实际带补丁的宿主", exePath)
 	}
 
-	_ = StopHostClient()
+	if err := RequireManagedHosts(); err != nil {
+		return err
+	}
+	if err := stopManagedHosts(); err != nil {
+		return err
+	}
 	time.Sleep(300 * time.Millisecond)
 
 	cmd := exec.Command(exePath)
@@ -415,24 +434,28 @@ func LaunchOfficialHost(exePath string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动官方宿主失败: %w", err)
 	}
-	SetManagedHostPID(cmd.Process.Pid)
+	if err := registerHost(cmd.Process.Pid, HostOwned); err != nil {
+		stopErr := cmd.Process.Kill()
+		return fmt.Errorf("登记宿主失败: %v；新进程停止结果: %v", err, stopErr)
+	}
+	go cmd.Wait()
 
 	log.Printf("[2ag] 官方形态：已启动官方 Antigravity（PID %d，零启动参数、零注入、零凭据改写）: %s", cmd.Process.Pid, exePath)
 
-	// Electron 的单实例锁：如果用户已经自己开着官方 Antigravity，刚拉起的这个进程
-	// 只会把既有窗口唤到前台然后立刻退出。此时登记一个已经死掉的 PID 会让后续
-	// 「结束进程」和状态显示都指向空气，所以这里如实复核一次。
+	// Electron single-instance exit never transfers ownership of an external host.
 	time.Sleep(1200 * time.Millisecond)
 	if !processAlive(cmd.Process.Pid) {
+		if err := forgetHost(cmd.Process.Pid); err != nil {
+			return fmt.Errorf("清理已退出宿主的所有权记录失败: %w", err)
+		}
 		presence := ProbeOfficialHostPresence()
 		if presence.Running {
-			SetManagedHostPID(presence.PID)
-			log.Printf("[2ag] 官方实例此前已在运行（PID %d）：本次启动并入既有窗口，未新建实例", presence.PID)
+			return &ExternalHostsError{Instances: []HostProcess{processIdentity(presence.PID)}}
 		} else {
-			SetManagedHostPID(0)
-			log.Printf("[2ag] 警告：官方宿主启动后立即退出（PID %d），且未发现其他运行中的官方实例", cmd.Process.Pid)
+			return fmt.Errorf("官方宿主启动后立即退出，未发现存活实例")
 		}
 	}
+	SetRuntimeMode(RuntimeModeOfficialValue)
 	return nil
 }
 

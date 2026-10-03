@@ -11,11 +11,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -47,6 +44,9 @@ func LoginBrokerStatusNow() LoginBrokerStatus {
 // 单飞：已经在跑就直接拒绝，而不是排队 —— 两个并发流程会各自删/写同一条凭据，
 // 那是能直接把用户的登录态弄丢的组合。
 func StartLoginBroker(configuredMode string, networkModes ...string) error {
+	if err := RequireManagedHosts(); err != nil {
+		return err
+	}
 	mode := "AUTO"
 	if len(networkModes) > 0 {
 		mode = networkModes[0]
@@ -147,49 +147,20 @@ func brokerFinish(stage, message string, failure string) {
 	log.Printf("[2ag] Login Broker [%s] %s", stage, message)
 }
 
-// stopAllAntigravityProcesses 停掉当前机器上所有 antigravity.exe（含子进程）。
-//
-// 为什么必须这么彻底，而不是只杀 2Ag 托管的那一个：
-//   - gemini:antigravity 是 machine 级凭据，所有实例共享；只要还有一个实例活着，
-//     它随时可能把手里的旧 token 再写回去，把刚建立的登录态覆盖掉。
-//   - Electron 的单实例锁：旧实例不退，新实例只会把旧窗口唤到前台然后退出，
-//     「重新启动后校验身份」就永远等不到真正的重启。
-//
-// 刻意用 /T 连子进程一起结束：GPU/渲染/网络子进程不退出会继续持有文件锁。
-//
-// 返回值是「调用后仍然活着的进程数」（0 = 真的清干净了）。刻意不报「杀掉了几个」：
-// taskkill 对「父进程已死、自己随后消失」的子进程会返回非零，于是「杀成功数」会
-// 莫名其妙地小于进程总数（真机见过 1/6），读日志的人会以为有 5 个没杀掉 ——
-// 而真正要回答的问题只有一个：**现在还剩几个**。
+// Refuse external instances before stopping any owned/adopted host. Every
+// broker, recovery and rollback call shares this ownership gate.
 func stopAllAntigravityProcesses(reason string) int {
-	procs := scanAntigravityProcesses()
-	for _, p := range procs {
-		cmd := exec.Command("taskkill", "/F", "/PID", strconv.Itoa(p.PID), "/T")
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		_ = cmd.Run()
-	}
-	// 等它们真的从进程表里消失：写的凭据要在「没有实例能覆盖它」的时刻落地。
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		if len(scanAntigravityProcesses()) == 0 {
-			break
+	if err := stopManagedHosts(); err != nil {
+		log.Printf("[2ag] %s: %v", reason, err)
+		remaining := len(scanAntigravityProcesses())
+		if remaining == 0 {
+			return 1
 		}
-		time.Sleep(250 * time.Millisecond)
+		return remaining
 	}
-	SetManagedHostPID(0)
-	left := len(scanAntigravityProcesses())
-	if len(procs) > 0 {
-		log.Printf("[2ag] Login Broker：已请求停止 %d 个 Antigravity 进程（%s），现在剩余 %d 个",
-			len(procs), reason, left)
-	}
-	return left
+	return 0
 }
 
-// officialLoginPageState 只读探测官方窗口当前停在哪一页。
-//
-// 返回 "onboarding"（停在登录页）/ "app"（已离开登录页）/ ""（读不到：官方没跑、
-// 端口没了、或 /json 拿不到东西）。**只读**：不注入、不留常驻会话 ——
-// 官方形态的契约就是不碰宿主。
 func officialLoginPageState() string {
 	port, _, err := officialDevToolsActivePort()
 	if err != nil || port <= 0 || !portListening(port) {
@@ -452,7 +423,7 @@ func runLoginBroker(configuredMode string, network loginNetwork) {
 
 		raw, err := readAntigravityCredentialRaw()
 		if err == nil && len(raw) > 0 {
-			if email, ok := credentialUsableEmail(raw); ok {
+			if email, ok := BrokerFreshCredentialValidation(raw); ok {
 				addedEmail = email
 				break
 			}
@@ -526,7 +497,7 @@ func runLoginBroker(configuredMode string, network loginNetwork) {
 		brokerRollbackAndFinish("重新读取凭据失败，未归档", origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
 	}
-	if owner, ok := credentialUsableEmail(rawNow); !ok || !strings.EqualFold(owner, addedEmail) {
+	if owner, ok := BrokerFreshCredentialValidation(rawNow); !ok || !strings.EqualFold(owner, addedEmail) {
 		brokerRollbackAndFinish("identity mismatch：登录凭据归属发生变化，未归档", origRaw, origEmail, prior, hadHost, wasOfficial)
 		return
 	}
@@ -546,15 +517,19 @@ func runLoginBroker(configuredMode string, network loginNetwork) {
 	if !restored && origEmail != "" && len(origRaw) > 0 {
 		brokerFinish(brokerStageFailed,
 			"账号 "+addedEmail+" 已保存到保险库，但恢复原账号 "+origEmail+" 失败",
-			"恢复原账号失败：当前登录身份为 "+currentEmail)
+			"恢复原凭据失败：系统凭据归属为 "+currentEmail)
+		return
+	}
+	if hadHost && !LoginBrokerStatusNow().HostRestarted {
+		brokerFinish(brokerStageFailed, "账号已归档，但原宿主未恢复运行，请查看流程记录", "宿主恢复启动失败")
 		return
 	}
 
 	msg := "账号 " + addedEmail + " 已添加"
 	if restored {
-		msg += "；已恢复原账号 " + origEmail
+		msg += "；已恢复原凭据 " + origEmail
 	} else {
-		msg += "，并已成为当前账号"
+		msg += "；系统凭据已保留，宿主内部身份未确认"
 	}
 	if !hadHost {
 		msg += "；流程开始时没有宿主在运行，未自动启动宿主"
@@ -600,7 +575,7 @@ func brokerRestore(origRaw []byte, origEmail string, prior RuntimeModeFacts, had
 			if err := clearBrokerRecovery(); err != nil {
 				restored = false
 			}
-			brokerStage(brokerStageRestoring, "已恢复原账号 "+origEmail)
+			brokerStage(brokerStageRestoring, "已恢复原凭据 "+origEmail)
 		} else {
 			log.Printf("[2ag] Login Broker：原凭据写回后校验不一致（期望 %s，实际 %s）", origEmail, strings.TrimSpace(got))
 		}
@@ -622,7 +597,7 @@ func brokerRestore(origRaw []byte, origEmail string, prior RuntimeModeFacts, had
 		}
 		if err := restartHostInMode(prior.Effective, target); err != nil {
 			log.Printf("[2ag] Login Broker：重启宿主失败（形态 %s）: %v", prior.Effective, err)
-			brokerStage(brokerStageRestoring, "宿主重启失败："+err.Error()+"（登录身份已恢复）")
+			brokerStage(brokerStageRestoring, "宿主重启失败："+err.Error()+"（系统凭据已恢复）")
 		} else {
 			brokerMutate(func(s *LoginBrokerStatus) { s.HostRestarted = true })
 			brokerStage(brokerStageRestoring, "已按「"+modeLabel(prior.Effective)+"」重启宿主")
@@ -637,14 +612,14 @@ func brokerRollbackAndFinish(reason string, origRaw []byte, origEmail string, pr
 	detail := reason
 	switch {
 	case origEmail == "":
-		detail += "；流程开始时没有登录账号，当前身份：" + orNoAccount(currentEmail)
+		detail += "；流程开始时没有系统凭据，当前凭据归属：" + orNoAccount(currentEmail)
 	case restored:
-		detail += "；原账号 " + origEmail + " 已恢复"
+		detail += "；原凭据 " + origEmail + " 已恢复（宿主内部身份未确认）"
 	default:
-		detail += "；原账号 " + origEmail + " **未能确认恢复**（当前身份：" + orNoAccount(currentEmail) + "）"
+		detail += "；原凭据 " + origEmail + " **未能确认恢复**（当前凭据归属：" + orNoAccount(currentEmail) + "）"
 	}
 	stage := brokerStageFailed
-	if brokerCancelled() && (origEmail == "" || restored) {
+	if brokerCancelled() && (origEmail == "" || restored) && (!hadHost || LoginBrokerStatusNow().HostRestarted) {
 		stage = brokerStageCancelled
 	}
 	if origEmail != "" && !restored {
@@ -662,13 +637,7 @@ func orNoAccount(v string) string {
 
 // restartHostInMode 按指定形态重启宿主（停 → 起），供切换与恢复共用。
 func restartHostInMode(mode, accountEmail string) error {
-	if mode == RuntimeModeOfficialValue {
-		return LaunchOfficialHost("")
-	}
-	if strings.TrimSpace(accountEmail) != "" {
-		SetActiveAccount(accountEmail)
-	}
-	return LaunchEnhancedHost("", accountEmail)
+	return launchHostInMode(mode, "", accountEmail)
 }
 
 // SwitchAccountTransactional 事务化切换登录账号：停宿主 → 写凭据 → 启动 → 校验 → 提交/回滚。
@@ -688,6 +657,12 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 	}
 	var out AccountSwitchResult
 	out.Email = strings.TrimSpace(email)
+	if err := ValidateLaunchAccount(out.Email); err != nil {
+		return out, err
+	}
+	if err := RequireManagedHosts(); err != nil {
+		return out, err
+	}
 	if out.Email == "" {
 		return out, fmt.Errorf("切换账号需要明确的目标邮箱")
 	}
@@ -696,14 +671,11 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 	if err != nil {
 		return out, err
 	}
-	if len(target) == 0 {
-		return out, fmt.Errorf("保险库里 %s 的凭据为空，拒绝写入", out.Email)
+	credential, err := StoredCredentialValidation(target, out.Email)
+	if err != nil {
+		return out, err
 	}
-	if verified, ok := credentialUsableEmail(target); !ok {
-		return out, fmt.Errorf("保险库里 %s 的凭据不是一份完整登录（缺少 access_token / id_token），拒绝写入", out.Email)
-	} else if !strings.EqualFold(verified, out.Email) {
-		return out, fmt.Errorf("保险库里 %s 的凭据实际属于 %s，拒绝写入", out.Email, verified)
-	}
+	out.CredentialState, out.CredentialRecovery = credential.State, credential.Recovery
 
 	prevRaw, err := readAntigravityCredentialRaw()
 	if err != nil {
@@ -716,7 +688,7 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 		return out, fmt.Errorf("identity mismatch：无法识别原凭据，未切换")
 	}
 	prior := RuntimeModeFactsNow(configuredMode)
-	out.Mode = prior.Effective
+	out.Mode = configuredMode
 	hadHost := prior.Effective != "none"
 
 	// 切换是破坏性的：当前凭据里可能有宿主刚刷新过的 refresh_token，
@@ -731,14 +703,27 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 		return out, fmt.Errorf("宿主仍在运行，未写入目标凭据")
 	}
 	if err := writeAntigravityCredentialRaw(target); err != nil {
-		return out, fmt.Errorf("写入目标凭据失败: %w", err)
+		ok, owner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
+		out.RolledBack, out.RollbackCredentialVerified = ok, ok
+		out.Message = fmt.Sprintf("写入失败: %v；原凭据恢复: %t（%s）", err, ok, owner)
+		return out, fmt.Errorf("%s", out.Message)
 	}
 	log.Printf("[2ag] 账号切换：已写入目标凭据 %s（%d B）", out.Email, len(target))
-
-	mode := prior.Effective
-	if mode == "" || mode == "none" {
-		mode = configuredMode
+	// Verify the written material before starting, with the same stored policy.
+	// Expiration must not turn a successful credential write into a rollback.
+	back, verifyErr := readAntigravityCredentialRaw()
+	if verifyErr == nil {
+		credential, verifyErr = StoredCredentialValidation(back, out.Email)
 	}
+	if verifyErr != nil {
+		ok, owner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
+		out.RolledBack, out.RollbackCredentialVerified = ok, ok
+		out.Message = fmt.Sprintf("目标凭据回读失败；原凭据恢复: %t（%s）", ok, owner)
+		return out, fmt.Errorf("%s: %w", out.Message, verifyErr)
+	}
+	out.CredentialState, out.CredentialRecovery = credential.State, credential.Recovery
+
+	mode := configuredMode
 	if strings.TrimSpace(mode) == "" {
 		mode = "enhanced"
 	}
@@ -746,40 +731,65 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 		// 启动失败也算切换失败：宿主没起来就无从校验，必须回滚。
 		out.RolledBack = true
 		rollbackOK, rollbackOwner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
-		out.RollbackVerified = rollbackOK
+		out.RollbackCredentialVerified = rollbackOK
+		out.RolledBack = rollbackOK
 		out.Message = "启动宿主失败：" + err.Error()
 		if rollbackOK {
-			out.Message += "；已回滚到 " + rollbackOwner
+			out.Message += "；已恢复原凭据到 " + rollbackOwner
 		} else {
 			out.Message += "；恢复原账号失败，请从保险库恢复"
 		}
-		return out, fmt.Errorf("切换账号 %s 失败：%s", out.Email, out.Message)
+		return out, fmt.Errorf("切换账号 %s 失败；%s: %w", out.Email, out.Message, err)
 	}
 	out.HostRestarted = true
-
 	got := waitForHostLoginEmail(out.Email, 8)
-	out.VerifiedOwner = got
-	out.Verified = strings.EqualFold(got, out.Email)
-	if out.Verified {
-		SetActiveAccount(out.Email)
-		if mode != RuntimeModeOfficialValue {
-			SetPersistedActiveAccount(out.Email)
+	out.CredentialOwner = got
+	out.CredentialVerified = strings.EqualFold(got, out.Email)
+	if out.CredentialVerified {
+		if raw, readErr := readAntigravityCredentialRaw(); readErr == nil {
+			if current, err := StoredCredentialValidation(raw, out.Email); err == nil {
+				out.CredentialState, out.CredentialRecovery = current.State, current.Recovery
+			}
 		}
-		out.Message = "已切换到 " + out.Email + "（宿主已按「" + modeLabel(mode) + "」重启，实际登录身份已核对一致）"
-		return out, nil
+		if err := SetSelectedAccount(out.Email); err != nil {
+			ok, owner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
+			out.RolledBack, out.RollbackCredentialVerified = ok, ok
+			out.Message = fmt.Sprintf("账号选择保存失败: %v；原凭据恢复: %t（%s）", err, ok, owner)
+			return out, fmt.Errorf("%s: %w", out.Message, err)
+		}
+		// A live host plus verified shared credentials is not an internal login
+		// confirmation. Leave active untouched and report a pending identity.
+		out.VerifiedOwner = GetActiveAccountEmail()
+		if strings.EqualFold(out.VerifiedOwner, out.Email) {
+			out.Verified = true
+			out.IdentityStatus = "confirmed"
+			out.Message = "宿主内部身份已确认，账号切换完成"
+			return out, nil
+		}
+		out.IdentityStatus = "unavailable"
+		out.Message = "目标凭据已应用，宿主已启动；宿主内部登录身份尚未确认，未提交 active account"
+		if out.CredentialRecovery != "" {
+			out.Message += "；短期 token 待宿主恢复，尚未确认刷新成功"
+		}
+		return out, &IdentityUnverifiedError{Message: out.Message}
 	}
 
 	// 回滚：写回旧凭据 → 重启 → 再校验一次
 	out.RolledBack = true
 	rollbackOK, rollbackOwner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
-	out.RollbackVerified = rollbackOK
-	out.Message = "切换失败：宿主实际登录身份是 " + orNoAccount(got) + "（目标 " + out.Email + "）"
+	out.RollbackCredentialVerified = rollbackOK
+	out.RolledBack = rollbackOK
+	out.Message = "切换失败：系统凭据归属是 " + orNoAccount(got) + "（目标 " + out.Email + "）"
 	if rollbackOK {
-		out.Message += "；已回滚到 " + rollbackOwner
+		out.Message += "；已恢复原凭据到 " + rollbackOwner
 	} else {
 		out.Message += "；恢复原账号失败，请从保险库恢复"
 	}
-	errOut := fmt.Errorf("切换账号 %s 失败：校验实际身份为 %s。%s", out.Email, orNoAccount(got), out.Message)
+	code := CredentialOwnerMismatch
+	if strings.TrimSpace(got) == "" {
+		code = CredentialOwnerMissing
+	}
+	errOut := credentialError(code, out.Message)
 	return out, errOut
 }
 
@@ -808,6 +818,7 @@ func switchRollback(prevRaw []byte, prevEmail string, prior RuntimeModeFacts, ha
 		}
 		if err := restartHostInMode(mode, prevEmail); err != nil {
 			log.Printf("[2ag] 账号切换回滚：重启宿主失败: %v", err)
+			return false, prevEmail
 		}
 	}
 	owner := waitForHostLoginEmail(prevEmail, 8)
@@ -815,7 +826,7 @@ func switchRollback(prevRaw []byte, prevEmail string, prior RuntimeModeFacts, ha
 	return ok, owner
 }
 
-// waitForHostLoginEmail 轮询等待宿主登录身份变成期望值（读的是凭据管理器的真实事实）。
+// waitForHostLoginEmail reads shared credential ownership only, never host-internal identity.
 func waitForHostLoginEmail(want string, tries int) string {
 	got := ""
 	for i := 0; i < tries; i++ {

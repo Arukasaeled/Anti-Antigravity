@@ -46,7 +46,7 @@ type LoginBrokerStatus struct {
 
 	AccountEmail  string `json:"account_email,omitempty"`  // 本次添加到的账号
 	OriginalEmail string `json:"original_email,omitempty"` // 流程开始前的账号（可能为空）
-	CurrentEmail  string `json:"current_email,omitempty"`  // 流程结束时的实际登录身份
+	CurrentEmail  string `json:"current_email,omitempty"`  // 流程结束时的系统凭据归属
 	OriginalMode  string `json:"original_mode,omitempty"`  // 流程开始前的运行形态
 
 	VaultSaved    bool `json:"vault_saved"`
@@ -66,14 +66,24 @@ type LoginBrokerStatus struct {
 // Verified 与 RollbackVerified 必须分开报：它们回答的是两个不同的问题 ——
 // 「切过去了吗」和「没切过去的话，原来的账号回来了吗」。只报前者，用户就无法
 // 判断自己现在到底在哪个账号上。
+type IdentityUnverifiedError struct{ Message string }
+
+func (e *IdentityUnverifiedError) Error() string { return e.Message }
+
 type AccountSwitchResult struct {
-	Email            string `json:"email"`
-	PreviousOwner    string `json:"previous_owner,omitempty"`
-	Mode             string `json:"mode,omitempty"`
-	HostRestarted    bool   `json:"host_restarted"`
-	VerifiedOwner    string `json:"verified_owner,omitempty"`
-	Verified         bool   `json:"verified"`
-	RolledBack       bool   `json:"rolled_back"`
-	RollbackVerified bool   `json:"rollback_verified"`
-	Message          string `json:"message"`
+	CredentialOwner            string `json:"credential_owner,omitempty"`
+	CredentialVerified         bool   `json:"credential_verified"`
+	CredentialState            string `json:"credential_state,omitempty"`
+	CredentialRecovery         string `json:"credential_recovery,omitempty"`
+	RollbackCredentialVerified bool   `json:"rollback_credential_verified"`
+	IdentityStatus             string `json:"identity_status"`
+	Email                      string `json:"email"`
+	PreviousOwner              string `json:"previous_owner,omitempty"`
+	Mode                       string `json:"mode,omitempty"`
+	HostRestarted              bool   `json:"host_restarted"`
+	VerifiedOwner              string `json:"verified_owner,omitempty"`
+	Verified                   bool   `json:"verified"`
+	RolledBack                 bool   `json:"rolled_back"`
+	RollbackVerified           bool   `json:"rollback_verified"`
+	Message                    string `json:"message"`
 }

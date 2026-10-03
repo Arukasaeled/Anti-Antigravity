@@ -28,30 +28,36 @@ type ContextItem struct {
 }
 
 type ContextSnapshot struct {
-	ViewAvailable    bool                 `json:"view_available"`
-	SessionID        string               `json:"session_id"`
-	Model            string               `json:"model"`
-	Mode             string               `json:"mode"`
-	Source           string               `json:"source"`
-	SampledAt        int64                `json:"sampled_at"`
-	UsedTokens       *int64               `json:"used_tokens"`
-	LimitTokens      *int64               `json:"limit_tokens"`
-	InputTokens      *int64               `json:"input_tokens"`
-	CacheReadTokens  *int64               `json:"cache_read_tokens"`
-	CacheWriteTokens *int64               `json:"cache_write_tokens"`
-	OutputTokens     *int64               `json:"output_tokens"`
-	UsageStep        *int64               `json:"usage_step"`
-	UsageAt          *int64               `json:"usage_at"`
-	CompositionScope string               `json:"composition_scope"`
-	Composition      []ContextComposition `json:"composition"`
-	Items            []ContextItem        `json:"items"`
-	Steps            int                  `json:"steps"`
-	Turns            int                  `json:"turns"`
-	ToolOutputs      int                  `json:"tool_outputs"`
-	WorkspaceDirs    []string             `json:"workspace_dirs"`
-	Activity         string               `json:"activity"`
-	Note             string               `json:"note"`
-	Partial          bool                 `json:"partial"`
+	SchemaVersion     int                  `json:"schema_version"`
+	Request           *GenerationUsage     `json:"request"`
+	SessionUsage      *SessionUsage        `json:"session_usage"`
+	ContextTokens     *int64               `json:"context_tokens"`
+	ContextProvenance string               `json:"context_provenance"`
+	LoadedHistory     []ContextComposition `json:"loaded_history"`
+	ViewAvailable     bool                 `json:"view_available"`
+	SessionID         string               `json:"session_id"`
+	Model             string               `json:"model"`
+	Mode              string               `json:"mode"`
+	Source            string               `json:"source"`
+	SampledAt         int64                `json:"sampled_at"`
+	UsedTokens        *int64               `json:"used_tokens"`
+	LimitTokens       *int64               `json:"limit_tokens"`
+	InputTokens       *int64               `json:"input_tokens"`
+	CacheReadTokens   *int64               `json:"cache_read_tokens"`
+	CacheWriteTokens  *int64               `json:"cache_write_tokens"`
+	OutputTokens      *int64               `json:"output_tokens"`
+	UsageStep         *int64               `json:"usage_step"`
+	UsageAt           *int64               `json:"usage_at"`
+	CompositionScope  string               `json:"composition_scope"`
+	Composition       []ContextComposition `json:"composition"`
+	Items             []ContextItem        `json:"items"`
+	Steps             int                  `json:"steps"`
+	Turns             int                  `json:"turns"`
+	ToolOutputs       int                  `json:"tool_outputs"`
+	WorkspaceDirs     []string             `json:"workspace_dirs"`
+	Activity          string               `json:"activity"`
+	Note              string               `json:"note"`
+	Partial           bool                 `json:"partial"`
 }
 
 type ContextPoint struct {
@@ -233,7 +239,7 @@ func (m *CDPRuntimeManager) injection(wsURL string, err error) {
 
 func (m *CDPRuntimeManager) sample(wsURL string, session *persistentCDPSession) {
 	// Prefer the installed runtime's cached, event-driven observation. The fallback is pure read-only.
-	expression := `(typeof window.__2ag?.runtimeSnapshot === 'function' ? window.__2ag.runtimeSnapshot() : null)`
+	expression := `(typeof window.__2ag?.runtimeSnapshot === 'function' ? (()=>{const s=window.__2ag.runtimeSnapshot();return s?.context?.schema_version===2?s:null;})() : null)`
 	value, err := session.evalRaw(9010, expression)
 	if err == nil && value == nil {
 		value, err = session.evalRaw(9011, `({context:`+patcher.ContextProbeExpression()+`,hub:false})`)
@@ -295,7 +301,7 @@ func (m *CDPRuntimeManager) sample(wsURL string, session *persistentCDPSession) 
 			point.Delta = &delta
 			point.Cause = "最近请求更新 · 归因未知"
 			if delta < 0 {
-				point.Cause = "用量下降 · 可能发生压缩或截断"
+				point.Cause = "最近请求输入下降 · 归因未知"
 			}
 			if next.CompositionScope == "active_prompt" && previous.CompositionScope == "active_prompt" {
 				largest, kind := int64(0), ""

@@ -351,12 +351,12 @@ func decryptCockpitEnvelope(env cockpitEnvelope, key []byte) ([]byte, error) {
 //
 // 结构对齐 cockpit-tools 的 build_antigravity_credential_payload —— 只写
 // token{access_token, token_type, refresh_token, expiry} + auth_method，
+// 并附带旧账号记录的 email 作为凭据 owner 元数据，不能作为宿主身份。
 // **刻意不写 id_token**：cockpit 里存的 id_token 往往已过期，而宿主在拿到
-// refresh_token 后会自行刷新并补写自己的 id_token。身份识别因此不依赖这里，
-// 由 identifyCredentialOwner 用 refresh_token 精确比对得出（见下）。
+// refresh_token 后会自行刷新并补写自己的 id_token。
 func BuildAntigravityCredentialPayload(acc cockpitAccountPlain) ([]byte, error) {
 	if strings.TrimSpace(acc.Token.RefreshToken) == "" {
-		return nil, fmt.Errorf("账号 %s 的凭据缺少 refresh_token，无法切换", acc.Email)
+		return nil, credentialError(CredentialTokenMissing, "账号 "+acc.Email+" 的凭据缺少 refresh_token，无法恢复")
 	}
 	tokenType := strings.TrimSpace(acc.Token.TokenType)
 	if tokenType == "" {
@@ -377,6 +377,8 @@ func BuildAntigravityCredentialPayload(acc cockpitAccountPlain) ([]byte, error) 
 			"expiry":        expiry,
 		},
 		"auth_method": "consumer",
+		// Owner metadata from the legacy account record, not host identity.
+		"email": strings.TrimSpace(acc.Email),
 	}
 	return json.Marshal(payload)
 }
@@ -385,7 +387,7 @@ func BuildAntigravityCredentialPayload(acc cockpitAccountPlain) ([]byte, error) 
 // 对外能力
 // ---------------------------------------------------------------------------
 
-// ReadHostLoginEmail 读取宿主**真实登录身份**。
+// ReadHostLoginEmail reads the shared Windows credential owner, not a process-internal login.
 //
 // 解析顺序（前一步拿不到才退下一步）：
 //  1. 凭据 blob 里的 id_token —— 宿主登录/刷新后会补写，是最直接的答案；
@@ -562,14 +564,15 @@ func credentialPayloadForAccount(email string) (payload []byte, source string, e
 	email = strings.TrimSpace(email)
 
 	// ① 2Ag 自有保险库。
-	if raw, err := ReadVaultCredential(email); err == nil && len(raw) > 0 {
-		var blob antigravityCredentialBlob
-		if json.Unmarshal(raw, &blob) == nil && strings.TrimSpace(blob.Token.RefreshToken) != "" {
-			return raw, "vault", nil
+	if raw, readErr := ReadVaultCredential(email); readErr == nil {
+		if _, err := StoredCredentialValidation(raw, email); err != nil {
+			return nil, "vault", err
 		}
-		// 保险库里那一份不足以完成登录（缺 refresh_token）：
-		// 继续往下找一个真的可用的来源，而不是把半份凭据写进去。
-		log.Printf("[2ag] 保险库里 %s 的凭据缺少 refresh_token，尝试其他来源", email)
+		return raw, "vault", nil
+	} else if AccountErrorCode(readErr) != CredentialMissing {
+		// An existing entry that cannot decrypt/parse is not a missing account.
+		// Preserve that failure instead of silently substituting another source.
+		return nil, "vault", readErr
 	}
 	// 保险库里没有该账号是**正常路径**（例如账号只登记在旧库里），
 	// 不在此处打日志，避免给每一次切换刷出误导性的「失败」。
@@ -580,28 +583,24 @@ func credentialPayloadForAccount(email string) (payload []byte, source string, e
 		if err != nil {
 			return nil, "", err
 		}
+		if _, err := StoredCredentialValidation(built, email); err != nil {
+			return nil, "cockpit", err
+		}
 		return built, "cockpit", nil
 	}
 
-	return nil, "", fmt.Errorf("本机没有 %s 的可用登录凭据：请先在「账号矩阵」里用该账号登录一次（登录后凭据会存进 2Ag 自己的保险库）", email)
+	return nil, "", credentialError(CredentialMissing, "本机没有 "+email+" 的已保存凭据")
 }
 
-// ApplyAntigravityCredential 把指定账号写进 Windows 凭据管理器，使其成为宿主真实登录身份。
+// ApplyAntigravityCredential applies and reads back shared credentials; it does not confirm host login.
 //
-// 幂等：若当前凭据已经属于该账号，直接返回 nil —— 这既是省一次写，更重要的是
-// **避免用可能更旧的 token 覆盖宿主刚刚刷新过的凭据**。宿主刷新后凭据里会带上
-// 自己的 id_token，把它换成旧值只会让登录态倒退。
+// Restores the original payload. Short-lived token recovery belongs to the host;
+// the Vault copy is not rewritten during validation or recovery preparation.
 func ApplyAntigravityCredential(email string) error {
 	email = strings.TrimSpace(email)
-	if email == "" {
-		return fmt.Errorf("切换凭据需要明确的目标邮箱")
+	if err := ValidateLaunchAccount(email); err != nil {
+		return err
 	}
-
-	if current, err := ReadHostLoginEmail(); err == nil && current != "" && strings.EqualFold(current, email) {
-		log.Printf("[2ag] 系统凭据已是目标账号 %s，跳过写入（保留宿主刷新过的 token）", email)
-		return nil
-	}
-
 	payload, source, err := credentialPayloadForAccount(email)
 	if err != nil {
 		return err
@@ -609,11 +608,16 @@ func ApplyAntigravityCredential(email string) error {
 	if err := writeAntigravityCredentialRaw(payload); err != nil {
 		return err
 	}
-	log.Printf("[2ag] 已重写 Windows 凭据管理器 target=%s ⇒ %s (来源 %s, blob %d B)",
-		antigravityCredTarget, email, source, len(payload))
-
-	// 写入即失效身份缓存：下一次读取必须反映新事实，而不是 5 秒前的旧账号。
 	invalidateHostLoginCache()
+	back, err := readAntigravityCredentialRaw()
+	if err != nil {
+		return err
+	}
+	status, err := StoredCredentialValidation(back, email)
+	if err != nil {
+		return fmt.Errorf("目标凭据回读校验失败: %w", err)
+	}
+	log.Printf("[2ag] 系统凭据已应用并回读一致: %s（%s，%s）；恢复流程: %s；宿主内部身份尚未确认", email, source, status.State, status.Recovery)
 	return nil
 }
 

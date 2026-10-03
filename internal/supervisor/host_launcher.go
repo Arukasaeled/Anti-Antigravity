@@ -11,52 +11,16 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 )
 
-var (
-	managedHostMu  sync.RWMutex
-	managedHostPID int
-)
-
-// SetManagedHostPID 设置并持久化当前 2Ag 托管的宿主子进程 PID
-func SetManagedHostPID(pid int) {
-	managedHostMu.Lock()
-	defer managedHostMu.Unlock()
-	managedHostPID = pid
-
-	userHome, err := os.UserHomeDir()
-	if err == nil {
-		pidFile := filepath.Join(userHome, ".2ag", "managed_host.pid")
-		_ = os.MkdirAll(filepath.Dir(pidFile), 0755)
-		if pid > 0 {
-			_ = os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644)
-		} else {
-			_ = os.Remove(pidFile)
-		}
-	}
-}
-
-// GetManagedHostPID 获取当前由 2Ag 托管拉起的宿主 PID
 func GetManagedHostPID() int {
-	managedHostMu.RLock()
-	pid := managedHostPID
-	managedHostMu.RUnlock()
-	if pid > 0 {
-		return pid
+	hosts := managedHosts()
+	if len(hosts) == 0 {
+		return 0
 	}
-	userHome, err := os.UserHomeDir()
-	if err == nil {
-		pidFile := filepath.Join(userHome, ".2ag", "managed_host.pid")
-		if data, err := os.ReadFile(pidFile); err == nil {
-			if savedPID, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && savedPID > 0 {
-				return savedPID
-			}
-		}
-	}
-	return 0
+	return hosts[0].PID
 }
 
 func killPIDSafely(pid int) error {
@@ -149,18 +113,15 @@ func detectDefaultAntigravityPath() string {
 
 // LaunchEnhancedHost 带账号沙箱与 CDP 监听拉起宿主
 func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
-	if IsOfficialRuntime() {
-		// 形态闸。走到这里说明调用方漏判了形态，而不是用户选错了什么 ——
-		// 这条分支必须存在，因为增强形态的启动流程会做三件官方形态下绝对不能做的事：
-		// 写 Windows 凭据管理器、把宿主指到 2Ag 私有沙箱、开启 CDP 调试端口等着被注入。
-		// 静默按增强流程跑起来，用户看到的界面会说他处在「官方形态」，实际却带着补丁。
-		launchPath := exePath
-		if launchPath == "" {
-			launchPath = FindOfficialAntigravity()
-		}
-		log.Printf("[2ag] 当前为官方形态，LaunchEnhancedHost 已改走官方启动路径（不注入、不改凭据、不开 CDP）")
-		return LaunchOfficialHost(launchPath)
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return err
 	}
+	defer release()
+	return launchHostInMode(currentRuntimePolicy(), exePath, activeAccountEmail)
+}
+
+func launchEnhancedHost(exePath string, activeAccountEmail string) error {
 	if exePath == "" {
 		// 增强形态只能跑 2Ag 自己的冻结副本 —— 这是形态隔离的物理前提，
 		// 不是可选的优化。0.1.1 之前那份副本由安装包直接提供（等于随包分发
@@ -174,8 +135,11 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 		exePath = frozen
 	}
 
+	if !IsFrozenHostPath(exePath) {
+		return fmt.Errorf("增强形态只允许启动 2Ag 冻结副本")
+	}
 	if activeAccountEmail == "" {
-		activeAccountEmail = GetActiveAccountEmail()
+		activeAccountEmail = GetSelectedAccountEmail()
 	}
 
 	// 1. 为当前账号分配独立的 Profile 沙箱路径 (对标 cockpit-tools)
@@ -185,12 +149,15 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 		return fmt.Errorf("创建账号沙箱目录失败: %w", err)
 	}
 
-	// 在这里落盘「主控账号」是刻意的：这是全流程中唯一能确凿知道
-	// 「命令行里 --user-data-dir 到底指向哪个沙箱」的时刻。
-	// 宿主起来之后再去猜（扫 localStorage / DOM 找邮箱）在实测中读不到任何东西，
-	// 于是 2Ag 重启后界面上显示的「当前主控」会退回 accounts[0]，
-	// 与实际运行的沙箱不是同一个账号，配额卡片随之张冠李戴。
-	SetPersistedActiveAccount(activeAccountEmail)
+	// A profile name is a requested account, not evidence of a signed-in user.
+	if activeAccountEmail != "" {
+		if err := ValidateLaunchAccount(activeAccountEmail); err != nil {
+			return err
+		}
+	}
+	if err := RequireManagedHosts(); err != nil {
+		return err
+	}
 
 	// 2. 构造启动命令：附加 CDP 调试端口与用户隔离目录
 	// CDP 端口改为动态预留：历史硬编码 28472 一旦被占用，宿主会静默换用随机端口，
@@ -212,23 +179,23 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 	}
 
 	// 确保旧的无 CDP 实例或卡死实例被清理，释放端口与文件锁
-	_ = StopHostClient()
+	if err := stopManagedHosts(); err != nil {
+		return err
+	}
 	time.Sleep(200 * time.Millisecond)
 
-	// 3. 切换真实登录身份 —— 这一步才是「换号」的物理动作。
-	//
-	// Antigravity 2.x 的登录凭据在 Windows 凭据管理器的 gemini:antigravity 里
-	// （CRED_PERSIST_LOCAL_MACHINE ⇒ 机器级、所有 --user-data-dir 共享），
-	// 所以**只换 --user-data-dir 永远改不了原生登录态**：界面左下角依旧显示旧账号。
-	// 必须在这里把目标账号的凭据原子写进去。
-	//
-	// 时序是承重的：必须排在 StopHostClient 之后（宿主退出时可能回写凭据，若先写会被覆盖），
-	// 并且排在 cmd.Start 之前（宿主一启动就读凭据完成登录）。
-	// 失败不阻断启动 —— 宿主仍可用旧身份跑起来，但必须留下明确日志，
-	// 否则用户只会看到「界面还是旧账号」而 2Ag 一声不吭（正是历史缺陷的形态）。
+	// Shared credentials must be written and read back before starting. On a
+	// failure restore the original credential; never run under an old identity.
+	previous, err := readAntigravityCredentialRaw()
+	if err != nil {
+		return err
+	}
 	if activeAccountEmail != "" {
 		if err := ApplyAntigravityCredential(activeAccountEmail); err != nil {
-			log.Printf("[2ag] 警告：切换系统登录凭据到 %s 失败，宿主将以原凭据启动: %v", activeAccountEmail, err)
+			if restoreErr := restoreLaunchCredential(previous); restoreErr != nil {
+				return fmt.Errorf("%v；恢复凭据失败: %w", err, restoreErr)
+			}
+			return err
 		}
 	}
 
@@ -248,19 +215,37 @@ func LaunchEnhancedHost(exePath string, activeAccountEmail string) error {
 	cmd.Dir = workDir
 
 	if err := cmd.Start(); err != nil {
+		if restoreErr := restoreLaunchCredential(previous); restoreErr != nil {
+			return fmt.Errorf("启动失败: %v；恢复凭据失败: %w", err, restoreErr)
+		}
 		return fmt.Errorf("启动宿主失败: %w", err)
 	}
 
-	SetManagedHostPID(cmd.Process.Pid)
+	if err := registerHost(cmd.Process.Pid, HostOwned); err != nil {
+		stopErr := cmd.Process.Kill()
+		_ = cmd.Wait()
+		if stopErr != nil && processAlive(cmd.Process.Pid) {
+			return fmt.Errorf("登记失败: %v；新进程无法停止: %w", err, stopErr)
+		}
+		restoreErr := restoreLaunchCredential(previous)
+		return fmt.Errorf("登记宿主失败: %v；停止结果: %v；凭据恢复: %v", err, stopErr, restoreErr)
+	}
+	go cmd.Wait()
+	if err := waitOwnedHostReady(cmd.Process.Pid, cdpAddr); err != nil {
+		if stopErr := stopManagedHosts(); stopErr != nil {
+			return fmt.Errorf("%v；停止失败: %w", err, stopErr)
+		}
+		if restoreErr := restoreLaunchCredential(previous); restoreErr != nil {
+			return fmt.Errorf("%v；恢复凭据失败: %w", err, restoreErr)
+		}
+		return err
+	}
+	SetRuntimeMode("enhanced")
 	// 完整执行参数行：profileDir 单独打一份便于肉眼核对「换号是否真的换了沙箱」，
 	// 但只有整条 args 才能证明命令行没有被静默裁剪或回退到老账号目录。
 	log.Printf("[2ag] 物理启动 Antigravity 宿主 (PID %d), 启动路径: %s, 工作目录: %s, 账号沙箱: %s, CDP: %s", cmd.Process.Pid, exePath, cmd.Dir, profileDir, cdpAddr)
 	log.Printf("[2ag] 宿主完整命令行: %s %s", exePath, strings.Join(args, " "))
-	if loginEmail, err := ReadHostLoginEmail(); err == nil && loginEmail != "" {
-		log.Printf("[2ag] 宿主真实登录身份（读自 Windows 凭据管理器 target=%s）: %s", antigravityCredTarget, loginEmail)
-	} else {
-		log.Printf("[2ag] 警告：无法从 Windows 凭据管理器读出宿主登录身份（err=%v），界面显示的当前账号可能不可信", err)
-	}
+	log.Printf("[2ag] 宿主已启动；目标凭据归属 %s，宿主内部登录身份尚未确认", activeAccountEmail)
 
 	// 4. 启动后台异步注入协程：CDP 就绪时立即打入 anti-Antigravity 补丁
 	go watchAndInjectCDP(cdpAddr, 15*time.Second)
@@ -275,44 +260,38 @@ func LaunchHostClient(customPath string) error {
 
 // StopHostClient 停止由 2Ag 托管的宿主进程（安全模式：精准按 PID 查杀，严禁通配 taskkill /IM）
 func StopHostClient() error {
-	pid := GetManagedHostPID()
-	if pid <= 0 {
-		status := ProbeRealHost()
-		if status.IsRunning && status.PID > 0 {
-			pid = status.PID
-		}
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return err
 	}
-	if pid <= 0 {
-		log.Printf("[2ag] StopHostClient: 当前未发现运行中的 2Ag 宿主进程，无需停止")
-		return nil
+	defer release()
+	if err := RequireManagedHosts(); err != nil {
+		return err
 	}
-	err := killPIDSafely(pid)
-	SetManagedHostPID(0)
-	return err
+	return stopManagedHosts()
 }
 
-// RestartHostClient 重启宿主进程
-func RestartHostClient(customPath string) error {
-	_ = StopHostClient()
-	time.Sleep(600 * time.Millisecond)
-	return LaunchHostClient(customPath)
-}
+func RestartHostClient(customPath string) error { return RestartEnhancedHost(customPath, "") }
 
-// RestartEnhancedHost 重启并切换账号沙箱拉起宿主
-func RestartEnhancedHost(customPath string, activeAccountEmail string) error {
-	_ = StopHostClient()
-	time.Sleep(600 * time.Millisecond)
-	return LaunchEnhancedHost(customPath, activeAccountEmail)
-}
-
-// TakeoverHost 重新拉起宿主并附加当前激活沙箱路径与动态预留的 CDP 调试端口
-func TakeoverHost(customPath string, activeAccountEmail string) error {
-	// 如果当前有 2Ag 托管的旧实例，先精准安全停止（严禁误杀当前 IDE）
-	_ = StopHostClient()
-	time.Sleep(300 * time.Millisecond)
-
-	if activeAccountEmail == "" {
-		activeAccountEmail = GetActiveAccountEmail()
+func RestartEnhancedHost(customPath, email string) error {
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return err
 	}
-	return LaunchEnhancedHost(customPath, activeAccountEmail)
+	defer release()
+	return launchHostInMode(currentRuntimePolicy(), customPath, email)
+}
+
+// The mode must be supplied by the API's current configured state.
+func TakeoverHost(customPath, email string, configuredModes ...string) error {
+	if len(configuredModes) != 1 {
+		return fmt.Errorf("接管必须指定当前 configured runtime mode")
+	}
+	mode := configuredModes[0]
+	release, err := lockCredentialOperation()
+	if err != nil {
+		return err
+	}
+	defer release()
+	return launchHostInMode(mode, customPath, email)
 }

@@ -3,6 +3,7 @@ package patcher
 import (
 	"bufio"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/2ag/2ag/internal/control"
 )
 
 type BridgeHandler func(context.Context, map[string]any) (any, error)
@@ -151,6 +154,7 @@ func (b *CDPBridge) readLoop() {
 
 func (b *CDPBridge) dispatch(payload string) {
 	var request struct {
+		Token  string         `json:"control_token"`
 		ID     string         `json:"id"`
 		Method string         `json:"method"`
 		Params map[string]any `json:"params"`
@@ -160,6 +164,11 @@ func (b *CDPBridge) dispatch(payload string) {
 		return
 	}
 	response := map[string]any{"id": request.ID}
+	if subtle.ConstantTimeCompare([]byte(request.Token), []byte(control.Token())) != 1 {
+		response["error"] = "Manager control token required"
+		b.deliver(response)
+		return
+	}
 	if request.Method == "core.diagnostics.devtools" {
 		// Prefer the native handler, which can open the browser's DevTools
 		// frontend from the loopback CDP endpoint. Keep the DOM key event as a
