@@ -278,6 +278,11 @@ func listenManagerAPI() (net.Listener, int, error) {
 }
 
 func startManager(configPath string, cfg config.Config) error {
+	if relaunched, err := relaunchVisibleManager(); err != nil {
+		return err
+	} else if relaunched {
+		return nil
+	}
 	// 1. 单实例互斥锁检测：若已有 Manager 在运行，则激活已有视窗并安全退出当前重复实例，杜绝冲突一闪而过
 	createMutex := kernel32.NewProc("CreateMutexW")
 	findWindow := user32.NewProc("FindWindowW")
