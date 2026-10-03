@@ -12,7 +12,7 @@
 
 **[⬇ Download v0.1.1](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)** · [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
 
-当前源码为 **v0.2.0-rc.2 Interaction Layer / Live Trace 2.0**，公开安装包仍以 Release 页面为准。新功能与已检查的范围见 [v0.2.0 说明](RELEASE-NOTES-v0.2.0.md)，可按 [构建指南](docs/BUILD.md) 打包当前源码。RC2 的实机范围、性能回放与限制见 [验证记录](docs/RC2-REALITY-OBSERVABILITY.md)。
+当前源码为 **v0.2.0-rc.3 Interaction Layer / Live Trace 2.0**，公开安装包仍以 Release 页面为准。新功能与已检查的范围见 [v0.2.0 说明](RELEASE-NOTES-v0.2.0.md)，可按 [构建指南](docs/BUILD.md) 打包当前源码。RC2 的实机范围、性能回放与限制见 [验证记录](docs/RC2-REALITY-OBSERVABILITY.md)；RC3 的白屏修复、切号对照及未完成验收见 [实机记录](docs/RC3-ACCOUNT-SWITCH-REALITY.md)。
 
 <img src="docs/screenshots/01-overview-light.png" alt="2Ag Manager 概览" width="880">
 
@@ -146,9 +146,9 @@ Live Trace 在增强形态的 G-Hub 中打开；窗口关闭即取消订阅，�
 4. 2Ag 等待完整新登录、原生服务确认有效身份及新 access token 后捕获它、加密入库；
 5. 自动恢复你原来的账号及运行形态，核对原生身份后清除恢复记录；流程中断时，下次启动 2Ag 先恢复凭据。恢复凭据与确认原生登录分开报告。
 
-日常切换保险库账号复用当前形态，不打开官方登录窗口。过期但完整的归档先交给原生宿主刷新，不能仅凭旧 ID token 的时间判断“缺少 token”，也不能仅凭凭据写入报告成功。原生地区／资格拒绝会显示其真实原因并回滚。增强形态的 OAuth URI 使用同一可执行文件与账号 profile，避免产生默认 profile 的第二个宿主。
+日常切换保险库账号复用当前形态，不打开官方登录窗口。先刷新目标登录并由 Google 核验邮箱，再停止宿主、写入凭据并核验原生登录。预检失败保留当前宿主；原生地区／资格拒绝会显示真实原因并回滚。不能仅凭旧 ID token 的时间判断“缺少 token”，也不能仅凭凭据写入报告成功。增强形态的 OAuth URI 使用同一可执行文件与账号 profile，避免产生默认 profile 的第二个宿主。
 
-**2Ag 全程不接触你的 Google 密码、授权码或 OAuth 客户端配置。**
+**2Ag 不接触你的 Google 密码或登录授权码。** 添加账号由官方宿主完成 Google 登录；切号预检从你本机的原生运行时读取匹配的桌面 OAuth 客户端配置，仅在内存中用于续期，不随仓库或安装包分发、不写日志或前端。隐私边界见 [安全说明](docs/SECURITY.md)。
 
 登录完成后，凭据存进 **2Ag 自己的账号库**（`~/.2ag/`，DPAPI 加密 + 一份不含 token 的账号清单）。
 添加账号**不需要**你本机装过任何第三方工具。
@@ -199,7 +199,7 @@ Live Trace 在增强形态的 G-Hub 中打开；窗口关闭即取消订阅，�
 - **Windows x64 only** —— 依赖 Windows 凭据管理器与 Job Object。
 - **必须自备官方 Antigravity** —— 2Ag 不包含、不分发它。
 - **冻结宿主会落后** —— 官方 updater 更新的是你的官方安装，2Ag 的副本不会自动跟。落后多少由更新守护如实报出，要不要同步你决定。
-- **非活跃账号的凭据会过期** —— 配额探测用的是账号自己的 access_token，只有官方 Antigravity 会续期它。当前正在用的账号总是新鲜的；长期没用的账号会读不到配额，显示过期而**不是**假数字。想让它重新可用，用官方 Antigravity 登录一次该账号即可（2Ag 不内置、也不需要 OAuth 客户端密钥）。
+- **非活跃账号的 access 会过期** —— 切号预检会续期并核验目标 Google 身份。配额后台探测不循环续期所有账号，无法取得实时配额时如实标注。刷新授权已撤销时需重新添加账号；原生资格仍须单独核验。2Ag 不内置 OAuth 客户端配置。
 - **登录凭据是机器级共享的** —— 官方 Antigravity 与 2Ag 沙箱读同一条系统凭据记录，这是 Windows 凭据模型决定的，2Ag 只能做到 profile 隔离。环境诊断会把这一条标成共享。
 - **部分运行时开关受宿主版本限制** —— 面板会标「实验性 / 开发中」并在宿主侧容器未挂钩时明说「切换不会生效」。
 

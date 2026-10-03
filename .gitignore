@@ -49,6 +49,7 @@ Thumbs.db
 /_codex-*-task.md
 /_run-codex-*.ps1
 /internal/supervisor/local_recovery_probe_test.go
+/internal/supervisor/local_cockpit_probe_test.go
 *.heapprofile
 *.cpuprofile
 *.trace
