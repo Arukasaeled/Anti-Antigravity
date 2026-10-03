@@ -106,6 +106,9 @@ func (s *Server) routes() {
 	// 舱内账号轮转：G-Cockpit 不切回 2Ag 主窗口就能换账号并重启宿主沙箱。
 	s.mux.HandleFunc("/api/v1/host/switch-and-restart", s.handleHostSwitchAndRestart)
 	s.mux.HandleFunc("/api/v1/host/switch-status", s.handleAccountSwitchStatus)
+	s.mux.HandleFunc("/api/v1/accounts/health", s.handleAccountHealth)
+	s.mux.HandleFunc("/api/v1/accounts/health-ui.js", s.handleAccountHealthUI)
+	s.mux.HandleFunc("/api/v1/trace/open-file", s.handleTraceOpenFile)
 	s.mux.HandleFunc("/api/v1/sessions", s.handleSessionsRoute)
 	s.mux.HandleFunc("/api/v1/sessions/export", s.handleExportSession)
 	s.mux.HandleFunc("/api/v1/sessions/delete", s.handleDeleteSession)

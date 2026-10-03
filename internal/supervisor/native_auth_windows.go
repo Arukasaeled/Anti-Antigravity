@@ -44,7 +44,8 @@ func readNativeAuthAt(addr string) NativeAuthState {
 	return state
 }
 
-func ReadNativeAuthState() NativeAuthState {
+func ReadNativeAuthState() (result NativeAuthState) {
+	defer func() { recordNativeObservation(result) }()
 	if IsOfficialRuntime() {
 		return readNativeAuthRPC()
 	}

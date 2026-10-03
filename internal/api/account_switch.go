@@ -3,22 +3,28 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/2ag/2ag/internal/patcher"
 	"github.com/2ag/2ag/internal/supervisor"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
 
 type switchJob struct {
-	Running    bool                           `json:"running"`
-	Email      string                         `json:"email"`
-	Success    bool                           `json:"success"`
-	Message    string                         `json:"message"`
-	FinishedAt string                         `json:"finished_at,omitempty"`
-	Result     supervisor.AccountSwitchResult `json:"result"`
+	Running          bool                           `json:"running"`
+	Email            string                         `json:"email"`
+	Success          bool                           `json:"success"`
+	Message          string                         `json:"message"`
+	FinishedAt       string                         `json:"finished_at,omitempty"`
+	Result           supervisor.AccountSwitchResult `json:"result"`
+	Transaction      supervisor.AccountTransaction  `json:"transaction"`
+	UserMessage      string                         `json:"user_message,omitempty"`
+	UserMessageEN    string                         `json:"user_message_en,omitempty"`
+	TechnicalDetails string                         `json:"technical_details,omitempty"`
 }
 
 var accountSwitchJob struct {
@@ -46,7 +52,11 @@ func (s *Server) startAccountSwitch(w http.ResponseWriter, email string) {
 		if err != nil {
 			message = err.Error()
 		}
-		state := switchJob{Email: email, Success: err == nil, Message: message, FinishedAt: time.Now().Format(time.RFC3339), Result: result}
+		userMessage, userMessageEN := switchUserMessage(result, err)
+		state := switchJob{Email: email, Success: err == nil, Message: message, FinishedAt: time.Now().Format(time.RFC3339), Result: result, Transaction: supervisor.CurrentAccountTransaction(), UserMessage: userMessage, UserMessageEN: userMessageEN}
+		if err != nil {
+			state.TechnicalDetails = message
+		}
 		if err := persistSwitchReceipt(state); err != nil {
 			log.Printf("[2ag] 保存切号回执失败: %v", err)
 			state.Message += "；回执保存失败，重启后无法回看本次结果"
@@ -106,7 +116,80 @@ func (s *Server) handleAccountSwitchStatus(w http.ResponseWriter, r *http.Reques
 			}
 		}
 	}
+	if state.Running {
+		state.Transaction = supervisor.CurrentAccountTransaction()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	json.NewEncoder(w).Encode(state)
+}
+
+func switchUserMessage(result supervisor.AccountSwitchResult, err error) (string, string) {
+	if err == nil {
+		return "原生登录已核验", "Native sign-in verified"
+	}
+	zh, en := "无法切换账号。请查看账号健康状态。", "Couldn't switch accounts. Check Account Health."
+	if result.RolledBack {
+		if result.RollbackVerified {
+			zh += " 原账号已恢复并核验。"
+			en += " Your previous account was restored and verified."
+		} else {
+			zh += " 恢复尚未确认，请重启 Manager 继续恢复。"
+			en += " Recovery isn't verified. Restart Manager to continue recovery."
+		}
+	}
+	if strings.Contains(err.Error(), "ineligible") {
+		zh = "Antigravity 原生服务拒绝了此账号的使用资格。" + strings.TrimPrefix(zh, "无法切换账号。请查看账号健康状态。")
+		en = "Antigravity rejected this account's eligibility." + strings.TrimPrefix(en, "Couldn't switch accounts. Check Account Health.")
+	}
+	return zh, en
+}
+
+func (s *Server) handleAccountHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	health := supervisor.AccountHealthSnapshot(r.URL.Query().Get("email"))
+	accountSwitchJob.Lock()
+	receipt := accountSwitchJob.state
+	accountSwitchJob.Unlock()
+	if receipt.Email == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			if raw, err := os.ReadFile(filepath.Join(home, ".2ag", "workspace", "account-switch.json")); err == nil {
+				_ = json.Unmarshal(raw, &receipt)
+			}
+		}
+	}
+	health["last_switch"] = receipt
+	json.NewEncoder(w).Encode(health)
+}
+
+func (s *Server) handleAccountHealthUI(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	fmt.Fprint(w, "window.TwoAgAccountHealth = "+patcher.AccountHealthSource+";")
+}
+
+func (s *Server) handleTraceOpenFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var body struct {
+		Path string `json:"path"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&body) != nil {
+		http.Error(w, "invalid file path", 400)
+		return
+	}
+	err := supervisor.OpenTraceFile(body.Path)
+	w.Header().Set("Content-Type", "application/json")
+	message := ""
+	if err != nil {
+		w.WriteHeader(409)
+		message = err.Error()
+	}
+	json.NewEncoder(w).Encode(map[string]any{"success": err == nil, "message": message})
 }

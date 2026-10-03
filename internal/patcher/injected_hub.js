@@ -945,6 +945,7 @@
   let hubPanelDismisser = null;
   // → 最新一次挂载的 syncThemeChips：主窗口改了主题时，舱内主题卡的高亮要跟着走
   let hubThemeSyncer = null;
+  let accountDoctor=null;
   let hubDisposed = false;         // dispose() 之后彻底停摆，不再自愈/响应快捷键
 
   function clearHubRuntimeHandles() {
@@ -3802,7 +3803,7 @@
       if (next === 'capsule') { refreshProject(); renderCapsulePins(); updateCapsulePreview(); }
       persistRecovery();
       showcase?.pageChanged(next);
-      if(next==='trace'&&!traceViewCleanup)traceViewCleanup=liveTrace.mount($('il-trace'),{i18n:extensionAPI.i18n,copy:copyText,context:extensionAPI.context,toast:extensionAPI.toast});
+      if(next==='trace'&&!traceViewCleanup)traceViewCleanup=liveTrace.mount($('il-trace'),{i18n:extensionAPI.i18n,copy:copyText,context:extensionAPI.context,toast:extensionAPI.toast,openFile:async path=>{const response=await request('/api/v1/trace/open-file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});const result=await response.json();if(!result.success)throw new Error(result.message||'Unable to open file');}});
     }
     function insertAtCursor(text) {
       const editor = $('il-prompt');
@@ -4510,7 +4511,7 @@
     };
     window.__2AG_IPC_DELIVER__ = deliver;
     const extensionAPI = Object.assign({}, oldAPI, {
-      apiVersion: '1.3',
+      apiVersion: '1.4',
       i18n: { get language(){return uiLanguage;},t: (zh,en) => en===undefined?t(zh):uiLanguage==='zh-CN'?zh:en,onChange(callback){if(typeof callback!=='function')throw new Error('onChange requires a function');languageListeners.add(callback);return()=>languageListeners.delete(callback);} },
       registerCommand: item => register(commands, item, 'registerCommand'),
       registerPanel: item => register(panels, item, 'registerPanel'),
@@ -5096,6 +5097,8 @@
     const reloadBtn = shadow.getElementById('btn-action-reload');
     const themeRow = shadow.getElementById('theme-row');
     const acctListEl = shadow.getElementById('acct-list');
+    accountDoctor?.dispose();
+    accountDoctor=__2AG_ACCOUNT_HEALTH_FACTORY__({language:()=>state.language,request:async email=>(await fetchFirstOk('/api/v1/accounts/health?email='+encodeURIComponent(email))).json()}).mount(acctListEl.parentElement);
     const loadingEl = shadow.getElementById('ghub-loading');
 
     // 计算与布局更新
@@ -5841,8 +5844,9 @@
           while(accountSwitchPending && !hubDisposed) {
             await new Promise(resolve=>setTimeout(resolve,1000));
             const status=await(await fetchFirstOk('/api/v1/host/switch-status')).json();
+            accountDoctor.update();
             if(status.running)continue;
-            if(!status.success)throw new Error('HTTP 409: '+status.message);
+            if(!status.success)throw new Error('HTTP 409: '+((state.language==='zh-CN'?status.user_message:status.user_message_en)||status.message));
             data.success=status.success;data.result=status.result;data.message=status.message;break;
           }
         }
@@ -6262,7 +6266,7 @@
         let status=await(await fetchFirstOk('/api/v1/host/switch-status')).json();
         if(!status.running&&(!status.finished_at||Date.now()-Date.parse(status.finished_at)>120000))return;
         while(status.running&&!hubDisposed){await new Promise(resolve=>setTimeout(resolve,1000));status=await(await fetchFirstOk('/api/v1/host/switch-status')).json();}
-        if(!hubDisposed&&status.message)showToast('[2Ag] '+status.message);
+        if(!hubDisposed&&status.message)showToast('[2Ag] '+((state.language==='zh-CN'?status.user_message:status.user_message_en)||status.message));
       }catch(_){} // Older local APIs do not expose asynchronous switch status.
     })();
 
@@ -6273,6 +6277,7 @@
   // 11.1 对外应急接口：快捷键被抢占/宿主假死时的编程逃生口
   function disposeHub() {
     hubDisposed = true;
+    accountDoctor?.dispose();accountDoctor=null;
     if(relayCleanup){relayCleanup();relayCleanup=null;}
     if (interactionCleanup) { interactionCleanup(); interactionCleanup = null; }
     clearHubRuntimeHandles();

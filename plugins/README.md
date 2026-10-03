@@ -87,9 +87,9 @@ index.js 是一个返回定义的 JavaScript 表达式，无需打包器或 expo
 
 删除本地插件目录后点 **Refresh local list**，会卸载该插件并清理注册；目录读取失败时保留已加载插件。入口文件缺失造成的加载错误，在修复文件后可点 **Reload** 重新读取。
 
-## API v1.3
+## API v1.4
 
-window.__2AG__.apiVersion 为 '1.3'，向后兼容 v1.1 / v1.2。现有 registerTab 和 ipc 仍可用。所有注册返回 dispose；factory 的 setup(api) 得到可归属到该插件生命周期的 API。
+window.__2AG__.apiVersion 为 '1.4'，向后兼容 v1.1 / v1.2 / v1.3。现有 registerTab 和 ipc 仍可用。所有注册返回 dispose；factory 的 setup(api) 得到可归属到该插件生命周期的 API。
 
 | 注册接口 | 定义 | 入口 |
 | --- | --- | --- |
@@ -129,7 +129,7 @@ api.registerPanel({
 });
 ~~~
 
-请在 cleanup 中取消订阅。实时窗口最多保留 600 步；用户回看历史时快照指向当前历史窗口，state 仍来自原生执行流。文件元数据在用户点击 Live Trace 的文件变更入口后提供。宿主版本缺少原生 RPC 时 state 为 unavailable；不以 mock 填充。
+请在 cleanup 中取消订阅。实时窗口最多保留 10,000 步（时间线使用虚拟列表）；用户回看历史时快照指向当前历史窗口，state 仍来自原生执行流。文件元数据在用户点击 Live Trace 的文件变更入口后提供。宿主版本缺少原生 RPC 时 state 为 unavailable；不以 mock 填充。
 
 call(method, params) / ipc(method, params) 沿用核心 IPC。toast(text) 显示通知。onCleanup(fn) 登记事件或观察器资源的清理，返回值可取消登记。render 也可返回其面板 cleanup。异步 setup、action、provider 和 render 支持 Promise。
 
@@ -193,3 +193,12 @@ api.registerPanel({
 ~~~
 
 sidecar 只在 2ag run 链路由 Windows Job Object 管理；Manager 默认路径不创建该 Job Object。EXTENSIONS 的 enable / disable 管理 UI 生命周期，不替代既有进程管理。现有 IPC 包括 core.dialog.openFile、core.config.get/set、core.plugins.list/toggle。
+
+
+### Trace v1.4
+
+现有 `api.host.trace.observe(callback)` / `snapshot()` 保持兼容。`kind` 保留原生类型；新增 `eventKind` 提供 `file-read`、`file-write`、`command`、`error`、`checkpoint`、`assistant`、`system` 等统一分类。`timestamp`、`summary`、`file` 是旧字段的别名；`duration` 仅由公开的 created/completed 时间戳计算，缺失就省略。`phaseSource: 'event-kind'` 表示阶段只是对真实事件类型的归组，不是模型计划。
+
+快照带 `cacheLimit` 和最近最多 12 条 `sessions` 元数据。长会话窗口外的统计不能当作全会话总数。关闭最后一个 observer 会取消原生流并释放事件、diff 缓存与会话列表。
+
+TRACE 界面支持 file:/kind: 搜索、错误定位、按需脱敏 diff hunks、MD/JSON 摘要导出，以及最多 12 条选中事件送 Capsule。全文件内容和原始 RPC 对象不进入扩展 API；缺失 before snapshot 时不假装它是新建文件。Diff 的前后内容只在按需计算期间使用，片段缓存最多 6 个，不读取敏感文件预览。

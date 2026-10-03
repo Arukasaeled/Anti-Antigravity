@@ -4000,6 +4000,7 @@
   </div>
 </div>
 
+<script src="/api/v1/accounts/health-ui.js"></script>
 <script>
 // 2.2 健壮无 Bug 的侧边栏 Tab 切换器
 function initTabs() {
@@ -5331,6 +5332,7 @@ function loadAccounts() {
 // 保险库回答「2Ag 手里存着哪些账号、能不能切过去」。
 // 列表数据只有元数据（邮箱/显示名/时间/是否加密）——接口从不返回 token。
 let vaultAccounts = [];
+let managerHealthView=null;
 
 function loadVault() {
   fetch('/api/v1/accounts/vault')
@@ -5346,6 +5348,7 @@ function renderVault(data) {
   if (cur) cur.innerHTML = '当前登录身份：' + (current ? emailCellHtml(current) : '--');
 
   vaultAccounts = (data && data.accounts) || [];
+  if(!managerHealthView && window.TwoAgAccountHealth && box)managerHealthView=window.TwoAgAccountHealth({language:()=>globalState.language,request:async email=>(await fetch('/api/v1/accounts/health?email='+encodeURIComponent(email),{cache:'no-store'})).json()}).mount(box.parentElement);
   if (!box) return;
 
   if (vaultAccounts.length === 0) {
@@ -5395,19 +5398,22 @@ async function switchVaultAccount(idx) {
   })
   let body=await response.json();
   const deadline=Date.now()+90000;
+  let lastSwitchStage='';
   while(body.running) {
     if(Date.now()>deadline)throw new Error('切号结果尚未确认，请读取切号状态，勿重复提交');
     await new Promise(resolve=>setTimeout(resolve,1000));
     response=await fetch('/api/v1/host/switch-status',{cache:'no-store'});
     body=await response.json();
+    if(managerHealthView)managerHealthView.update();
+    if(body.transaction?.stage&&body.transaction.stage!==lastSwitchStage){lastSwitchStage=body.transaction.stage;logMsg(window.TwoAgAccountHealth?window.TwoAgAccountHealth({language:()=>globalState.language}).stage(lastSwitchStage):lastSwitchStage,'term-cyan');}
   }
   const res={ok:response.ok,body};
     const result = body.result || {};
     if (res.ok && body.success) {
       logMsg('已切换到 ' + (body.email || a.email) + '：' + (body.message || ''), 'term-ok');
     } else {
-      let msg = body.message || '未知原因';
-      if (result.rolled_back) {
+      let msg = (globalState.language==='zh-CN'?body.user_message:body.user_message_en) || body.message || '未知原因';
+      if (result.rolled_back && result.rollback_verified) {
         msg += '（已回滚，当前身份：' + (result.verified_owner || result.previous_owner || '未知') + '）';
       }
       logMsg('切换失败：' + msg, 'term-err');

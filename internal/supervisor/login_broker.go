@@ -709,12 +709,20 @@ func restartHostInMode(mode, accountEmail string, workspacePaths ...string) erro
 // 回写。在它活着的时候改，等于让两个写入者抢同一条记录 —— 结果既不确定，也无法校验。
 // 事务化的价值全在最后那步校验上：**验证失败就回滚，并且把回滚结果也验证一遍**，
 // 于是「切换失败」不再等于「用户不知道自己在哪个账号上」。
-func SwitchAccountTransactional(email, configuredMode string, options ...AccountSwitchOptions) (AccountSwitchResult, error) {
+func SwitchAccountTransactional(email, configuredMode string, options ...AccountSwitchOptions) (result AccountSwitchResult, resultErr error) {
 	release, err := lockCredentialOperation()
 	if err != nil {
 		return AccountSwitchResult{}, err
 	}
 	defer release()
+	transactionStage("BackingUp", strings.TrimSpace(email))
+	defer func() {
+		if resultErr != nil {
+			transactionStage("Failed", "")
+		} else {
+			transactionStage("Committed", "")
+		}
+	}()
 	if _, err := os.Stat(brokerRecoveryPath()); !os.IsNotExist(err) {
 		return AccountSwitchResult{}, fmt.Errorf("请重启 2Ag 先恢复原账号")
 	}
@@ -757,6 +765,7 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 	}
 	sameOwner := strings.EqualFold(out.PreviousOwner, out.Email)
 	if sameOwner && hadHost {
+		transactionStage("VerifyingNativeAuth", "")
 		fresh, err := waitForNativeAccount(out.Email, 5*time.Second)
 		if err != nil {
 			return out, fmt.Errorf("当前凭据属于目标账号，但原生登录未确认；现有宿主未停止: %w", err)
@@ -803,10 +812,12 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 	rollback := func(reason string) (AccountSwitchResult, error) {
 		out.Verified = false
 		out.RolledBack = true
+		transactionStage("RollingBack", "")
 		ok, _ := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost, option.WorkspacePath)
 		out.RollbackVerified = ok
 		out.Message = reason
 		if ok {
+			out.VerifiedOwner = out.PreviousOwner
 			SetActiveAccount(out.PreviousOwner)
 			SetPersistedActiveAccount(out.PreviousOwner)
 			if err := clearBrokerRecovery(); err != nil {
@@ -820,9 +831,11 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 		return out, fmt.Errorf("%s", out.Message)
 	}
 
+	transactionStage("StoppingHost", "")
 	if stopAllAntigravityProcesses("账号切换：先停宿主") != 0 {
-		return out, fmt.Errorf("宿主仍在运行，未写入目标凭据")
+		return rollback("宿主未能完全停止，未写入目标凭据")
 	}
+	transactionStage("SavingCurrentCredential", "")
 	// Stop may flush a refreshed token. Preserve the final blob.
 	if latest, err := readAntigravityCredentialRaw(); err != nil {
 		return rollback("停止后读取原凭据失败")
@@ -839,6 +852,7 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 	if err := saveBrokerRecovery(prevRaw, out.PreviousOwner); err != nil {
 		return rollback("保存切号恢复记录失败")
 	}
+	transactionStage("WritingTargetCredential", "")
 	if err := writeAntigravityCredentialRaw(target); err != nil {
 		return rollback("写入目标凭据失败")
 	}
@@ -851,12 +865,14 @@ func SwitchAccountTransactional(email, configuredMode string, options ...Account
 	if strings.TrimSpace(mode) == "" {
 		mode = "enhanced"
 	}
+	transactionStage("StartingHost", "")
 	if err := restartHostInMode(mode, out.Email, option.WorkspacePath); err != nil {
 		// 启动失败也算切换失败：宿主没起来就无从校验，必须回滚。
 		return rollback("启动目标宿主失败：" + err.Error())
 	}
 	out.HostRestarted = true
 
+	transactionStage("VerifyingNativeAuth", "")
 	fresh, authErr := waitForNativeAccount(out.Email, 25*time.Second)
 	if authErr != nil {
 		return rollback(authErr.Error())
@@ -918,6 +934,7 @@ func switchRollback(prevRaw []byte, prevEmail string, prior RuntimeModeFacts, ha
 			return false, prevEmail
 		}
 		if prevEmail != "" {
+			transactionStage("RollbackVerifying", "")
 			if _, err := waitForNativeAccount(prevEmail, 20*time.Second); err != nil {
 				log.Printf("[2ag] 原凭据已恢复，但原生登录尚未确认: %v", err)
 				return false, prevEmail

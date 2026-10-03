@@ -298,9 +298,17 @@ func findProcessInsensitive(targetExe string) (int, float64) {
 			continue
 		}
 
-		if mainPID == 0 || p.pid < mainPID {
-			mainPID = p.pid
+		// Electron child PIDs can be smaller than their root after a restart.
+		// Prefer the recorded root; otherwise select a process whose parent
+		// is not another matching host, never the lowest PID in the tree.
+		parentIsHost := false
+		for _, parent := range procs {
+			if parent.pid == p.ppid && strings.EqualFold(parent.name, targetExe) {
+				parentIsHost = true
+				break
+			}
 		}
+		mainPID = chooseHostRoot(mainPID, managedPID, p.pid, parentIsHost)
 
 		// 累加工作集内存
 		pHandle, _, _ := procOpenProcess.Call(processQueryInfo, 0, uintptr(p.pid))
@@ -364,4 +372,11 @@ func ProbeHostStatus() RealHostMetrics {
 
 func ProbeRealHost() HostStatus {
 	return ProbeHostStatus()
+}
+
+func chooseHostRoot(current, managed, pid int, parentIsHost bool) int {
+	if pid == managed || ((managed <= 0 || current != managed) && !parentIsHost && (current == 0 || pid < current)) {
+		return pid
+	}
+	return current
 }
