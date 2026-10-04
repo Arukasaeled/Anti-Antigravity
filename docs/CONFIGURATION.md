@@ -41,13 +41,15 @@
 
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `language` | string | `"zh-CN"` | 界面语言 |
+| `language` | string | `"zh-CN"` | 2Ag 界面语言：`zh-CN` / `en-US` |
+
+ReAct 可跟随此设置，也可单独选择语言；独立语言与阶段折叠状态属于现有 workspace 的 `__react_presentation_v3` 偏好，不是第二套全局配置。原始工具内容不翻译。
 
 ### 运行时
 
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `runtime_mode` | string | `"enhanced"` | 期望的运行形态：`official` / `enhanced`。**改这个字段不会自动重启宿主** —— 下一次启动时才生效 |
+| `runtime_mode` | string | `"enhanced"` | 期望的运行形态：`official` / `enhanced`。**改这个字段不会自动启动、停止或重启宿主**；configured 与当前 effective 分别显示，明确的下一次生命周期操作才应用 |
 
 ### 网络
 
@@ -73,7 +75,7 @@
 
 ## 修改方式
 
-推荐通过 2Ag Manager 的界面修改（视觉工坊 / 重力加倍 / 环境诊断），改动会即时写回。
+推荐通过 2Ag Manager 的界面修改。内存状态先更新，配置沿用约 300ms debounce 保存；`pending` 表示等待落盘，`saved` 才表示保存成功，`save_failed` 会提供日志与 UI 错误。状态可从 `/api/v1/persistence` 与 `persistence_changed` 事件读取。API 接受配置动作不等于磁盘已经保存。
 
 直接编辑 `2ag.json` 也可行，但**需要重启 2Ag** 才会被读取。
 
@@ -91,7 +93,9 @@
 | `~/.2ag/credential-operation.lock` | 跨进程账号操作锁；进程退出自动释放锁，文件可保留 |
 | `~/.2ag/accounts.json` | 2Ag 自己的账号清单（只有邮箱/名称等元数据，**不含 token**） |
 | `~/.2ag/profiles/<email>/` | 每账号一个宿主 profile 沙箱 |
-| `~/.2ag/active_account.txt` | 已确认生效账号的兼容记录；不保存选择意图 |
+| `~/.2ag/selected_account.txt` | 用户选择的账号，不代表宿主内部身份 |
+| `~/.2ag/active_account.txt` | 确认账号的兼容记录；旧版内容读取只作选择提示，不恢复为身份真值 |
+| `~/.2ag/workspace/extension-state.json` | 本地扩展与 ReAct 语言 / 折叠偏好 |
 
 > selected account 是用户选择，credential owner 是系统凭据归属，active account 只代表已确认生效的宿主账号。系统凭据回读不能验证宿主内部身份；当前没有可靠身份来源时，面板显示“宿主身份未验证”，不会以请求邮箱或系统凭据冒充 active account。
 

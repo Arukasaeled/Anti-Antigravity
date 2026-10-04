@@ -2,230 +2,146 @@
 
 # 2Ag · Anti-Antigravity
 
-**给 Google Antigravity 加一层控制台。**
+**让 Antigravity 的执行过程、上下文和资源消耗可见、可追踪、可复盘。**
 
-账号与圆环配额常驻顶部；在宿主内编写提示词、固定消息、收集上下文、使用本地扩展，不修改官方安装。
+Google Antigravity 的本地 **Observability & Control Layer**。在原生会话里查看真实工具行为、请求与 Token；在 Manager 中管理账号、配额和运行状态。
+
+**Windows x64 · Local-first · Runtime Injection · No official-file patching**
 
 [![Release](https://img.shields.io/github/v/release/Arukasaeled/Anti-Antigravity?style=flat-square&color=4285f4)](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078d4?style=flat-square)
 
-**[⬇ Download v0.2.3](https://github.com/Arukasaeled/Anti-Antigravity/releases/tag/v0.2.3)** · [发布说明](https://github.com/Arukasaeled/Anti-Antigravity/releases/tag/v0.2.3)
+**[下载最新版本](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)** · [发布说明](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest) · [构建指南](docs/BUILD.md)
 
-**v0.2.3** 新增原生 Runtime / SQLite Activity、三级 ReAct 展示与 Request Trace，执行完成后折叠保留，支持中英文和原生会话内增强。更新说明统一放在 [GitHub Release](https://github.com/Arukasaeled/Anti-Antigravity/releases/tag/v0.2.3)，可按 [构建指南](docs/BUILD.md) 打包源码。
+Release 提供 `Anti-Antigravity-Setup-x64.exe` 和 `2Ag-v<版本>-windows-x64-portable.zip`。2Ag 不包含 Google Antigravity runtime，请先安装官方客户端。
 
-<img src="docs/screenshots/01-overview-light.png" alt="2Ag Manager 概览" width="880">
+## 为什么需要 2Ag
 
----
+官方会话里的 `Working...`、`Thought for 13s`、`Analyzed...` 把执行过程压缩成几行。Antigravity 自己的 Runtime 和 conversation SQLite 已经保存了更多可观察行为。
 
-## 2Ag 是什么
+2Ag 消费这些真实数据，把阶段、工具、模型请求和 Token 放回原生会话工作区。你能看见读了哪些文件、运行了什么命令、修改了什么，以及对应请求的资源消耗；结束后可以展开复盘。
 
-Google Antigravity 是一个很强的 AI 工作台，但它没有给你一个"管理它的地方"。
+展示的是 **observable execution**：行为分组与叙事来自真实 Activity，不读取、恢复或伪造隐藏 chain-of-thought。
 
-2Ag 就是那个地方。它在你自己启动的 Antigravity 外面加一圈**本机控制台**：
+## ReAct Observability
 
-- 看清宿主现在到底跑着什么；
-- 管住多个 Google 账号的配额；
-- 换个皮肤；
-- 把几个被官方藏起来的行为开关交回你手里。
-
-**它不修改官方 Antigravity 的任何安装文件** —— `app.asar` 原样保留，不重打包、不替换。注入只走运行时，宿主一关就干干净净。
-
----
-
-## 核心功能
-
-### 🎛 2Ag Manager
-
-一个 WebView2 原生窗口，也是控制中枢。
-
-**概览** 宿主状态与模型配额 · **账号** 账号矩阵与保险库 · **会话** 本地会话索引与导出 ·
-**视觉工坊** 壁纸/模糊/主题 · **重力加倍** 运行时开关 · **环境诊断** 探针与兼容性报告。
-
-当前源码的 **Context / Token** 区分最近请求、Context Window 和 Antigravity 会话累计；Composer control row 提供 Request / Session 快速读数。上限与缓存字段不可得时保持未知，未分类输入单独列出，已加载历史单独折叠。模式选择仅保存下次启动配置。**Skills** 区分 Global / Workspace，并按需查看 SKILL.md。数据边界见 [OBSERVABILITY.md](docs/OBSERVABILITY.md)。
-
-### 🪟 G-Hub
-
-注入到宿主里的**浮标 + 战术面板**（Shadow DOM，与宿主 DOM 完全隔离）。
-
-不切窗口就能看状态、换账号、重启宿主沙箱。
-
-v0.2.0 提供中英文界面，顶部始终保留账号选择器和 Gemini / Claude+GPT 的 5h、周配额四个圆环。常用入口直接可见，管理工具按需展开：
-
-- **编写**：编辑草稿、插入片段、一键结构化文本、填写原生输入框；
-- **会话**：选择宿主历史会话、搜索/筛选已加载消息，直接固定或加入胶囊；
-- **胶囊**：用消息与笔记整理可编辑上下文，保存、复制、插入；
-- **扩展**：直接打开面板、执行命令、添加上下文，管理本地插件的启用与重载。
-
-**2Ag Interaction Layer = Prompt · Conversation · Context · Command · Extension**。随附提示词工具箱、会话地图、项目上下文三个纯本地示例；插件开发入口见 [plugins/README.md](plugins/README.md)。
-
-<img src="docs/screenshots/02-g-hub.png" alt="G-Hub 战术面板" width="880">
-
-### 🔐 Account Vault
-
-多账号管理，凭据以 **DPAPI(CurrentUser)** 加密存放。
-
-> 密文只有**同一台机器的同一个 Windows 用户**能解开 —— 换用户、换机器都解不开。
-> 索引文件只存邮箱等元数据，token 不进配置、不进日志、不进 API 响应、不进前端。
-
-### 📊 Model Quota
-
-按账号读取 Gemini / Claude / GPT 的 5 小时滑窗与周限额。
-
-- **优先实时探测**：2Ag 自己带凭据向 Antigravity 配额接口查询，不依赖任何第三方工具；
-- **本地 Cockpit Tools 缓存只作兜底**，且会明确标成「非实时读数」，绝不冒充实时读数；
-- 多账号并发探测，单个账号超时不影响其他账号；
-- 读不到显示 `--`，过期就明说过期。
-
-<img src="docs/screenshots/05-accounts.png" alt="账号矩阵与配额" width="880">
-
-### 🎨 Skin Studio
-
-自定义壁纸、模糊半径、遮罩浓度，外加多套内置主题。
-
-壁纸是你自己的图片，2Ag 不预置、不携带任何图片。
-
-### 🔀 Official / Enhanced
-
-两种形态随时切换：
-
-| | 用哪份宿主 | 加了什么 |
+| 层级 | 看什么 | 怎么展开 |
 |---|---|---|
-| **Official** | 你本机的官方安装 | 什么都不加，行为接近"没装 2Ag" |
-| **Enhanced** | 2Ag 自己的冻结副本 | 完整注入 + G-Hub + 皮肤 + 重力加倍 |
+| **Phase Narrative** | Codex 式阶段摘要、行为计数、当前动作与耗时 | 默认只展开当前 Phase |
+| **Detailed ReAct** | DSH 式完整行为过程：Read、Command、Search、Edit、Model Response | 展开阶段与详细过程；连续同类操作可折叠 |
+| **Raw Inspector** | 原生 ID、时间戳、命令结果、错误、修改结果与 Token breakdown | 点击单条行为；模型响应进入 Request / Token Inspector |
 
-增强形态的宿主是 2Ag 从你本机官方安装**物理复制**出的一份冻结副本，官方目录全程只读。
+执行中实时追加，`RUNNING / GENERATING → DONE / ERROR` 原位更新。Runtime 当前切片与 SQLite 历史按原生标识合并，不按标题去重，也不把当前 Runtime 合并进另一会话或备份来源。
 
-### 🛡 Compatibility Guardian
+任务完成后整个 ReAct 自动折叠，最终答案进入主视觉。**完成不会删除执行记录**：可重新展开完整已读取历史，并从仍存在的原生持久化会话重建。命令输出默认折叠，unknown tool 保持 Tool。
 
-跑起来就自检：官方安装是否可定位、官方文件是否被改过、两套 profile 是否隔离、当前运行形态是什么。
+支持全部展开 / 折叠、中文 / English，以及跟随 2Ag 或独立的语言选择。只翻译 UI 和行为叙事；code、command、path、filename、raw output / error 保留原文。用户离开底部查看历史时停止自动跟随，回到底部再跟随新步骤。
 
-有问题的项如实报出来，不粉饰。
+内联增强使用已有 CDP runtime injection，挂在原生会话 Activity 区域。DOM 重建后恢复；卸除注入会清理自有节点、样式与监听，恢复官方显示与交互。
 
----
+## Context、Request 与 Session Token
 
-## 截图
-
-| | |
+| 读数 | 含义 |
 |---|---|
-| <img src="docs/screenshots/04-diagnostics.png" alt="运行时开关"> | <img src="docs/screenshots/07-sessions.png" alt="会话索引"> |
-| **运行时开关** | **本地会话索引** |
+| **Request** | 单次模型请求实际处理的输入与输出，优先读取 Runtime 原生 usage；模型响应可进入所选请求详情 |
+| **Session** | 整个会话的原生 generation 累计，优先读取持久化 conversation DB，按 responseId 去重 |
+| **Context** | 当前 Context Window 占用，仅使用可靠原生占用 / 估算字段；不是 Session 累计，也不拿 Request 输入冒充 |
 
-<!-- TODO: 以下截图待补充，勿用占位图
-     03-skin-studio.png  — 视觉工坊（壁纸 / 主题）
-     06-dark.png         — 深色主题
--->
+Composer control row 常驻 Request / Session 读数，跟随中央或底部输入框；hover 看同源 breakdown，点击进入完整 Inspector。
 
----
+Request 和 Session 共用字段语义：**New Input、Unclassified Input、Cache Read、Cache Write、Output、Reasoning**。Total 包含所有输入类别与 Output；Reasoning 是 Output 的信息性子集，不重复累计。每项计入 Total 的 Token 都有可见归属。
 
-## 快速开始
+- 未提供的字段显示 `—`，unknown 不等于 0。
+- 原生计数可读但类别未确认时显示 **Unclassified Input**，不强行归入 Cache。
+- 不完整累计显示 `≥` 下界；字符估算显示 Estimated，不冒充精确计数。
+- Cache Hit 只在分类完整、没有未分类输入且确有缓存 telemetry 时显示；否则 `Cache —`。
+- Context 上限未获取时保持未知，不按模型名硬编码窗口或百分比。
+- 当前 Prompt 构成与已加载会话历史分开显示，loaded history 不等于当前 Prompt / Context Window。
 
-1. **先装官方 Antigravity** —— 2Ag 不含、也不分发它。
-2. **下载 2Ag** —— [最新 Release](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest) 里的 `Anti-Antigravity-Setup-x64.exe`。
-3. **安装并启动** —— 开始菜单或桌面快捷方式里的 `2Ag`。
-4. **挑一个形态** —— 首次用**增强形态**时，2Ag 会从你的官方安装复制一份冻结宿主（约 570 MB，需要数十秒）；之后一直用它。
+数据来源和计算边界见 [OBSERVABILITY.md](docs/OBSERVABILITY.md)。
 
-> 便携版：下载 Release 中的 `2Ag-v0.2.3-windows-x64-portable.zip`，解压整个目录后运行 `2ag.exe`，保留同级 `assets/`、`themes/`、`plugins/`。
+## Accounts 与 Quota
 
-系统要求：**Windows 10/11 x64** · WebView2 运行时（Win11 自带；Win10 若缺，微软官网可单独装）。
+Account Vault 使用 **DPAPI(CurrentUser)** 加密；索引只存账号元数据。可导入当前官方凭据，或通过本机 **Official Login Broker** 完成原生 Google 登录，2Ag 不处理 Google 密码。
 
----
+多账号配额读取覆盖 Gemini 与 Claude / GPT 模型池；真实数据正常显示，未知显示 `—`，本地缓存明确标注缓存。Quota 与宿主登录恢复是两个数据面。
 
-## 添加账号
+**selected account、credential applied、host identity verified 分别报告。** 凭据 owner 匹配和写入回读只能证明 credential applied。没有可靠宿主内部身份来源时保留“宿主身份未验证”，不把选择邮箱当作登录真值。
 
-官方已经登录时，可以在 Manager 的添加账号窗口点击 **「导入当前官方账号」**，直接存入保险库并刷新账号列表。
+已有 StoredCredential 归属匹配且有 refresh material 时，短期 access / ID token 过期交给宿主恢复；仅凭过期不要求重新登录。Broker 新登录验收仍保持严格。
 
-添加账号由**你本机的官方 Antigravity** 完成原生 Google 登录：
+## Runtime Control
 
-1. 2Ag 先把你当前的凭据加密归档进保险库，并同步保存 DPAPI 恢复记录；
-2. 先检查进程所有权，外部实例需要用户明确确认接管；再停止受管理宿主、临时清除当前凭据，以本次选择的 **AUTO / DIRECT / PROXY** 模式启动官方登录窗口；仅调整子进程网络环境和诊断端口，不永久修改系统代理、不注入；
-3. 你在官方窗口里点 **Continue with Google**，授权完全由官方与系统浏览器完成；
-4. 2Ag 等官方把新凭据写进 Windows 凭据管理器后**捕获**它、加密入库；
-5. 自动恢复你原来的账号，经凭据回读验证后清除恢复记录；凭据归属不等于宿主内部身份已验证；流程中断时，下次启动 2Ag 会先恢复未完成的事务。
+| 模式 | 使用的客户端 | 注入 |
+|---|---|---|
+| **Official** | 用户本机的官方安装 | 不注入增强 UI |
+| **Enhanced** | 从本机官方安装建立的 2Ag 冻结副本 | G-Hub、内联 ReAct、Context / Token 等增强 |
 
-**2Ag 全程不接触你的 Google 密码、授权码或 OAuth 客户端配置。**
+**configured mode** 是下一次启动配置；**effective mode** 是当前运行事实。选择 Official / Enhanced 不会自动启动、停止或重启宿主；明确的生命周期动作才应用配置。
 
-登录完成后，凭据存进 **2Ag 自己的账号库**（`~/.2ag/`，DPAPI 加密 + 一份不含 token 的账号清单）。
-添加账号**不需要**你本机装过任何第三方工具。
+进程分为 `owned`（2Ag 启动）、`adopted`（用户明确授权接管）和 `external`（仅发现）。2Ag 默认不停止 external；发现 PID 或 Electron single-instance 转交不会自动获得 ownership。需要接管外部实例时必须由用户明确确认。
 
----
+生命周期 API 返回实际执行结果；凭据应用成功、宿主进程就绪与宿主内部身份已验证各有独立语义。
 
-## 本地优先
+## G-Hub 与 Manager
 
-**所有数据都留在你自己的机器上。没有任何 2Ag 作者的服务器、统计或上报。**
+**G-Hub** 是工作时的入口：原生会话内 ReAct、Activity Inspector、Context、Request Trace、Token 与 Quota；也保留 Prompt、Capsule 和本地 Extension 工作流。
 
-- 2Ag 自己出网只去 `127.0.0.1`，以及宿主本来就要访问的 Google 端点；
-- 账号凭据以 DPAPI 加密存放，只有本机本用户能解开；
-- **不安装 CA 证书、不解密 TLS** —— HTTPS `CONNECT` 是不透明隧道，2Ag 改不了也看不到；
-- 打包时有结构性泄漏闸门：产物里一旦出现绝对用户路径、构建机用户名或真实邮箱，打包当场失败。
+**Manager** 是管理时的入口：Accounts、Antigravity Sessions、Environment、Doctor、Runtime 和 Configuration。主 Sessions 仅统计 Antigravity，预览、导出、删除与 usage 沿同一真实 store / source 操作。
 
-详见 [SECURITY.md](docs/SECURITY.md)。
+## How it works
 
----
+```text
+Antigravity
+├─ React / Runtime state
+├─ Language Server updates
+├─ conversation SQLite
+└─ CDP
+       ↓
+      2Ag
+       ├─ Activity / ReAct
+       ├─ Request Trace
+       ├─ Context / Token
+       └─ G-Hub / Manager
+```
 
-## 它是怎么工作的
+CDP 连接已有受管理宿主并进行 runtime injection，SQLite 只读提供持久化历史。**No app.asar patch · No official binary modification**。增强宿主副本只在用户本机建立，不随 2Ag 分发；官方安装更新后是否同步由用户决定。
 
-2Ag 拉起官方宿主时附加一个 CDP 调试端口，用 `Runtime.evaluate` +
-`Page.addScriptToEvaluateOnNewDocument` 把界面注入渲染进程 —— **不碰磁盘上的任何官方文件**。
+## Quick start
 
-G-Hub 以 Shadow DOM 挂载；内联 ReAct 在原生会话区域挂载自有节点，保留官方交互。卸除注入会移除自有节点、样式与监听，并恢复原生显示。
+1. 安装官方 Google Antigravity。
+2. 从 [latest Release](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest) 下载安装包或便携 ZIP。
+3. 安装，或解压完整便携目录并保留 `assets/`、`themes/`、`plugins/`。
+4. 启动 `2ag.exe`，选择模式；需要启动宿主时点击“启动宿主”。
 
-宿主、代理、侧车进程的生命周期分两条链：`2ag run` 把它们挂在同一条 Windows Job Object 下，退出时连带清干净；Manager 默认走 `LaunchEnhancedHost` 直接拉宿主，**关掉 Manager 不会带走宿主**。详见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+需要 **Windows 10/11 x64 + WebView2**。首次使用 Enhanced 会从本机官方安装复制宿主，所需空间与时间取决于安装版本。
 
----
+## Privacy / Security
 
-## 文档
+本地优先，无 2Ag 作者遥测服务器；Vault 使用 DPAPI，不处理 Google 密码；回环 Control API 校验进程级 control token 并拒绝不可信 Origin；外部进程默认受 ownership 保护。代理不安装 CA、不做 TLS MITM。
 
-| | |
-|---|---|
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 内部结构、注入链路、进程生命周期 |
-| [SECURITY.md](docs/SECURITY.md) | 凭据处理、加密、隐私边界 |
-| [CONFIGURATION.md](docs/CONFIGURATION.md) | `2ag.json` 全部字段 |
-| [CLI.md](docs/CLI.md) | 命令行子命令 |
-| [BUILD.md](docs/BUILD.md) | 构建与打包 |
-| [DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发环境与约定 |
-| [plugins/README.md](plugins/README.md) | 插件契约 |
-| [themes/README.md](themes/README.md) | 主题定义 |
+Activity / Request 详情属于本地用户内容，分享前应检查命令、路径与工具输出。完整边界见 [SECURITY.md](docs/SECURITY.md)。
 
----
+## Known limits
 
-## 已知限制
+- 当前支持 Windows x64，需要用户自备官方 Antigravity。
+- 原生字段、React 结构与 Activity descriptor 受宿主版本影响；缺失数值保持 Unavailable，未知工具保持 Tool，不猜值。
+- 复盘依赖原生会话数据仍存在；未加载或无法解析的步骤、截断结果会明确标记，不声称完整还原不可得数据。
+- Token / Cache / Context 上限可能未知；原生未分类输入保持可见。
+- 当前没有可靠的宿主内部登录身份来源；系统凭据为共享记录，profile 隔离不等于凭据隔离。
+- 冻结宿主不会自动跟随官方更新；部分运行时开关仍受宿主版本限制。
 
-- **Windows x64 only** —— 依赖 Windows 凭据管理器与 Job Object。
-- **必须自备官方 Antigravity** —— 2Ag 不包含、不分发它。
-- **冻结宿主会落后** —— 官方 updater 更新的是你的官方安装，2Ag 的副本不会自动跟。落后多少由更新守护如实报出，要不要同步你决定。
-- **Quota 与登录恢复是两个数据面** —— 配额读不到时显示未知或标明缓存。已有 Vault 凭据归属匹配且有 refresh material 时，短期 access / ID token 过期可以交给宿主恢复，不等同于账号失效；只有明确的刷新拒绝才需要重新登录。
-- **登录凭据是机器级共享的** —— 官方 Antigravity 与 2Ag 沙箱读同一条系统凭据记录，这是 Windows 凭据模型决定的，2Ag 只能做到 profile 隔离。环境诊断会把这一条标成共享。
-- **部分运行时开关受宿主版本限制** —— 面板会标「实验性 / 开发中」并在宿主侧容器未挂钩时明说「切换不会生效」。
+## Docs / Build
 
----
+[Observability](docs/OBSERVABILITY.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Configuration](docs/CONFIGURATION.md) · [CLI](docs/CLI.md) · [Build](docs/BUILD.md) · [Development](docs/DEVELOPMENT.md)
 
-## 最新版本
+开发构建与正式 pack 见 [BUILD.md](docs/BUILD.md)；本地扩展契约见 [plugins/README.md](plugins/README.md)，主题定义见 [themes/README.md](themes/README.md)。旧版实现与迁移细节保留在文档、安装脚本和 Release history，不占用首页。
 
-**v0.2.3** —— Activity / ReAct / Request Trace 可观察性，保留现有 Context / Token 与 Interaction Layer。
+## Credits / Trademark
 
-**[下载](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)** ·
-[发布说明](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)
+- Google Antigravity：被增强的宿主；Chromium DevTools Protocol、[go-webview2](https://github.com/jchv/go-webview2)：注入与窗口基础。
+- [Cockpit Tools](https://github.com/jlcodes99/cockpit-tools)（CC-BY-NC-SA-4.0）：配额协议行为参考，2Ag 未复制其代码。
+- [Token Monitor](https://github.com/Javis603/token-monitor) / [Tokscale](https://github.com/Javis603/tokscale)：Antigravity 原生 usage、去重与聚合设计参考。
+- Material Design / Gemini：现有界面的视觉参考；其它社区设计参考见 [OBSERVABILITY.md](docs/OBSERVABILITY.md)。
 
-发布页提供 Windows x64 安装包和便携 ZIP，更新内容及已知限制直接列在 Release 页面。
-
----
-
-## Credits / Inspirations
-
-- **Google Antigravity** —— 被增强的宿主本体。
-- **[Cockpit Tools](https://github.com/jlcodes99/cockpit-tools)**（作者 jlcodes，CC-BY-NC-SA-4.0）—— 模型配额探测的**协议行为参考**。2Ag 的探针照着它观测到的接口形状重写，**没有复制其任何代码**；该项目源码与授权不属本仓库，也不随 2Ag 分发。
-- **Material Design 3 / Google Gemini 视觉语言** —— Manager 配色、圆角与明暗双调色板的参照。
-- **[jchv/go-webview2](https://github.com/jchv/go-webview2)** —— Manager 的原生窗口容器。
-- **Chromium DevTools Protocol** —— 注入链路的技术基础。
-- 第三方模型标识 **Gemini / Claude / ChatGPT** 的图形是其各自权利人的商标，在此**仅用于标注数据属于哪个模型池**。
-
----
-
-## 许可与商标
-
-2Ag **自有代码与文档**以 [Apache License 2.0](LICENSE) 授权。
-
-许可只覆盖 2Ag 自己的内容。2Ag **不包含也不分发** Google Antigravity 运行时；其版权归 Google，授权条款随你本机安装的官方 Antigravity 附带。
-
-**Google**、**Antigravity**、**Gemini**、**Claude**、**ChatGPT** 等名称与标识归各自权利人所有，在此仅用于指称被提及的产品或服务。2Ag 与 Google、Anthropic、OpenAI **没有官方关联**，也未获其赞助、授权或背书。
+2Ag 自有代码与文档采用 [Apache License 2.0](LICENSE)。不包含或分发 Google Antigravity runtime。Google、Antigravity、Gemini、Claude、ChatGPT 等名称与标识归各自权利人所有；2Ag 与 Google、Anthropic、OpenAI 没有官方关联或背书。

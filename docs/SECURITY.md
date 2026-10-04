@@ -6,12 +6,12 @@
 
 ## 网络行为
 
-2Ag 自己出网只去两个地方：
+内置控制面与账号 / Quota 功能主要访问：
 
 1. `127.0.0.1` —— 回环控制面与转发代理；
 2. 宿主本来就要访问的 Google 账号 / API 端点（`accounts.google.com`、`oauth2.googleapis.com`、`www.googleapis.com`）。
 
-没有第三个目的地。
+没有作者遥测目的地。用户显式配置的上游代理、endpoint override 或本地扩展可能访问用户指定地址；它们不是作者统计服务。
 
 ## 账号凭据
 
@@ -55,7 +55,7 @@ StoredCredential 要求 owner 匹配并存在必要的恢复材料；短期 acce
 
 ## 本地控制面与进程所有权
 
-Manager 每次启动生成随机 control token；所有有副作用 API 校验 `X-2Ag-Control-Token`。不可信 Origin 直接拒绝，不能依靠浏览器读不到响应来保护副作用。控制面只绑定回环地址，不作为跨用户权限系统。
+Manager 每次启动生成随机 control token；控制 API 校验 `X-2Ag-Control-Token` 或 Bearer；只读 API 也默认需要 token，只有不含控制能力的 ContextView 静态脚本例外。不可信 Origin 直接拒绝，不能依靠浏览器读不到响应来保护副作用。控制面只绑定回环地址，拒绝非回环 Host。token 用于本机控制请求与浏览器来源防护，不作为系统级跨用户权限隔离。
 
 进程分为 `owned`（2Ag 明确启动）、`adopted`（用户明确授权接管）和 `external`（仅发现）。仅发现 PID 或 Electron single-instance 转交不会赋予停止权限。外部实例默认不能被停止；生命周期、账号切换与 Broker 遇到外部实例返回 `external_confirmation_required`，须用户明确确认接管后才能进入管理路径。
 

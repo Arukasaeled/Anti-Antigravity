@@ -1,6 +1,39 @@
-# Context、Runtime 与本地数据浏览
+# Activity、Request Trace、Context 与本地数据
 
-本轮沿用 2Ag 的 CDP runtime injection、G-Hub 和内嵌 Manager。没有修改官方 resources，也没有执行任何宿主关闭、重启、接管或页面刷新操作。
+2Ag 通过 CDP runtime injection、G-Hub 与内嵌 Manager 展示 Antigravity 自身的可观察数据，不修改官方 resources。当前主会话产品只管理 Antigravity。
+
+## Activity / ReAct / Request Trace
+
+Activity 的真实链路是：
+
+```text
+Runtime provider 当前切片 ───────────────┐
+conversation SQLite steps.step_payload ──┤
+          ↓ 相同 allowlist 投影          │
+          ActivityEntry ←────────────────┘
+          ↓ 按原生标识合并
+          Phase Narrative → Detailed ReAct → Raw Inspector
+          ↓ Model Response / responseId
+          已有 Request / Token Inspector 与 Session Usage
+```
+
+SQLite 历史使用只读连接与分页 `/api/v1/sessions/activity`；明确的 session / store 通过现有来源解析，不接受任意文件路径。错误详情可从 `steps.error_details` 补齐；Token 复用已有 GenerationUsage Reader，不重新累计。当前行为 allowlist 对应 Antigravity 2.19.1 的原生 descriptor，不实施完整协议兼容矩阵。
+
+Runtime / SQLite 使用相同的行为字段投影，保留 step status、工具参数与结果、文件修改、命令执行、错误/重试与时间戳。不访问 private planner response、prompt 正文或隐藏 CoT。已识别的敏感键值和 token 文本脱敏；嵌套字段超出投影界限会向上报告 partial，不能把截断数据声称为完整历史。
+
+ActivityEntry 以 session、trajectory、stepIndex 为基本身份，辅以原生 toolCallId / responseId；不按 title 或单独 executionId 去重。Runtime 优先覆盖当前状态，SQLite 补缺失结果与 usage。当前真实 Runtime 只合并到同一 session、同一已解析 store；其它历史会话和备份来源只读自己的 SQLite。
+
+首次持续分页读取全部可解析历史；后续回读尾部重叠与最早未结束步骤，避免长命令离开 Runtime 切片后永远停留在 RUNNING。没有时间戳或计数保持未知；duration 明确来自原生时间戳差，不能证明模型隐藏推理时间。
+
+三级展示共享同一份 ActivityEntry：Phase 按实际 execution / 同类操作与可观察目标分组，用真实文件、命令和计数形成摘要；Detailed 展开原始行为顺序与连续操作组；Raw Inspector 显示结果、错误、ID、时间戳和共享 Token breakdown。原始 command、code、path、filename、output / error 不翻译，通过 textContent / escaping 插入。
+
+内联 ReAct 挂在当前原生 turn 的 Activity 区域，用原生 turn steps 与 isRunning 关联任务，不根据 “Working...” 文案猜测。默认仅展开当前 Phase，Detailed 按需展开；真实任务完成时整个 ReAct 折叠，但不删除任何历史。重新展开或 DOM 重建后，仍可恢复可读取的持久化记录。Raw 命令输出默认折叠，未知工具保持 Tool。当前未提供的原生数据明确报告不可用，不冒充完整复盘。
+
+用户手动查看历史时暂停滚动跟随；仅在底部或明确回到底部时跟随新行为。Observer、MessageChannel、timer、scroll listener 与自有节点在 dispose 时清理；官方显示属性恢复，热注入不会要求刷新宿主。
+
+语言跟随 2Ag，也可单独选中文 / English；语言和折叠偏好保存在现有 `~/.2ag/workspace/extension-state.json` 的 `__react_presentation_v3` 项，localStorage 仅作恢复缓存。保存失败可见，不把内存变化当作持久化成功。
+
+模型响应点击打开同一 session / trajectory / step 的已有 Inspector，并使用 responseId 补入已读原生 usage。所选请求与最近请求分开显示，可返回最新请求；Session 累计仍来自原生会话库。
 
 ## Context / Request / Session 的数据契约
 
@@ -26,7 +59,7 @@ G-Hub 账号卡、配额池和 Home 配额共用 `/api/v1/accounts` 中 selected
 
 Session Token 加载与消息预览独立。Token 数值可读时显示“Token 已载入”；消息是否可读只在 Preview 入口说明，不混入 Token metadata。
 
-发现当前用户以下实际存在的 conversation 目录：
+Environment 自动发现已支持且实际存在的 conversation 目录：
 
 - ~/.gemini/antigravity/conversations
 - ~/.gemini/antigravity-ide/conversations
@@ -79,13 +112,16 @@ Environment 集中了 Antigravity storage、brain、conversations、profiles、w
 
 主 /api/v1/sessions、列表总数、项目数、今日活跃、搜索、预览和导出仅支持 Antigravity。Codex Provider 保留为未启用代码，主页面没有“全部 Agent”或 Provider 选择器。
 
-列表索引三个原生 conversation 根及现有 brain 元数据。DB 的 workspace / session 创建时间来自 trajectory_metadata_blob，最后请求时间优先读取最后一条 generation step 的真实时间。备份文件复制时间不冒充真实请求活动。消息预览/Markdown 导出仍只支持现有 transcript.jsonl；本轮不解码 SQLite 消息正文。
+列表索引三个原生 conversation 根及现有 brain 元数据。DB 的 workspace / session 创建时间来自 trajectory_metadata_blob，最后请求时间优先读取最后一条 generation step 的真实时间。备份文件复制时间不冒充真实请求活动。消息预览/Markdown 导出仍只支持现有 transcript.jsonl；消息 Preview 不解码 SQLite 对话正文；Activity 单独投影行为字段。
 
 Skills Hub 只读扫描原生 Global 与已发现 Workspace 的 Skill 目录。支持常见 frontmatter、SKILL.md 查看、名称/描述搜索、scope 过滤以及 resources / examples / scripts 结构识别。不执行脚本，不擅自改写原生启停状态。本轮未实现安装、Git 拉取、Marketplace 或其它 Agent 的 Skill 管理。
 
 ## 代码入口
 
-- `internal/patcher/context_reader.js`：纯只读 Context / Activity 读取器。
+- `internal/patcher/activity_inspector.js`：共享 ActivityEntry、Runtime / SQLite 合并、G-Hub 与内联三级 ReAct。
+- `internal/activity/schema.go`、`schema.json`：行为 descriptor allowlist 与安全投影。
+- `internal/supervisor/activity_reader.go`、`internal/api/activity.go`：只读历史分页与原生 usage 关联。
+- `internal/patcher/context_reader.js`：纯只读 Context / Runtime provider 读取器。
 - `internal/patcher/context_view.js`：共用 UI 与数据可信度提示。
 - `internal/patcher/injected_hub.js`：G-Hub 接入、增量 DOM Runtime。
 - `internal/patcher/bridge.go`：embed 与磁盘 companion module 加载。
@@ -96,9 +132,9 @@ Skills Hub 只读扫描原生 Global 与已发现 Workspace 的 Skill 目录。�
 - `internal/supervisor/session_scanner.go`、`session_providers.go`：Antigravity 元数据列表与延迟内容读取。
 - `internal/api/observability.go`、`server.go`：本机 API。
 - `web/dist/index.html`、`observability.js`：Manager 导航、页面与交互。
-- `scripts/pack.ps1`：发布时携带 Context companion modules 与双语资源。
+- `scripts/pack.ps1`：发布时携带 Activity / Context companion modules 与双语资源。
 
-## 探查阶段的验证记录
+## 历史探查记录（v0.2.2 之前）
 
 此次只读取源码、当前真实 SQLite 的少量 schema / generation，以及当前宿主的 DOM / React 属性。没有运行 build、test、lint、typecheck、smoke、E2E、CI 或自动验证脚本，没有模拟状态、内容哈希或存档指纹比较。源码的格式整理不等于编译验证。
 

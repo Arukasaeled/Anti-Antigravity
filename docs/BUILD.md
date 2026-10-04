@@ -33,6 +33,8 @@ go build -o 2ag.exe .\cmd\2ag
 2. **写入中性初始配置** —— `2ag.json` 里没有任何开发机数据；
 3. **跑泄漏闸门** —— 见 [SECURITY.md](SECURITY.md#打包泄漏闸门)。闸门不过就 `throw`，不会产出安装包。
 
+编译嵌入 Activity descriptor 与 UI；staging 携带 `activity_inspector.js`、Context modules、双语资源和本地扩展。
+
 同时从 `assets/logo.png` 重新生成 `assets/icon.ico`（256×256 PNG-backed ICO，保留透明通道）。
 
 > 走 PNG payload 而不是 `Icon.FromHandle/GetHicon`：后者会把透明渐变压成青色剪影。
@@ -71,6 +73,8 @@ GitHub Release 提供安装包 `Anti-Antigravity-Setup-x64.exe` 与 `2Ag-v0.2.3-
 Compress-Archive -LiteralPath dist\staging -DestinationPath dist\2Ag-v0.2.3-windows-x64-portable.zip
 ```
 
-提交源码并推送对应 tag，再把安装包和 ZIP 上传到 GitHub Release。更新说明直接写在 Release 页面，使用临时正文文件传给 `gh release create --notes-file`，仓库不保留逐版本 release notes。
+先冻结并 push release commit，再从该提交构建安装包与 ZIP；tag 指向该提交，检查目标 tag / release 不存在后发布。既有 tag / release 不覆盖、不移动。README relaunch 可作为发布后的独立 docs commit，使 main 领先 release tag。
 
-打包不启动 2Ag 或 Antigravity。用户手动检查应与编译结果分开记录；切换运行形态或账号可能重启宿主，应等待当前任务结束。
+pack 不启动安装包或宿主，也不生成额外 checksum 文件；GitHub Release API 提供上传 asset 的 SHA256 digest。更新说明直接写在 Release 页面，使用临时正文文件传给 `gh release create --notes-file`，仓库不保留逐版本 release notes。
+
+打包不启动 2Ag 或 Antigravity。用户手动检查应与编译结果分开记录；选择运行模式本身不会重启；明确的生命周期 / 切号验证须由用户在允许中断时执行，不为发布打断正在工作的宿主。
