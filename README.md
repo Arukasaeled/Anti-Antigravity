@@ -6,13 +6,13 @@
 
 账号与圆环配额常驻顶部；在宿主内编写提示词、固定消息、收集上下文、使用本地扩展，不修改官方安装。
 
-[![Release](https://img.shields.io/github/v/release/arukas0623-ai/Anti-Antigravity?style=flat-square&color=4285f4)](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
+[![Release](https://img.shields.io/github/v/release/Arukasaeled/Anti-Antigravity?style=flat-square&color=4285f4)](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20x64-0078d4?style=flat-square)
 
-**[⬇ Download v0.2.2](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.2)** · [发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.2)
+**[⬇ Download v0.2.3](https://github.com/Arukasaeled/Anti-Antigravity/releases/tag/v0.2.3)** · [发布说明](https://github.com/Arukasaeled/Anti-Antigravity/releases/tag/v0.2.3)
 
-**v0.2.2** 改进 Context / Session Token、Composer 读数、账号凭据恢复、运行模式与进程 ownership，并收紧本地 Control API。更新说明统一放在 [GitHub Release](https://github.com/arukas0623-ai/Anti-Antigravity/releases/tag/v0.2.2)，可按 [构建指南](docs/BUILD.md) 打包源码。
+**v0.2.3** 新增原生 Runtime / SQLite Activity、三级 ReAct 展示与 Request Trace，执行完成后折叠保留，支持中英文和原生会话内增强。更新说明统一放在 [GitHub Release](https://github.com/Arukasaeled/Anti-Antigravity/releases/tag/v0.2.3)，可按 [构建指南](docs/BUILD.md) 打包源码。
 
 <img src="docs/screenshots/01-overview-light.png" alt="2Ag Manager 概览" width="880">
 
@@ -121,11 +121,11 @@ v0.2.0 提供中英文界面，顶部始终保留账号选择器和 Gemini / Cla
 ## 快速开始
 
 1. **先装官方 Antigravity** —— 2Ag 不含、也不分发它。
-2. **下载 2Ag** —— [最新 Release](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest) 里的 `Anti-Antigravity-Setup-x64.exe`。
+2. **下载 2Ag** —— [最新 Release](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest) 里的 `Anti-Antigravity-Setup-x64.exe`。
 3. **安装并启动** —— 开始菜单或桌面快捷方式里的 `2Ag`。
 4. **挑一个形态** —— 首次用**增强形态**时，2Ag 会从你的官方安装复制一份冻结宿主（约 570 MB，需要数十秒）；之后一直用它。
 
-> 便携版：下载 Release 中的 `2Ag-v0.2.2-windows-x64-portable.zip`，解压整个目录后运行 `2ag.exe`，保留同级 `assets/`、`themes/`、`plugins/`。
+> 便携版：下载 Release 中的 `2Ag-v0.2.3-windows-x64-portable.zip`，解压整个目录后运行 `2ag.exe`，保留同级 `assets/`、`themes/`、`plugins/`。
 
 系统要求：**Windows 10/11 x64** · WebView2 运行时（Win11 自带；Win10 若缺，微软官网可单独装）。
 
@@ -138,10 +138,10 @@ v0.2.0 提供中英文界面，顶部始终保留账号选择器和 Gemini / Cla
 添加账号由**你本机的官方 Antigravity** 完成原生 Google 登录：
 
 1. 2Ag 先把你当前的凭据加密归档进保险库，并同步保存 DPAPI 恢复记录；
-2. 停止宿主、临时清除当前凭据，以本次选择的 **AUTO / DIRECT / PROXY** 模式启动官方登录窗口；仅调整子进程网络环境和诊断端口，不永久修改系统代理、不注入；
+2. 先检查进程所有权，外部实例需要用户明确确认接管；再停止受管理宿主、临时清除当前凭据，以本次选择的 **AUTO / DIRECT / PROXY** 模式启动官方登录窗口；仅调整子进程网络环境和诊断端口，不永久修改系统代理、不注入；
 3. 你在官方窗口里点 **Continue with Google**，授权完全由官方与系统浏览器完成；
 4. 2Ag 等官方把新凭据写进 Windows 凭据管理器后**捕获**它、加密入库；
-5. 自动恢复你原来的账号，经回读验证后清除恢复记录；流程中断时，下次启动 2Ag 会先恢复未完成的事务。
+5. 自动恢复你原来的账号，经凭据回读验证后清除恢复记录；凭据归属不等于宿主内部身份已验证；流程中断时，下次启动 2Ag 会先恢复未完成的事务。
 
 **2Ag 全程不接触你的 Google 密码、授权码或 OAuth 客户端配置。**
 
@@ -168,7 +168,7 @@ v0.2.0 提供中英文界面，顶部始终保留账号选择器和 Gemini / Cla
 2Ag 拉起官方宿主时附加一个 CDP 调试端口，用 `Runtime.evaluate` +
 `Page.addScriptToEvaluateOnNewDocument` 把界面注入渲染进程 —— **不碰磁盘上的任何官方文件**。
 
-界面以 Shadow DOM 挂载，与宿主自己的 DOM 完全隔离。宿主一关，注入即刻消失。
+G-Hub 以 Shadow DOM 挂载；内联 ReAct 在原生会话区域挂载自有节点，保留官方交互。卸除注入会移除自有节点、样式与监听，并恢复原生显示。
 
 宿主、代理、侧车进程的生命周期分两条链：`2ag run` 把它们挂在同一条 Windows Job Object 下，退出时连带清干净；Manager 默认走 `LaunchEnhancedHost` 直接拉宿主，**关掉 Manager 不会带走宿主**。详见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -194,7 +194,7 @@ v0.2.0 提供中英文界面，顶部始终保留账号选择器和 Gemini / Cla
 - **Windows x64 only** —— 依赖 Windows 凭据管理器与 Job Object。
 - **必须自备官方 Antigravity** —— 2Ag 不包含、不分发它。
 - **冻结宿主会落后** —— 官方 updater 更新的是你的官方安装，2Ag 的副本不会自动跟。落后多少由更新守护如实报出，要不要同步你决定。
-- **非活跃账号的凭据会过期** —— 配额探测用的是账号自己的 access_token，只有官方 Antigravity 会续期它。当前正在用的账号总是新鲜的；长期没用的账号会读不到配额，显示过期而**不是**假数字。想让它重新可用，用官方 Antigravity 登录一次该账号即可（2Ag 不内置、也不需要 OAuth 客户端密钥）。
+- **Quota 与登录恢复是两个数据面** —— 配额读不到时显示未知或标明缓存。已有 Vault 凭据归属匹配且有 refresh material 时，短期 access / ID token 过期可以交给宿主恢复，不等同于账号失效；只有明确的刷新拒绝才需要重新登录。
 - **登录凭据是机器级共享的** —— 官方 Antigravity 与 2Ag 沙箱读同一条系统凭据记录，这是 Windows 凭据模型决定的，2Ag 只能做到 profile 隔离。环境诊断会把这一条标成共享。
 - **部分运行时开关受宿主版本限制** —— 面板会标「实验性 / 开发中」并在宿主侧容器未挂钩时明说「切换不会生效」。
 
@@ -202,10 +202,10 @@ v0.2.0 提供中英文界面，顶部始终保留账号选择器和 Gemini / Cla
 
 ## 最新版本
 
-**v0.2.2** —— Token 可观察性与运行状态一致性修复，保留现有 Interaction Layer。
+**v0.2.3** —— Activity / ReAct / Request Trace 可观察性，保留现有 Context / Token 与 Interaction Layer。
 
-**[下载](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)** ·
-[发布说明](https://github.com/arukas0623-ai/Anti-Antigravity/releases/latest)
+**[下载](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)** ·
+[发布说明](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)
 
 发布页提供 Windows x64 安装包和便携 ZIP，更新内容及已知限制直接列在 Release 页面。
 

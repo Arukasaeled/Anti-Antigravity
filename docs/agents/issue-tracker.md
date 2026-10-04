@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-仓库：arukas0623-ai/Anti-Antigravity。
+仓库：Arukasaeled/Anti-Antigravity。
 工程 skills 使用 gh CLI 操作 GitHub Issues。
 运行时从 git remote 推断仓库；遵循当前会话的操作授权。
 

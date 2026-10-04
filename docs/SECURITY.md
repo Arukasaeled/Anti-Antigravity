@@ -23,7 +23,7 @@
 
 清除现有登录凭据前，Broker 将原始凭据用 DPAPI 加密并同步写入 `~/.2ag/broker-recovery.json`。Manager 和 `2ag run` 在正常初始化前先恢复未完成的事务；逐字节回读验证成功后才删除记录。恢复失败会保留记录并停止初始化。账号导入、切换、恢复和 Broker 共用跨进程锁，避免同时改写共享凭据。
 
-「导入当前官方账号」读取同一份系统凭据，校验身份后写入保险库和自有账号表，不触发重新登录。
+「导入当前官方账号」读取同一份系统凭据，校验 credential owner 后写入保险库和自有账号表，不触发重新登录；这不是宿主内部身份验证。
 
 这条路径**不需要**本机装过任何第三方工具。2Ag 用**自己的**账号库（`~/.2ag/`）：DPAPI 保险库存凭据，`~/.2ag/accounts.json` 存不含 token 的账号清单。第三方 Cockpit Tools 的数据目录（若存在）只作为**可选、只读**的历史来源被兼容 —— 2Ag 不创建、不修改它。
 
@@ -47,7 +47,21 @@
 
 ### 切换是事务化的
 
-停宿主 → 写入目标凭据 → 按原形态重启 → **回读校验实际登录身份**。校验不一致就自动回滚到原账号并如实报错 —— 绝不用请求里的邮箱冒充结果。
+先验证账号与 StoredCredential，再检查宿主所有权；必要的凭据改写、启动与回读验证都成功后才返回操作成功。失败按事务恢复原凭据并报告恢复结果。
+
+**credential_applied ≠ host_identity_verified**：回读仅确认系统凭据归属与写入结果。当前没有可靠的宿主内部身份来源，界面保留“宿主身份未验证”，不把 requested / selected account 当作已确认 active account。
+
+StoredCredential 要求 owner 匹配并存在必要的恢复材料；短期 access / ID token 过期进入宿主恢复，不直接要求重新登录。BrokerFreshCredential 对刚完成官方登录的凭据仍检查新鲜度。只有明确 refresh failure / invalid_grant 等证据才要求重新登录。Quota 请求失败不能证明宿主登录失效。
+
+## 本地控制面与进程所有权
+
+Manager 每次启动生成随机 control token；所有有副作用 API 校验 `X-2Ag-Control-Token`。不可信 Origin 直接拒绝，不能依靠浏览器读不到响应来保护副作用。控制面只绑定回环地址，不作为跨用户权限系统。
+
+进程分为 `owned`（2Ag 明确启动）、`adopted`（用户明确授权接管）和 `external`（仅发现）。仅发现 PID 或 Electron single-instance 转交不会赋予停止权限。外部实例默认不能被停止；生命周期、账号切换与 Broker 遇到外部实例返回 `external_confirmation_required`，须用户明确确认接管后才能进入管理路径。
+
+模式选择只改变 configured mode；实际 effective mode 由运行进程确认，选择不会自动启动、停止或重启。
+
+Activity 只投影允许的行为字段，不读取私有 planner response / 隐藏 CoT。原始命令与工具结果作为本地用户内容显示，通过 textContent / escaping 插入；已识别的凭据键值和 token 文本脱敏。自由文本仍可能包含用户项目中的敏感内容，分享前应自行检查。
 
 ## 代理
 

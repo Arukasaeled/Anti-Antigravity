@@ -91,8 +91,8 @@
 | `~/.2ag/credential-operation.lock` | 跨进程账号操作锁；进程退出自动释放锁，文件可保留 |
 | `~/.2ag/accounts.json` | 2Ag 自己的账号清单（只有邮箱/名称等元数据，**不含 token**） |
 | `~/.2ag/profiles/<email>/` | 每账号一个宿主 profile 沙箱 |
-| `~/.2ag/active_account.txt` | 上次让哪个账号上场的便签 |
+| `~/.2ag/active_account.txt` | 已确认生效账号的兼容记录；不保存选择意图 |
 
-> `active_account.txt` 只是 2Ag 自己的记录。**权威的登录身份是 Windows 凭据管理器里那条记录**，不是这张便签。面板在宿主存活时会以系统凭据为准。
+> selected account 是用户选择，credential owner 是系统凭据归属，active account 只代表已确认生效的宿主账号。系统凭据回读不能验证宿主内部身份；当前没有可靠身份来源时，面板显示“宿主身份未验证”，不会以请求邮箱或系统凭据冒充 active account。
 
 添加账号窗口的登录网络模式只作用于这次官方宿主子进程：`AUTO` 沿用原环境；`DIRECT` 清除子进程代理变量并强制直连；`PROXY` 使用环境变量或 Windows 系统代理中解析到的 HTTP/HTTPS 代理。不修改系统设置，不持久化到配置。外部浏览器仍使用自己的网络设置。

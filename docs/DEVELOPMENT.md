@@ -9,7 +9,7 @@
 ## 快速上手
 
 ```powershell
-git clone https://github.com/arukas0623-ai/Anti-Antigravity.git
+git clone https://github.com/Arukasaeled/Anti-Antigravity.git
 cd Anti-Antigravity
 
 go build -o 2ag.exe .\cmd\2ag

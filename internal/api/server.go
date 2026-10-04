@@ -138,6 +138,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/sessions", s.handleSessionsRoute)
 	s.mux.HandleFunc("/api/v1/sessions/preview", s.handleSessionPreview)
 	s.mux.HandleFunc("/api/v1/sessions/usage", s.handleSessionUsage)
+	s.mux.HandleFunc("/api/v1/sessions/activity", s.handleSessionActivity)
 	s.mux.HandleFunc("/api/v1/sessions/export", s.handleExportSession)
 	s.mux.HandleFunc("/api/v1/sessions/delete", s.handleDeleteSession)
 	s.mux.HandleFunc("/api/v1/accounts", s.handleGetAccounts)

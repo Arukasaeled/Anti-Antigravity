@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/2ag/2ag/internal/activity"
 	"github.com/2ag/2ag/plugins/examples"
 )
 
@@ -25,6 +26,9 @@ var contextReaderSource string
 
 //go:embed context_view.js
 var ContextViewSource string
+
+//go:embed activity_inspector.js
+var activityInspectorSource string
 
 // ContextProbeExpression reads one live conversation without installing any hooks.
 func ContextProbeExpression() string {
@@ -200,6 +204,9 @@ func BuildHubExpressionWithSource(config HubConfig) (string, string, error) {
 	}
 	text = strings.Replace(text, "__2AG_CONTEXT_READER__", loadHubCompanion(origin, "context_reader.js", contextReaderSource), 1)
 	text = strings.Replace(text, "__2AG_CONTEXT_VIEW__", loadHubCompanion(origin, "context_view.js", ContextViewSource), 1)
+	activityScript := loadHubCompanion(origin, "activity_inspector.js", activityInspectorSource)
+	activityScript = strings.Replace(activityScript, "__2AG_ACTIVITY_SCHEMA__", activity.SchemaJSON, 1)
+	text = strings.Replace(text, "__2AG_ACTIVITY_INSPECTOR__", activityScript, 1)
 	text = strings.Replace(text, "__2AG_INITIAL_CONFIG__", string(data), 1)
 	text = strings.Replace(text, "__2AG_BUNDLED_EXTENSIONS__", examples.Expression(), 1)
 	text = strings.Replace(text, "__2AG_HUB_I18N__", hubI18nSource, 1)

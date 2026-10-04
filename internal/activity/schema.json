@@ -1,0 +1,1018 @@
+{
+  "google.protobuf.Any": {
+    "1": [
+      "typeUrl",
+      9,
+      "",
+      false
+    ],
+    "2": [
+      "value",
+      12,
+      "",
+      false
+    ]
+  },
+  "google.protobuf.Duration": {
+    "1": [
+      "seconds",
+      3,
+      "",
+      false
+    ],
+    "2": [
+      "nanos",
+      5,
+      "",
+      false
+    ]
+  },
+  "google.protobuf.Timestamp": {
+    "1": [
+      "seconds",
+      3,
+      "",
+      false
+    ],
+    "2": [
+      "nanos",
+      5,
+      "",
+      false
+    ]
+  },
+  "exa.codeium_common_pb.PathScopeItem": {
+    "5": [
+      "absoluteUri",
+      9,
+      "",
+      false
+    ]
+  },
+  "exa.codeium_common_pb.ChatToolCall": {
+    "1": [
+      "id",
+      9,
+      "",
+      false
+    ],
+    "2": [
+      "name",
+      9,
+      "",
+      false
+    ],
+    "3": [
+      "argumentsJson",
+      9,
+      "",
+      false
+    ]
+  },
+  "exa.codeium_common_pb.ModelUsageStats": {
+    "2": [
+      "inputTokens",
+      4,
+      "",
+      false
+    ],
+    "3": [
+      "outputTokens",
+      4,
+      "",
+      false
+    ],
+    "9": [
+      "thinkingOutputTokens",
+      4,
+      "",
+      false
+    ],
+    "10": [
+      "responseOutputTokens",
+      4,
+      "",
+      false
+    ],
+    "5": [
+      "cacheReadTokens",
+      4,
+      "",
+      false
+    ],
+    "11": [
+      "responseId",
+      9,
+      "",
+      false
+    ],
+    "4": [
+      "cacheWriteTokens",
+      4,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.ActionSpec": {
+    "1": [
+      "command",
+      11,
+      "exa.cortex_pb.ActionSpecCommand",
+      false
+    ],
+    "2": [
+      "createFile",
+      11,
+      "exa.cortex_pb.ActionSpecCreateFile",
+      false
+    ],
+    "4": [
+      "deleteFile",
+      11,
+      "exa.cortex_pb.ActionSpecDeleteFile",
+      false
+    ],
+    "5": [
+      "sed",
+      11,
+      "exa.cortex_pb.ActionSpecSed",
+      false
+    ]
+  },
+  "exa.cortex_pb.ActionSpecCreateFile": {
+    "2": [
+      "path",
+      11,
+      "exa.codeium_common_pb.PathScopeItem",
+      false
+    ],
+    "4": [
+      "overwrite",
+      8,
+      "",
+      false
+    ],
+    "5": [
+      "append",
+      8,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.ActionSpecDeleteFile": {
+    "1": [
+      "path",
+      11,
+      "exa.codeium_common_pb.PathScopeItem",
+      false
+    ]
+  },
+  "exa.cortex_pb.ActionSpecSed": {
+    "1": [
+      "expressions",
+      9,
+      "",
+      true
+    ],
+    "3": [
+      "path",
+      11,
+      "exa.codeium_common_pb.PathScopeItem",
+      false
+    ]
+  },
+  "exa.cortex_pb.LineRangeTarget": {
+    "2": [
+      "startLine",
+      13,
+      "",
+      false
+    ],
+    "3": [
+      "endLine",
+      13,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.ReplacementChunk": {
+    "1": [
+      "targetContent",
+      9,
+      "",
+      false
+    ],
+    "2": [
+      "replacementContent",
+      9,
+      "",
+      false
+    ],
+    "3": [
+      "allowMultiple",
+      8,
+      "",
+      false
+    ],
+    "6": [
+      "startLine",
+      5,
+      "",
+      false
+    ],
+    "7": [
+      "endLine",
+      5,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.ActionSpecCommand": {
+    "9": [
+      "replacementChunks",
+      11,
+      "exa.cortex_pb.ReplacementChunk",
+      true
+    ],
+    "2": [
+      "isEdit",
+      8,
+      "",
+      false
+    ],
+    "4": [
+      "file",
+      11,
+      "exa.codeium_common_pb.PathScopeItem",
+      false
+    ],
+    "7": [
+      "lineRange",
+      11,
+      "exa.cortex_pb.LineRangeTarget",
+      false
+    ]
+  },
+  "exa.cortex_pb.ActionResult": {
+    "1": [
+      "edit",
+      11,
+      "exa.cortex_pb.ActionResultEdit",
+      false
+    ],
+    "2": [
+      "applyExistingResult",
+      8,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.ActionResultEdit": {
+    "1": [
+      "absolutePathMigrateMeToUri",
+      9,
+      "",
+      false
+    ],
+    "8": [
+      "absoluteUri",
+      9,
+      "",
+      false
+    ],
+    "10": [
+      "originalContent",
+      9,
+      "",
+      false
+    ],
+    "11": [
+      "createFile",
+      8,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.RetryInfo": {
+    "3": [
+      "error",
+      9,
+      "",
+      false
+    ],
+    "5": [
+      "retryReason",
+      14,
+      "exa.cortex_pb.RetryReason",
+      false
+    ],
+    "7": [
+      "waitTime",
+      11,
+      "google.protobuf.Duration",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepMetadata": {
+    "1": [
+      "createdAt",
+      11,
+      "google.protobuf.Timestamp",
+      false
+    ],
+    "6": [
+      "viewableAt",
+      11,
+      "google.protobuf.Timestamp",
+      false
+    ],
+    "7": [
+      "finishedGeneratingAt",
+      11,
+      "google.protobuf.Timestamp",
+      false
+    ],
+    "32": [
+      "startedAt",
+      11,
+      "google.protobuf.Timestamp",
+      false
+    ],
+    "8": [
+      "completedAt",
+      11,
+      "google.protobuf.Timestamp",
+      false
+    ],
+    "4": [
+      "toolCall",
+      11,
+      "exa.codeium_common_pb.ChatToolCall",
+      false
+    ],
+    "9": [
+      "modelUsage",
+      11,
+      "exa.codeium_common_pb.ModelUsageStats",
+      false
+    ],
+    "28": [
+      "retryInfos",
+      11,
+      "exa.cortex_pb.RetryInfo",
+      true
+    ],
+    "12": [
+      "executionId",
+      9,
+      "",
+      false
+    ],
+    "20": [
+      "sourceTrajectoryStepInfo",
+      11,
+      "exa.cortex_pb.SourceTrajectoryStepInfo",
+      false
+    ],
+    "30": [
+      "toolSummary",
+      9,
+      "",
+      false
+    ],
+    "31": [
+      "toolAction",
+      9,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.SourceTrajectoryStepInfo": {
+    "1": [
+      "trajectoryId",
+      9,
+      "",
+      false
+    ],
+    "2": [
+      "stepIndex",
+      13,
+      "",
+      false
+    ],
+    "3": [
+      "metadataIndex",
+      13,
+      "",
+      false
+    ],
+    "4": [
+      "cascadeId",
+      9,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexErrorDetails": {
+    "1": [
+      "userErrorMessage",
+      9,
+      "",
+      false
+    ],
+    "2": [
+      "shortError",
+      9,
+      "",
+      false
+    ],
+    "3": [
+      "fullError",
+      9,
+      "",
+      false
+    ],
+    "7": [
+      "errorCode",
+      13,
+      "",
+      false
+    ],
+    "5": [
+      "details",
+      9,
+      "",
+      false
+    ],
+    "6": [
+      "errorId",
+      9,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepCheckpoint": {
+    "1": [
+      "checkpointIndex",
+      13,
+      "",
+      false
+    ],
+    "11": [
+      "includedStepIndexStart",
+      13,
+      "",
+      false
+    ],
+    "12": [
+      "includedStepIndexEnd",
+      13,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.ReplacementChunkInfo": {
+    "1": [
+      "originalChunk",
+      11,
+      "exa.cortex_pb.ReplacementChunk",
+      false
+    ],
+    "5": [
+      "numMatches",
+      13,
+      "",
+      false
+    ],
+    "7": [
+      "isNonExact",
+      8,
+      "",
+      false
+    ],
+    "6": [
+      "error",
+      8,
+      "",
+      false
+    ],
+    "9": [
+      "errorStr",
+      9,
+      "",
+      false
+    ],
+    "13": [
+      "repaired",
+      8,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.DiffStats": {
+    "1": [
+      "additions",
+      5,
+      "",
+      false
+    ],
+    "2": [
+      "deletions",
+      5,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepCodeAction": {
+    "1": [
+      "actionSpec",
+      11,
+      "exa.cortex_pb.ActionSpec",
+      false
+    ],
+    "2": [
+      "actionResult",
+      11,
+      "exa.cortex_pb.ActionResult",
+      false
+    ],
+    "7": [
+      "heuristicFailure",
+      14,
+      "exa.cortex_pb.CodeHeuristicFailure",
+      false
+    ],
+    "13": [
+      "replacementInfos",
+      11,
+      "exa.cortex_pb.ReplacementChunkInfo",
+      true
+    ],
+    "26": [
+      "description",
+      9,
+      "",
+      false
+    ],
+    "27": [
+      "markdownValidationError",
+      9,
+      "",
+      false
+    ],
+    "28": [
+      "diffStats",
+      11,
+      "exa.cortex_pb.DiffStats",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepGrepSearch": {
+    "11": [
+      "searchPathUri",
+      9,
+      "",
+      false
+    ],
+    "1": [
+      "query",
+      9,
+      "",
+      false
+    ],
+    "7": [
+      "totalResults",
+      13,
+      "",
+      false
+    ],
+    "3": [
+      "rawOutput",
+      9,
+      "",
+      false
+    ],
+    "15": [
+      "timedOut",
+      8,
+      "",
+      false
+    ],
+    "5": [
+      "grepError",
+      9,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepFind": {
+    "10": [
+      "searchDirectory",
+      9,
+      "",
+      false
+    ],
+    "1": [
+      "pattern",
+      9,
+      "",
+      false
+    ],
+    "14": [
+      "truncatedOutput",
+      9,
+      "",
+      false
+    ],
+    "15": [
+      "truncatedTotalResults",
+      13,
+      "",
+      false
+    ],
+    "7": [
+      "totalResults",
+      13,
+      "",
+      false
+    ],
+    "8": [
+      "findError",
+      9,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepViewFile": {
+    "1": [
+      "absolutePathUri",
+      9,
+      "",
+      false
+    ],
+    "2": [
+      "startLine",
+      13,
+      "",
+      false
+    ],
+    "3": [
+      "endLine",
+      13,
+      "",
+      false
+    ],
+    "4": [
+      "content",
+      9,
+      "",
+      false
+    ],
+    "11": [
+      "numLines",
+      13,
+      "",
+      false
+    ],
+    "12": [
+      "numBytes",
+      13,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.RunCommandOutput": {
+    "1": [
+      "full",
+      9,
+      "",
+      false
+    ],
+    "2": [
+      "truncated",
+      9,
+      "",
+      false
+    ],
+    "3": [
+      "numLinesAbove",
+      13,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepRunCommand": {
+    "23": [
+      "commandLine",
+      9,
+      "",
+      false
+    ],
+    "25": [
+      "proposedCommandLine",
+      9,
+      "",
+      false
+    ],
+    "2": [
+      "cwd",
+      9,
+      "",
+      false
+    ],
+    "13": [
+      "commandId",
+      9,
+      "",
+      false
+    ],
+    "6": [
+      "exitCode",
+      5,
+      "",
+      false
+    ],
+    "21": [
+      "combinedOutput",
+      11,
+      "exa.cortex_pb.RunCommandOutput",
+      false
+    ],
+    "26": [
+      "combinedOutputSnapshot",
+      11,
+      "exa.cortex_pb.RunCommandOutput",
+      false
+    ],
+    "31": [
+      "shellName",
+      9,
+      "",
+      false
+    ],
+    "37": [
+      "timedOut",
+      8,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepReadUrlContent": {
+    "1": [
+      "url",
+      9,
+      "",
+      false
+    ],
+    "3": [
+      "resolvedUrl",
+      9,
+      "",
+      false
+    ],
+    "4": [
+      "latencyMs",
+      13,
+      "",
+      false
+    ],
+    "6": [
+      "contentPath",
+      9,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepSearchWeb": {
+    "1": [
+      "query",
+      9,
+      "",
+      false
+    ],
+    "5": [
+      "summary",
+      9,
+      "",
+      false
+    ],
+    "7": [
+      "searchType",
+      14,
+      "exa.cortex_pb.SearchWebType",
+      false
+    ]
+  },
+  "exa.cortex_pb.StepRenderInfo": {
+    "1": [
+      "title",
+      9,
+      "",
+      false
+    ],
+    "5": [
+      "titlePrefix",
+      9,
+      "",
+      false
+    ],
+    "4": [
+      "hidden",
+      8,
+      "",
+      false
+    ],
+    "7": [
+      "aggregationKey",
+      9,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepCodeSearch": {
+    "1": [
+      "query",
+      9,
+      "",
+      false
+    ],
+    "10": [
+      "estimatedTotalResults",
+      5,
+      "",
+      false
+    ]
+  },
+  "exa.cortex_pb.GenericStepResult": {
+    "1": [
+      "result",
+      9,
+      "",
+      false
+    ],
+    "7": [
+      "fullOutputUri",
+      9,
+      "",
+      false
+    ],
+    "6": [
+      "payload",
+      11,
+      "google.protobuf.Any",
+      false
+    ],
+    "3": [
+      "stepRenderInfo",
+      11,
+      "exa.cortex_pb.StepRenderInfo",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepGeneric": {
+    "1": [
+      "args",
+      11,
+      "exa.cortex_pb.CortexStepGeneric.ArgsEntry",
+      true
+    ],
+    "2": [
+      "result",
+      11,
+      "exa.cortex_pb.GenericStepResult",
+      false
+    ]
+  },
+  "exa.cortex_pb.CortexStepGeneric.ArgsEntry": {
+    "1": [
+      "key",
+      9,
+      "",
+      false
+    ],
+    "2": [
+      "value",
+      9,
+      "",
+      false
+    ]
+  },
+  "gemini_coder.TaskDetails": {
+    "1": [
+      "id",
+      9,
+      "",
+      false
+    ],
+    "2": [
+      "logUri",
+      9,
+      "",
+      false
+    ],
+    "5": [
+      "requiresInputApproval",
+      8,
+      "",
+      false
+    ],
+    "7": [
+      "title",
+      9,
+      "",
+      false
+    ]
+  },
+  "gemini_coder.Step": {
+    "1": [
+      "type",
+      14,
+      "exa.cortex_pb.CortexStepType",
+      false
+    ],
+    "4": [
+      "status",
+      14,
+      "exa.cortex_pb.CortexStepStatus",
+      false
+    ],
+    "5": [
+      "metadata",
+      11,
+      "exa.cortex_pb.CortexStepMetadata",
+      false
+    ],
+    "31": [
+      "error",
+      11,
+      "exa.cortex_pb.CortexErrorDetails",
+      false
+    ],
+    "148": [
+      "taskDetails",
+      11,
+      "gemini_coder.TaskDetails",
+      false
+    ],
+    "140": [
+      "generic",
+      11,
+      "exa.cortex_pb.CortexStepGeneric",
+      false
+    ],
+    "10": [
+      "codeAction",
+      11,
+      "exa.cortex_pb.CortexStepCodeAction",
+      false
+    ],
+    "13": [
+      "grepSearch",
+      11,
+      "exa.cortex_pb.CortexStepGrepSearch",
+      false
+    ],
+    "28": [
+      "runCommand",
+      11,
+      "exa.cortex_pb.CortexStepRunCommand",
+      false
+    ],
+    "34": [
+      "find",
+      11,
+      "exa.cortex_pb.CortexStepFind",
+      false
+    ],
+    "40": [
+      "readUrlContent",
+      11,
+      "exa.cortex_pb.CortexStepReadUrlContent",
+      false
+    ],
+    "42": [
+      "searchWeb",
+      11,
+      "exa.cortex_pb.CortexStepSearchWeb",
+      false
+    ],
+    "85": [
+      "codeSearch",
+      11,
+      "exa.cortex_pb.CortexStepCodeSearch",
+      false
+    ],
+    "14": [
+      "viewFile",
+      11,
+      "exa.cortex_pb.CortexStepViewFile",
+      false
+    ],
+    "30": [
+      "checkpoint",
+      11,
+      "exa.cortex_pb.CortexStepCheckpoint",
+      false
+    ]
+  }
+}

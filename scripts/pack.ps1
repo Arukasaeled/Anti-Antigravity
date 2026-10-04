@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot '..\dist'),
-    [string]$Version = '0.2.2',
+    [string]$Version = '0.2.3',
     [string]$Go = 'go',
     [string]$ISCC = 'ISCC.exe',
     [switch]$SkipInstaller
@@ -63,6 +63,7 @@ Copy-Item -Path (Join-Path $ProjectRoot 'assets\*') -Destination (Join-Path $Sta
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\injected_hub.js') -Destination (Join-Path $Staging 'assets\injected_hub.js') -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\context_reader.js') -Destination (Join-Path $Staging 'assets\context_reader.js') -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\context_view.js') -Destination (Join-Path $Staging 'assets\context_view.js') -Force
+Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\activity_inspector.js') -Destination (Join-Path $Staging 'assets\activity_inspector.js') -Force
 Copy-Item -LiteralPath (Join-Path $ProjectRoot 'internal\patcher\hub_i18n.js') -Destination (Join-Path $Staging 'assets\hub_i18n.js') -Force
 Copy-Item -Path (Join-Path $ProjectRoot 'themes\*') -Destination (Join-Path $Staging 'themes') -Recurse -Force
 Copy-Item -Path (Join-Path $ProjectRoot 'plugins\*') -Destination (Join-Path $Staging 'plugins') -Recurse -Force -Exclude '*.go'

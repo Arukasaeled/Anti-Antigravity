@@ -18,7 +18,7 @@
 | 启动方式 | 代理 / 侧车 | 宿主进程归属 | Manager 关闭后 |
 |---|---|---|---|
 | `2ag run` | 启动 | 同一 Windows Job Object（`KILL_ON_JOB_CLOSE`） | 宿主被一并清掉 |
-| `2ag manager` / 无参数 | 不启动 | `exec.Command` 直接拉起，按 PID/`taskkill` 管理 | 宿主**继续运行**（设计如此，不改） |
+| `2ag manager` / 无参数 | 不启动 | `exec.Command` 直接拉起，按进程身份与 ownership 管理 | 宿主**继续运行**（设计如此，不改） |
 
 下面两张图只描述各自那条链，不能混着读。
 
@@ -58,12 +58,14 @@ CDP 端口**动态分配**：历史实现硬编码 28472，一旦被占用宿主
 
 Job Object 只在 **`2ag run`** 这条链上成立：宿主、代理、侧车进程全部挂在同一条 Windows Job Object 下并设置 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`，`2ag run` 退出时 OS 会连带清掉整棵进程树。
 
-**Manager（`2ag manager` / 无参数）默认不走 Job Object。** 它用 `LaunchEnhancedHost` → `exec.Command` 直接拉起宿主，按 PID 记账、用 `taskkill /F /T` 停止。因此：
+**Manager（`2ag manager` / 无参数）默认不走 Job Object。** 它用 `LaunchEnhancedHost` → `exec.Command` 直接拉起宿主，记录 PID、进程身份与 ownership。停止前验证目标仍是同一个 owned / adopted 进程；external 默认拒绝停止。因此：
 
 - 关掉 Manager 窗口，增强宿主**不会**被带走，会继续在后台跑；
 - 想停宿主，要在界面里点「结束进程」，或在 CLI 里用 `2ag run` 对应的托管方式。
 
 不要把两条链混成一句话写。上图的「全部挂在同一条 Job Object」只对 `2ag run` 成立。
+
+进程所有权分为 `owned`（2Ag 启动）、`adopted`（用户明确授权接管）与 `external`（只读发现）。Official single-instance 转交不会把外部进程认领为 managed。Broker、切号、恢复和生命周期入口共用所有权检查，外部实例需明确确认。start / stop / restart / takeover / switch 等关键 API 等实际执行结果后返回，不以发布 CommandEvent 当作成功。
 
 ## 运行形态
 
@@ -71,6 +73,8 @@ Job Object 只在 **`2ag run`** 这条链上成立：宿主、代理、侧车进
 |---|---|---|
 | 官方形态 | 你本机的官方安装 | 零启动参数、零注入、零凭据改写，行为接近"没有安装 2Ag" |
 | 增强形态 | 2Ag 自己的冻结宿主副本 | 完整注入 + G-Hub + 皮肤 + 重力加倍 |
+
+configured mode 是下一次启动配置；effective mode 来自当前运行事实。选择 Official / Enhanced 不执行生命周期操作，明确启动、重启或接管才应用 configured mode。
 
 冻结宿主副本落点在 `2ag.exe` 同级的 `app\`（约 570 MB），首次建立时从本机官方安装**物理复制**，对官方目录只读。建立后 2Ag 一直使用副本，官方 updater 更新的是官方安装 —— 两者物理隔离。
 

@@ -12,7 +12,7 @@
 
 Native 表示读取原生计数；Estimated 表示原生 estimatedTokensUsed 或单个 prompt 文本的字符估算；Unavailable 表示字段未暴露。缺失字段保持 null，不补零。
 
-Total = Input + Output + Cache Read + Cache Write；Reasoning 是 Output 的信息性子集。Cache Hit = Cache Read / (Input + Cache Read + Cache Write)，仅在分母字段完整、且确实存在缓存 telemetry 时显示。完整 total 未知时，≥ 表示已读取原生计数的下界，不把它冒充精确累计。
+Total = New Input + Unclassified Input + Cache Read + Cache Write + Output；Reasoning 是 Output 的信息性子集。Cache Hit = Cache Read / (New Input + Cache Read + Cache Write)，仅在分母字段完整、未分类输入为零且确实存在缓存 telemetry 时显示。完整 total 未知时，≥ 表示已读取原生计数的下界，不把它冒充精确累计。
 
 当前 Prompt 构成来自 messagePrompts / promptSections / systemPrompt；loaded history 独立、默认折叠，明确注明不等同于当前 Prompt / Context Window。历史字符估算不再回填 Context 或 Request 总量。Activity 不出现在 Context UI。
 
@@ -34,7 +34,7 @@ Session Token 加载与消息预览独立。Token 数值可读时显示“Token 
 
 Windows x64 使用系统 winsqlite3.dll，以 SQLITE_OPEN_READONLY 打开 DB，保留实时 WAL 可见性，不创建备份、导出 cache 或迁移数据库。其它平台暂时返回 Unavailable。
 
-只读取当前版本的 gen_metadata(idx, data)、steps(idx, step_type, metadata) 与 trajectory_metadata_blob(id, data)。不读取 step_payload；gen_metadata BLOB 只提取 usage / model，跳过 prompt 正文，不实施全面 protobuf 兼容。
+只读取当前版本的 gen_metadata(idx, data)、steps(idx, step_type, metadata) 与 trajectory_metadata_blob(id, data)。Token Reader 不读取 step_payload（Activity Reader 单独投影其中的行为字段）；gen_metadata BLOB 只提取 usage / model，跳过 prompt 正文，不实施全面 protobuf 兼容。
 
 原生 generation 的 chatModel.usage 中，New Input 使用字段 #2；字段 #1 的数值可读取但具体类别未确认，单列为 Unclassified Input，不归入 Cache。Output 使用 #3，总 output 包含 #9 文本和 #10 reasoning；Cache Read 是 #5，responseId 是 #11。Model 来自 chatModel #19，次选 #21 原生显示名。步骤 metadata 提供响应 ID / generation 索引对应的真实时间戳；没有可靠时间戳就保留未知，不使用 DB 修改时间冒充请求时间。
 

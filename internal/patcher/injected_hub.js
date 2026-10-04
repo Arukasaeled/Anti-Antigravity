@@ -4,6 +4,7 @@
   const INITIAL_CONFIG = __2AG_INITIAL_CONFIG__;
   const readContext = __2AG_CONTEXT_READER__;
   __2AG_CONTEXT_VIEW__
+  __2AG_ACTIVITY_INSPECTOR__
   const BUNDLED_EXTENSIONS = __2AG_BUNDLED_EXTENSIONS__;
   const HUB_I18N = __2AG_HUB_I18N__;
   const HUB_ENGLISH_LABELS = new Map(Object.entries(HUB_I18N.labels).map(([en,zh])=>[zh,en]));
@@ -937,6 +938,7 @@
   let contextFocus = '';
   let contextApiRequest = null;
   let openContextDetails = null;
+  let contextRequestSelection = null;
   let usageAbort = null;
   let usagePending = false;
   let composerHUD = null;
@@ -954,7 +956,7 @@
   const DOM_RUNTIME_EXCLUDE = [
     'textarea', 'input', 'select', 'option', 'button', '[role="button"]', '[role="textbox"]',
     '[contenteditable]:not([contenteditable="false"])', '.monaco-editor', '.ProseMirror', '[data-lexical-editor]',
-    '#' + SHADOW_HOST_ID, '#' + BG_ID, '#' + OVERLAY_ID, '[data-twoag-owned]'
+    '[id="' + SHADOW_HOST_ID + '"]', '[id="' + BG_ID + '"]', '[id="' + OVERLAY_ID + '"]', '[data-twoag-owned]'
   ].join(',');
 
   function paintContext() {
@@ -965,7 +967,16 @@
     const back = shadow?.getElementById('hub-context-compact');
     if (back) back.style.display = contextFull ? '' : 'none';
     if (shadow?.getElementById('hub-context')?.open) {
-      window.TwoAgContextView.render(shadow.getElementById('hub-context-content'), contextSnapshot, contextTimeline, !contextFull, contextFocus);
+      const selected=contextRequestSelection;
+      const snapshot=selected ? {
+        ...(contextSnapshot?.session_id===selected.sessionId?contextSnapshot:{}),
+        request:selected.tokenUsage||{session_id:selected.sessionId,response_id:selected.responseId,provenance:'Unavailable'},
+        session_usage:contextSnapshot?.session_id===selected.sessionId?contextSnapshot.session_usage:null,
+        request_selection:{stepIndex:selected.stepIndex,responseId:selected.responseId}
+      } : contextSnapshot;
+      const backToLatest=shadow.getElementById('hub-context-latest');
+      if(backToLatest){backToLatest.hidden=!selected;backToLatest.textContent=state.language==='en-US'?'Back to latest request':'返回最近请求';}
+      window.TwoAgContextView.render(shadow.getElementById('hub-context-content'), snapshot, selected?[]:contextTimeline, !contextFull, contextFocus, state.language);
     }
     paintComposerControls();
   }
@@ -3677,7 +3688,7 @@
     }));
     header.insertAdjacentHTML('afterend', `
       <div id="interaction-quota" class="il-muted il-header-quota">Gemini — · Claude/GPT —</div>
-      <nav class="il-nav" aria-label="G-Hub pages">${['home','compose','lens','capsule'].map(p => `<button type="button" data-page="${p}" aria-pressed="${p === 'home'}">${p.toUpperCase()}</button>`).join('')}${b('il-command-open', '⌕', 'aria-label="Search commands" title="Commands · Ctrl+Shift+K"')}</nav>
+      <nav class="il-nav" aria-label="G-Hub pages">${['home','compose','lens','capsule','activity'].map(p => `<button type="button" data-page="${p}" aria-pressed="${p === 'home'}">${p.toUpperCase()}</button>`).join('')}${b('il-command-open', '⌕', 'aria-label="Search commands" title="Commands · Ctrl+Shift+K"')}</nav>
       <div id="il-command-palette" class="il-palette" hidden><label>Commands<input id="il-command-search" type="search" placeholder="draft, pin, capsule, account…"></label><div id="il-command-results"></div></div>
       <div id="il-workspace-status" class="il-muted" role="status">正在载入本地工作区…</div>
       <main id="il-pages">
@@ -3718,8 +3729,28 @@
           <div class="il-toolbar">${b('il-capsule-copy','Copy')}${b('il-capsule-insert','Insert into Antigravity','class="il-primary"')}${b('il-capsule-save','Save Capsule')}</div>
           <details class="il-details"><summary>Markdown preview</summary><pre id="il-capsule-preview" class="il-text"></pre></details>
         </section>
+        <section id="il-activity" class="il-page" hidden aria-label="Activity Inspector"></section>
         <section id="il-extensions" class="il-page" hidden><div id="il-extension-tabs" class="il-toolbar"></div><div id="il-extension-panel"></div></section>
       </main>`);
+
+    const activityInspector = window.TwoAgActivity.mount($('il-activity'), { request, language: () => uiLanguage, initialSelection: recovery.activitySession || '', selectionChanged: () => persistRecovery() });
+    cleanups.push(() => activityInspector.dispose());
+    languageListeners.add(() => activityInspector.languageChanged());
+    languageListeners.add(() => paintContext());
+    const inlineActivity = window.TwoAgActivity.mountInline({ request, language: () => uiLanguage,
+      initialPresentation: recovery.reactPresentation || {},
+      persistPresentation: async value => {
+        recovery.reactPresentation=value;persistRecovery();
+        await mutate('extension-state', { id:'__react_presentation_v3', preferences:value });
+      },
+      openRequest: entry => openContextDetails?.('request', entry),
+      entriesChanged: entries => {
+        const selected=contextRequestSelection;if(!selected)return;
+        const next=entries.find(e=>e.sessionId===selected.sessionId&&e.trajectoryId===selected.trajectoryId&&e.stepIndex===selected.stepIndex);
+        if(next&&JSON.stringify(next)!==JSON.stringify(selected)){contextRequestSelection=next;paintContext();}
+      } });
+    cleanups.push(() => inlineActivity.dispose());
+    languageListeners.add(() => inlineActivity.languageChanged());
 
     // Move the original live nodes, keeping their IDs and bound handlers.
     const settings = $('il-settings');
@@ -3807,7 +3838,7 @@
 
     function persistRecovery() {
       if (!restored) return;
-      recovery = { draft: { id: activeDraft?.id || '', title: $('il-draft-title').value, text: $('il-prompt').value }, capsule: capsuleForm(), page, preferences: showcase?.preferences() || recovery.preferences };
+      recovery = { draft: { id: activeDraft?.id || '', title: $('il-draft-title').value, text: $('il-prompt').value }, capsule: capsuleForm(), page, activitySession: activityInspector.selection(), reactPresentation: inlineActivity.preferences(), preferences: showcase?.preferences() || recovery.preferences };
       try { localStorage.setItem(recoveryKey, JSON.stringify(recovery)); } catch (_) {}
     }
     function status(text,values) { if (alive) $('il-workspace-status').textContent = t(text,values); }
@@ -3837,12 +3868,13 @@
     }
     function showPage(next) {
       page = next;
-      const wide = ['compose','lens','capsule','extensions'].includes(next);
+      const wide = ['compose','lens','capsule','extensions','activity'].includes(next);
       panel.dataset.mode = wide ? 'workspace' : 'compact';
-      for (const p of ['home','compose','lens','capsule','extensions']) $('il-' + p).hidden = p !== next;
+      for (const p of ['home','compose','lens','capsule','extensions','activity']) $('il-' + p).hidden = p !== next;
       shadow.querySelectorAll('.il-nav [data-page]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.page === next)));
       layout();
       if (next === 'lens') refreshOutline();
+      if (next === 'activity') activityInspector.show(); else activityInspector.hide();
       if (next === 'capsule') { refreshProject(); renderCapsulePins(); updateCapsulePreview(); }
       persistRecovery();
       showcase?.pageChanged(next);
@@ -4736,6 +4768,8 @@
       try {
         const response = await request('/api/v1/workspace'); const data = await response.json(); if (!alive) return;
         workspace = { drafts: [], snippets: [], pins: [], capsules: [], recent: [], 'extension-state': [], ...data }; ready = true;
+        const reactSaved=workspace['extension-state'].find(item=>item.id==='__react_presentation_v3')||workspace['extension-state'].find(item=>item.id==='__react_presentation_v2');
+        if(reactSaved?.preferences)inlineActivity.restorePreferences(reactSaved.preferences);
         const draft = activeDraft?.id ? workspace.drafts.find(d => d.id === activeDraft.id) : !hadRecoveryDraft && !$('il-prompt').value && !$('il-draft-title').value ? sorted(workspace.drafts)[0] : null;
         if (draft) {
           activeDraft = draft;
@@ -4773,8 +4807,8 @@
     $('il-prompt').value = recovery.draft?.text || ''; $('il-draft-title').value = recovery.draft?.title || '';
     fillCapsule(recovery.capsule || null);
     restored = true;
-    showPage(['home','compose','lens','capsule'].includes(recovery.page) ? recovery.page : 'home'); load();
-    return { paintHostStatus, flushDraft, dismiss: event => showcase.dismiss(event) };
+    showPage(['home','compose','lens','capsule','activity'].includes(recovery.page) ? recovery.page : 'home'); load();
+    return { paintHostStatus, flushDraft, showContext: () => showPage('home'), dismiss: event => showcase.dismiss(event) };
   }
 
   function mountShadowUI() {
@@ -6307,7 +6341,15 @@
 
     const contextPanel = shadow.getElementById('hub-context');
     contextApiRequest = fetchFirstOk;
-    openContextDetails = section => {
+    const latestRequestButton=document.createElement('button');latestRequestButton.id='hub-context-latest';
+    latestRequestButton.type='button';latestRequestButton.className='ctx-link';latestRequestButton.textContent='返回最近请求';latestRequestButton.hidden=true;
+    latestRequestButton.style.cssText='border:0;background:transparent;color:var(--2ag-blue,#4285f4);padding:4px 0;font:inherit;cursor:pointer';
+    shadow.getElementById('hub-context-content').before(latestRequestButton);
+    latestRequestButton.addEventListener('click',()=>{contextRequestSelection=null;paintContext();});
+    openContextDetails = (section, entry=null) => {
+      contextRequestSelection=entry;
+      interaction.showContext();
+      for(let parent=contextPanel.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
       contextFull = true; contextFocus = section || 'request';
       shadow.getElementById('hub-context-compact').style.display = '';
       toggleCockpit(true); contextPanel.open = true; paintContext();
@@ -6338,7 +6380,7 @@
     usageAbort?.abort(); composerResize?.disconnect(); composerHUD?.remove(); composerHUD=null;composerAnchor=null;
     if(composerLayoutFrame!==null)cancelAnimationFrame(composerLayoutFrame);
     composerLayoutFrame=null;
-    contextApiRequest = null; openContextDetails = null;
+    contextApiRequest = null; openContextDetails = null; contextRequestSelection=null;
     pendingRuntimeNodes.clear();
     if (interactionCleanup) { interactionCleanup(); interactionCleanup = null; }
     clearHubRuntimeHandles();
