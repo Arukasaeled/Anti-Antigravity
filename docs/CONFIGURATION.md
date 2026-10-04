@@ -10,7 +10,8 @@
   "blur": 20,
   "opacity": 0.55,
   "modal_opacity": 0.85,
-  "language": "zh-CN",
+  "language": "auto",
+  "onboarding_version": 0,
   "runtime_mode": "enhanced",
   "network": {
     "enabled": true,
@@ -41,9 +42,14 @@
 
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|
-| `language` | string | `"zh-CN"` | 2Ag 界面语言：`zh-CN` / `en-US` |
+| `language` | string | `"auto"` | 2Ag 界面语言：`auto` / `en-US` / `zh-CN`。Auto 使用 Windows 系统语言，`zh-*` 选中文，其它选 English；手动选择优先 |
+| `onboarding_version` | int | `0` | 新安装尚未完成欢迎页。主动完成后保存为 `1`；旧配置缺少此字段时按已有用户处理，不反复显示欢迎页 |
+
+Manager 通过独立 dictionary / `t()` 与显式 UI bindings 即时切换；G-Hub 使用同一配置解析后的语言。已有 `en-US` / `zh-CN` 保持不变。UI language 不改变 `gravity_boost.force_zh_cn`：后者是宿主汉化选项，仍独立控制。
 
 ReAct 可跟随此设置，也可单独选择语言；独立语言与阶段折叠状态属于现有 workspace 的 `__react_presentation_v3` 偏好，不是第二套全局配置。原始工具内容不翻译。
+
+欢迎页提供环境检查、语言与运行形态选择。选择模式只保存 configured mode；建立 Enhanced 副本不会启动宿主，只有明确点击启动才执行生命周期操作。从总览可重新打开欢迎页。
 
 ### 运行时
 

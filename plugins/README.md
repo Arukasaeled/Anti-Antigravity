@@ -118,7 +118,7 @@ call(method, params) / ipc(method, params) 沿用核心 IPC。toast(text) 显示
 
 ### 中英文界面
 
-G-Hub 顶部提供 **中文 / English**，沿用 `SET_LANGUAGE` 保存到 2Ag 配置。切换更新界面标签，不翻译草稿、Snippet、消息、Pin note 或 Capsule 正文；已生成的提示词段落和导出 Markdown 标题保留原文。
+G-Hub 顶部提供 **Auto / System、English、简体中文**，与 Manager 共用 `SET_LANGUAGE` 保存到 2Ag 配置。Auto 使用系统 locale，插件收到解析后的语言。切换更新界面标签，不翻译草稿、Snippet、消息、Pin note 或 Capsule 正文；已生成的提示词段落和导出 Markdown 标题保留原文。
 
 注册项可增加 `title_zh`，`title` 保留英文。例如：
 

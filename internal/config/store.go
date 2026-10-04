@@ -49,6 +49,11 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("inspect Dream Skin config: %w", err)
 	}
 	defaults := Default()
+	// Existing installations already know the Manager. Only new configurations
+	// (including the packaged template with an explicit zero) show onboarding.
+	if _, ok := fields["onboarding_version"]; !ok {
+		cfg.OnboardingVersion = 1
+	}
 	if _, ok := fields["blur"]; !ok {
 		cfg.Blur = defaults.Blur
 	}

@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -109,7 +110,11 @@ func ProbeHostBootstrap() HostBootstrapStatus {
 //
 // 用户按「启动 / 热接管」时才走到这里 —— 这是要求里的「用户触发」，
 // 不是开机自动行为：Manager 启动时不复制任何东西（见 cmd\2ag\manager.go）。
+var frozenHostSetupMu sync.Mutex
+
 func EnsureFrozenHost() (string, error) {
+	frozenHostSetupMu.Lock()
+	defer frozenHostSetupMu.Unlock()
 	if exe := FrozenHostExePath(); exe != "" {
 		return exe, nil
 	}

@@ -62,7 +62,9 @@ var errNoLiveSession = errors.New("宿主视窗上还没有补丁的常驻会话
 // 于是「清除壁纸」这条指令根本到不了宿主，用户看到的就是「点了 Clear 没反应」。
 type hubStatePush struct {
 	config.Config
-	Wallpaper *string `json:"wallpaper,omitempty"`
+	Language           string  `json:"language"`
+	LanguagePreference string  `json:"language_preference"`
+	Wallpaper          *string `json:"wallpaper,omitempty"`
 }
 
 // 壁纸的 base64 载荷是整条推送里唯一可能上兆的部分，而滑块拖动会以每秒十来次的频率触发推送。
@@ -80,7 +82,7 @@ var (
 // includeWallpaper 为 true 时**总是**带上 wallpaper 字段，哪怕它的值是空串 ——
 // 空串是「回到 Native」这条指令本身，不是「没有内容」。见 hubStatePush 的注释。
 func BuildHubStatePush(cfg config.Config, includeWallpaper bool) (string, error) {
-	payload := hubStatePush{Config: cfg}
+	payload := hubStatePush{Config: cfg, Language: cfg.UILanguage(), LanguagePreference: cfg.Language}
 	if includeWallpaper {
 		resolved := ResolveWallpaperDataURL(cfg.WallpaperPath)
 		payload.Wallpaper = &resolved

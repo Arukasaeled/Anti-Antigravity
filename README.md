@@ -34,6 +34,8 @@
 
 提供 Windows x64 安装包与便携 ZIP；使用前需安装官方 Google Antigravity。
 
+**简体中文与 English 均为一级界面语言。** 首次运行跟随 Windows 系统语言，也可即时切换并保存；Manager 与 G-Hub 共用语言设置，ReAct 允许单独选择语言。宿主汉化开关独立于 2Ag 界面语言。
+
 ## 2Ag 带来什么
 
 | 能力 | 为工作环境增加什么 |
@@ -48,6 +50,8 @@
 </p>
 
 *Manager 将账号、配额和宿主状态放在同一管理入口。*
+
+欢迎页帮助新用户检查安装与本地环境、选择运行形态，再主动启动宿主。总览中的 **Compatibility / Capabilities** 使用已有 Runtime、Doctor、存储与配额探针，分别呈现配置、支持情况与当前生效状态；开关已开启不等于功能已生效。
 
 ## Antigravity 内的工作入口
 
@@ -76,6 +80,8 @@ Manager 负责账号、会话、本地环境、诊断和宿主生命周期。你
 **完成后自动折叠，执行记录不删除。** 最终答案回到主视觉；需要复盘时可重新展开，原生会话数据仍存在时可重建历史。支持全部展开 / 折叠与中文 / English，语言可跟随 2Ag 或单独设置；命令、路径、文件名、代码和原始输出 / 错误保留原文。
 
 展示的是 **observable execution**。阶段叙事根据实际 Activity 组织，不读取或生成隐藏 chain-of-thought。
+
+Activity Inspector 可按 All / Errors / Edits / Commands / Reads / Model 查看行为；阶段摘要汇总已有耗时、原生工具调用、模型请求与错误。命令输出、退出码与文件修改统计仅在原生数据可用时显示。
 
 <p align="center">
   <img src="docs/screenshots/03-react-observability.png" alt="真实 Antigravity 会话：完成后展开的阶段执行记录、命令与模型响应，左侧为 G-Hub" width="880">
@@ -164,7 +170,7 @@ CDP 读取运行时状态并在 Enhanced 中注入界面；SQLite 只读补充�
 1. 准备 **Windows 10/11 x64 + WebView2**，先安装官方 Google Antigravity。
 2. 从 **[latest Release](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)** 下载 `Anti-Antigravity-Setup-x64.exe` 或 `2Ag-v<版本>-windows-x64-portable.zip`。
 3. 运行安装包，或解压完整便携目录并保留 `assets/`、`themes/`、`plugins/`，启动 `2ag.exe`。
-4. 选择 Official / Enhanced，需要启动时点击“启动宿主”。**首次 Enhanced 会从本机官方安装建立宿主副本**，所需时间与空间取决于安装版本。
+4. 首次欢迎页会检查环境并让你选择 Official / Enhanced；可先“打开 Manager”，或明确点击“启动 Antigravity”。**首次 Enhanced 需从本机官方安装建立宿主副本**，也可在欢迎页单独建立副本而不启动。已有用户不会反复进入欢迎页，可从总览重新打开。
 
 ## 隐私与安全
 

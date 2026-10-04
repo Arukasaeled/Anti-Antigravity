@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/2ag/2ag/internal/config"
 	"github.com/2ag/2ag/internal/control"
 	"github.com/2ag/2ag/internal/core"
 	"github.com/2ag/2ag/internal/netproxy"
@@ -21,6 +22,7 @@ import (
 )
 
 type Server struct {
+	Version      string
 	stateMachine *core.StateMachine
 	bus          *core.EventBus
 	mux          *http.ServeMux
@@ -112,7 +114,13 @@ func isTrustedLocalOrigin(origin string) bool {
 }
 
 func (s *Server) routes() {
+	s.mux.HandleFunc("/api/v1/locale", func(w http.ResponseWriter, r *http.Request) {
+		cfg := s.stateMachine.GetState()
+		getJSON(w, r, map[string]string{"preference": cfg.Language, "effective": cfg.UILanguage(), "system": config.SystemLanguage()})
+	})
 	s.mux.HandleFunc("/api/v1/context", s.handleContext)
+	s.mux.HandleFunc("/api/v1/launch-readiness", s.handleLaunchReadiness)
+	s.mux.HandleFunc("/api/v1/host/create-enhanced", s.handleCreateEnhancedHost)
 	s.mux.HandleFunc("/api/v1/context/view.js", s.handleContextView)
 	s.mux.HandleFunc("/api/v1/runtime", s.handleRuntime)
 	s.mux.HandleFunc("/api/v1/doctor", s.handleDoctor)

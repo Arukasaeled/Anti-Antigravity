@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 )
 
-var version = "0.2.3"
+var version = "0.2.4"
 
 func reserveCDPPort() (int, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")

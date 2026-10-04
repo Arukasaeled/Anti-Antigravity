@@ -231,14 +231,15 @@ func hubConfigFromConfig(cfg config.Config) patcher.HubConfig {
 	opacity := cfg.Opacity
 
 	return patcher.HubConfig{
-		ControlToken:  control.Token(),
-		ManagerURL:    control.APIURL(),
-		Language:      "zh-CN",
-		Preset:        "Dark Dream",
-		Blur:          blur,
-		Opacity:       opacity,
-		Wallpaper:     wpDataURL,
-		WallpaperPath: wpPath,
+		ControlToken:       control.Token(),
+		ManagerURL:         control.APIURL(),
+		Language:           cfg.UILanguage(),
+		LanguagePreference: cfg.Language,
+		Preset:             "Dark Dream",
+		Blur:               blur,
+		Opacity:            opacity,
+		Wallpaper:          wpDataURL,
+		WallpaperPath:      wpPath,
 		// ModalOpacity 必须一起透传。历史实现漏了这一项，而 Normalize() 也不补它
 		// （Normalize 只拦越界值，从不会把 0 改成别的），于是整段注入与热重载送出的
 		// INITIAL_CONFIG 里 modal_opacity 恒为 0 —— 用户在界面拖动「模态弹窗遮蔽度」

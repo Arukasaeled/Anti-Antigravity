@@ -23,17 +23,18 @@ import (
 // Config contains only Dream Skin settings. Portable installs keep this file
 // beside 2ag.exe; the legacy ~/.2ag/config.json location remains supported.
 type Config struct {
-	WallpaperPath string            `json:"wallpaper_path"`
-	Blur          int               `json:"blur"`
-	Opacity       float64           `json:"opacity"`
-	ModalOpacity  float64           `json:"modal_opacity"`
-	Language      string            `json:"language"`
-	Network       NetworkConfig     `json:"network"`
-	Privacy       PrivacyConfig     `json:"privacy"`
-	GravityBoost  GravityBoost      `json:"gravity_boost"`
-	GlobalRules   string            `json:"global_rules"`
-	EnvOverrides  map[string]string `json:"env_overrides"`
-	Plugins       []Plugin          `json:"plugins"`
+	WallpaperPath     string            `json:"wallpaper_path"`
+	Blur              int               `json:"blur"`
+	Opacity           float64           `json:"opacity"`
+	ModalOpacity      float64           `json:"modal_opacity"`
+	Language          string            `json:"language"`
+	OnboardingVersion int               `json:"onboarding_version"`
+	Network           NetworkConfig     `json:"network"`
+	Privacy           PrivacyConfig     `json:"privacy"`
+	GravityBoost      GravityBoost      `json:"gravity_boost"`
+	GlobalRules       string            `json:"global_rules"`
+	EnvOverrides      map[string]string `json:"env_overrides"`
+	Plugins           []Plugin          `json:"plugins"`
 
 	// RuntimeMode 决定 2Ag 拉起的是「增强宿主」还是「官方宿主」。
 	//
@@ -94,23 +95,23 @@ type PrivacyConfig struct {
 }
 
 type GravityBoost struct {
-	SessionDelete      bool `json:"session_delete"`
-	MarkdownExport     bool `json:"markdown_export"`
-	PastePlaintextFix  bool `json:"paste_plaintext_fix"`
-	SessionIdTag       bool `json:"session_id_tag"`
-	CenteredWidth      bool `json:"centered_width"`
-	PreserveScroll     bool `json:"preserve_scroll"`
-	ForceZhCn          bool `json:"force_zh_cn"`
-	EnableDevtools     bool `json:"enable_devtools"`
-	DisableAutoUpdate  bool `json:"disable_auto_update"`
+	SessionDelete     bool `json:"session_delete"`
+	MarkdownExport    bool `json:"markdown_export"`
+	PastePlaintextFix bool `json:"paste_plaintext_fix"`
+	SessionIdTag      bool `json:"session_id_tag"`
+	CenteredWidth     bool `json:"centered_width"`
+	PreserveScroll    bool `json:"preserve_scroll"`
+	ForceZhCn         bool `json:"force_zh_cn"`
+	EnableDevtools    bool `json:"enable_devtools"`
+	DisableAutoUpdate bool `json:"disable_auto_update"`
 }
 
 type Plugin struct {
-	Name        string   `json:"name"`
-	Executable  string   `json:"executable"`
-	Args        []string `json:"args,omitempty"`
-	Enabled     bool     `json:"enabled"`
-	DisplayName string   `json:"-"`
+	Name        string         `json:"name"`
+	Executable  string         `json:"executable"`
+	Args        []string       `json:"args,omitempty"`
+	Enabled     bool           `json:"enabled"`
+	DisplayName string         `json:"-"`
 	Version     string         `json:"-"`
 	Author      string         `json:"-"`
 	Description string         `json:"-"`
@@ -127,7 +128,7 @@ func Default() Config {
 		Blur:          20,
 		Opacity:       0.55,
 		ModalOpacity:  0.85,
-		Language:      "zh-CN",
+		Language:      "auto",
 		RuntimeMode:   RuntimeModeEnhanced,
 		Network:       NetworkConfig{Enabled: true},
 		Privacy: PrivacyConfig{
@@ -141,8 +142,8 @@ func Default() Config {
 }
 
 func (c *Config) Normalize() {
-	if c.Language != "zh-CN" && c.Language != "en-US" {
-		c.Language = "zh-CN"
+	if !ValidLanguage(c.Language) {
+		c.Language = "auto"
 	}
 	// 老配置（Enhanced 形态存在之前写下的 2ag.json）没有 runtime_mode 字段，
 	// 反序列化后是空串。此处归一为 enhanced —— 它们本来就是增强形态的配置，
@@ -178,8 +179,8 @@ func (c Config) Validate() error {
 	if c.ModalOpacity < 0.1 || c.ModalOpacity > 1.0 {
 		return fmt.Errorf("modal_opacity must be between 0.1 and 1.0")
 	}
-	if c.Language != "zh-CN" && c.Language != "en-US" {
-		return fmt.Errorf("language must be zh-CN or en-US")
+	if !ValidLanguage(c.Language) {
+		return fmt.Errorf("language must be auto, zh-CN or en-US")
 	}
 	if c.RuntimeMode != RuntimeModeEnhanced && c.RuntimeMode != RuntimeModeOfficial {
 		return fmt.Errorf("runtime_mode must be enhanced or official")

@@ -232,6 +232,7 @@
     .act-detail dl{display:grid;grid-template-columns:105px 1fr;gap:4px;margin:8px 0}.act-detail dt{color:var(--2ag-text-secondary)}.act-detail dd{margin:0;white-space:pre-wrap}
     .act-detail pre{white-space:pre-wrap;overflow:auto;max-height:240px;font:11px/1.5 ui-monospace,Consolas,monospace;margin:6px 0}.act-detail details{margin:7px 0}.act-detail summary{cursor:pointer}
     .act-empty{padding:16px 0;color:var(--2ag-text-secondary);font-size:12px}.act-legend{font-size:10px;color:var(--2ag-text-secondary)}
+    .act-filters{display:flex;gap:4px;flex-wrap:wrap;margin:8px 0}.act-filters button{font:inherit;font-size:11px;border:1px solid var(--2ag-outline-variant);background:transparent;color:inherit;padding:3px 7px;border-radius:4px;cursor:pointer}.act-filters button[aria-pressed=true]{color:var(--2ag-blue);border-color:var(--2ag-blue)}
     @media(max-width:540px){.act-entry>summary{grid-template-columns:48px 1fr 57px 40px;gap:4px}.act-detail{padding-left:8px}}`;
 
   const fmtDuration=n=>!known(n)?'—':n<1000?Math.round(n)+'ms':(n/1000).toFixed(n<10000?1:0)+'s';
@@ -314,16 +315,16 @@
   }
 
   function mount(element,{request,language=()=> 'zh-CN',initialSelection='',selectionChanged=()=>{}}) {
-    let alive=true,visible=false,selection='',release=null,state={entries:[]};
+    let alive=true,visible=false,selection='',release=null,state={entries:[]},filter='all';
     const nodes=new Map(),signatures=new Map();
     if(initialSelection){try{const chosen=JSON.parse(initialSelection);if(typeof chosen.id==='string'&&typeof chosen.store==='string')selection=initialSelection;}catch{}}
     const zh=()=>language()!=='en-US',label=(cn,en)=>zh()?cn:en;
-    element.innerHTML='<style>'+css+'</style><div class="act-head"><label><span data-act-session-label></span><select data-act-session></select></label><button type="button" data-act-refresh></button></div><div class="act-meta" role="status"></div><div class="act-legend"></div><div class="act-list"></div>';
+    element.innerHTML='<style>'+css+'</style><div class="act-head"><label><span data-act-session-label></span><select data-act-session></select></label><button type="button" data-act-refresh></button></div><div class="act-filters" role="group"></div><div class="act-meta" role="status"></div><div class="act-legend"></div><div class="act-list"></div>';
     const select=element.querySelector('[data-act-session]'),list=element.querySelector('.act-list'),meta=element.querySelector('.act-meta');
     function labels(){element.querySelector('[data-act-session-label]').textContent=label('会话','Session');element.querySelector('[data-act-refresh]').textContent=label('重新读取','Reload');element.querySelector('.act-legend').textContent=label('原生事实：状态、工具、参数、结果 · 2Ag 推导：分类、标题、耗时','Native: status, tool, arguments, result · Derived: classification, title, duration');const current=select.querySelector('option[value=""]');if(current)current.textContent=label('跟随当前会话','Follow current conversation');signatures.clear();paint();}
     const fmtTime=n=>known(n)?new Date(n).toLocaleTimeString(zh()?'zh-CN':'en-US',{hour12:false}):'—';
     function rowHTML(e){const d=e.details,extras=[],title=actionTitle(e,label)+(e.type==='command'&&e.target?' · '+e.target:'');if(e.type==='file_read'&&(known(d.startLine)||known(d.endLine)))extras.push('L'+(d.startLine??'—')+'–'+(d.endLine??'—'));if(e.type==='file_edit'&&(known(d.additions)||known(d.deletions)))extras.push('+'+(d.additions??'—')+' −'+(d.deletions??'—'));if(e.type==='command'&&known(d.exitCode))extras.push('exit '+d.exitCode);if(e.type==='search'&&known(d.totalResults))extras.push(d.totalResults+' '+label('个结果','results'));if(e.type==='model_response')extras.push(tokenText(e.tokenUsage,label));return '<span class="act-time">'+esc(fmtTime(e.createdAt??e.startedAt))+'</span><span class="act-title" title="'+esc(title)+'">'+esc(title)+(extras.filter(Boolean).length?'<span class="act-sub">'+esc(extras.filter(Boolean).join(' · '))+'</span>':'')+'</span><span class="act-status">'+esc(e.status)+'</span><span class="act-duration">'+esc(fmtDuration(e.duration))+'</span>';}
-    function paint(){if(!alive)return;const entries=state.entries;const seen=new Set();
+    function paint(){if(!alive)return;const entries=filterEntries(state.entries,filter);const seen=new Set();
       for(const e of entries){const key=identities(e)[0]||e.type+':'+e.createdAt;seen.add(key);let node=nodes.get(key);if(!node){node=document.createElement('details');node.className='act-entry';node.innerHTML='<summary></summary><div class="act-detail"></div>';nodes.set(key,node);node.addEventListener('toggle',()=>{if(node.open)node.querySelector('.act-detail').innerHTML=detailHTML(node.entry,label);});}
         const signature=JSON.stringify(e);node.entry=e;node.dataset.status=e.status;if(signatures.get(key)!==signature){node.querySelector('summary').innerHTML=rowHTML(e);if(node.open){const detail=node.querySelector('.act-detail'),opened=[...detail.querySelectorAll('details[open]')].map(n=>n.querySelector('summary').textContent);detail.innerHTML=detailHTML(e,label);for(const d of detail.querySelectorAll('details'))if(opened.includes(d.querySelector('summary').textContent))d.open=true;}signatures.set(key,signature);}
         const previous=seen.size>1?entries[seen.size-2]:null;const prevKey=previous?(identities(previous)[0]||previous.type+':'+previous.createdAt):null;const expected=prevKey?nodes.get(prevKey)?.nextSibling:list.firstChild;if(node!==expected)list.insertBefore(node,expected||null);
@@ -331,15 +332,24 @@
       for(const [key,node]of nodes)if(!seen.has(key)){node.remove();nodes.delete(key);signatures.delete(key);}
       let empty=list.querySelector('.act-empty');if(!entries.length){if(!empty){empty=document.createElement('div');empty.className='act-empty';list.append(empty);}empty.textContent=state.loading?label('正在读取真实步骤…','Reading native steps…'):label('当前来源没有可读取的 Activity。','Activity unavailable for this source.');}else empty?.remove();
       const {sessionId,total,loading,historyComplete,historyPartial,failed,note,runtime}=state;
-      meta.textContent=(sessionId?sessionId+' · ':'')+entries.length+' '+label('行为','activities')+' / '+(total??'—')+' '+label('原生步骤','native steps')+' · '+(loading?label('历史读取中','Loading history'):historyComplete?label('历史已读取','History loaded'):label('历史不完整','History incomplete'))+(runtime?' · Runtime':'')+(historyPartial||failed?' · '+label('部分不可解析','Partially unavailable'):'')+(note?' · '+note:'');
+      meta.textContent=(sessionId?sessionId+' · ':'')+entries.length+' / '+state.entries.length+' '+label('行为','activities')+' / '+(total??'—')+' '+label('原生步骤','native steps')+' · '+(loading?label('历史读取中','Loading history'):historyComplete?label('历史已读取','History loaded'):label('历史不完整','History incomplete'))+(runtime?' · Runtime':'')+(historyPartial||failed?' · '+label('部分不可解析','Partially unavailable'):'')+(note?' · '+note:'');
     }
     async function sessions(){select.innerHTML='<option value="">'+label('跟随当前会话','Follow current conversation')+'</option>';try{const data=await (await request('/api/v1/sessions')).json();if(!alive)return;const items=Array.isArray(data)?data:data.sessions||[];for(const s of items){if(s.provider&&s.provider!=='antigravity')continue;const id=s.id||s.session_id,src=s.storage?.store||s.store||'';if(!id)continue;const o=document.createElement('option');o.value=JSON.stringify({id,store:src});o.textContent=(s.title||id)+' · '+src;select.append(o);}select.value=selection;}catch{} }
     function connect(){release?.();release=acquireReader(request,selection,next=>{state=next;if(visible)paint();});}
     select.addEventListener('change',()=>{selection=select.value;selectionChanged(selection);connect();});
     element.querySelector('[data-act-refresh]').addEventListener('click',()=>{readers.get(selection)?.reload();void sessions();});
-    labels();
-    return {selection:()=>selection,show(){if(!visible){visible=true;connect();}void sessions();},hide(){visible=false;release?.();release=null;},languageChanged:labels,
+    const filterNames=[['all','全部','All'],['errors','错误','Errors'],['edits','修改','Edits'],['commands','命令','Commands'],['reads','读取','Reads'],['model','模型','Model']];
+    function paintFilters(){element.querySelector('.act-filters').innerHTML=filterNames.map(([key,cn,en])=>'<button type="button" data-act-filter="'+key+'" aria-pressed="'+(filter===key)+'">'+label(cn,en)+'</button>').join('');}
+    element.querySelector('.act-filters').addEventListener('click',event=>{const next=event.target.closest('[data-act-filter]');if(next){filter=next.dataset.actFilter;paintFilters();paint();}});
+    const localizedLabels=()=>{labels();paintFilters();};
+    localizedLabels();
+    return {selection:()=>selection,show(){if(!visible){visible=true;connect();}void sessions();},hide(){visible=false;release?.();release=null;},languageChanged:localizedLabels,
       dispose(){alive=false;release?.();release=null;nodes.clear();signatures.clear();}};
+  }
+
+  function filterEntries(entries,filter) {
+    if(filter==='all')return entries;
+    return entries.filter(e=>filter==='errors'?(e.status==='ERROR'||e.type==='error'):e.type===({edits:'file_edit',commands:'command',reads:'file_read',model:'model_response'})[filter]);
   }
 
   const inlineCSS=css+`
@@ -440,6 +450,7 @@
     const entries=phase.entries,paths=new Set(entries.filter(e=>['file_read','file_edit'].includes(e.type)).map(e=>e.target).filter(Boolean)),items=[];
     if(paths.size)items.push(label(paths.size+' 个文件',paths.size+(paths.size===1?' file':' files')));
     const count=type=>entries.filter(e=>e.type===type).length;
+    const nativeTools=entries.filter(e=>e.toolCallId).length;if(nativeTools)items.push(label(nativeTools+' 次原生工具调用',nativeTools+' native tool calls'));
     for(const [type,cn,en]of [['file_read','次读取','reads'],['command','个命令','commands'],['file_edit','次修改','edits'],['search','次搜索','searches'],['model_response','次模型处理','model requests'],['tool','次工具调用','tool calls'],['checkpoint','个检查点','checkpoints'],['waiting','次等待','waits']]){
       const n=count(type);if(n)items.push(label(n+' '+cn,n+' '+en));
     }
@@ -693,5 +704,5 @@
       dispose(){alive=false;release();observer.disconnect();rootObserver.disconnect();scroll?.dispose();channel.port1.close();channel.port2.close();clear();sheet.remove();if(saveTimer)void flushSave();}};
   }
 
-  window.TwoAgActivity={mount,mountInline,normalize,mergeEntries,readRuntime,project,decode};
+  window.TwoAgActivity={mount,mountInline,normalize,mergeEntries,readRuntime,project,decode,filterEntries};
 })();

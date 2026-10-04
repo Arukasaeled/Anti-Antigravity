@@ -15,6 +15,7 @@ type ActionType string
 const (
 	SetThemeAction           ActionType = "SET_THEME"
 	SetLanguageAction        ActionType = "SET_LANGUAGE"
+	CompleteOnboardingAction ActionType = "COMPLETE_ONBOARDING"
 	TogglePluginAction       ActionType = "TOGGLE_PLUGIN"
 	UpdatePluginConfigAction ActionType = "UPDATE_PLUGIN_CONFIG"
 	SetPresetAction          ActionType = "SET_PRESET"
@@ -117,9 +118,15 @@ func (sm *StateMachine) ApplyAction(action StateAction) error {
 			return fmt.Errorf("invalid payload for SET_LANGUAGE")
 		}
 		if lang, ok := payload["language"].(string); ok {
+			if !config.ValidLanguage(lang) {
+				return fmt.Errorf("language must be auto, zh-CN or en-US")
+			}
 			sm.state.Language = lang
 			changed = true
 		}
+	case CompleteOnboardingAction:
+		sm.state.OnboardingVersion = 1
+		changed = true
 	case TogglePluginAction:
 		payload, ok := action.Payload.(map[string]any)
 		if !ok {

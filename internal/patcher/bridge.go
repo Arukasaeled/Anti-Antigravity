@@ -131,26 +131,27 @@ func HubSourceInfo() (source string, size int) {
 // HubConfig is the small state bridge shared by Go's initial injection and the
 // in-app localStorage controls. The renderer owns subsequent changes.
 type HubConfig struct {
-	ControlToken  string            `json:"control_token,omitempty"`
-	ManagerURL    string            `json:"manager_url,omitempty"`
-	Wallpaper     string            `json:"wallpaper"`
-	LogoURL       string            `json:"logo_url"`
-	WallpaperPath string            `json:"wallpaper_path"`
-	Blur          int               `json:"blur"`
-	Opacity       float64           `json:"opacity"`
-	ModalOpacity  float64           `json:"modal_opacity"`
-	Language      string            `json:"language"`
-	Preset        string            `json:"preset"`
-	Plugins       map[string]any    `json:"plugins"`
-	CDPPort       int               `json:"cdp_port,omitempty"`
-	HostPID       int               `json:"host_pid,omitempty"`
-	Env           map[string]string `json:"env_overrides,omitempty"`
-	ProxyURL      string            `json:"proxy_url,omitempty"`
-	Network       any               `json:"network,omitempty"`
-	Privacy       any               `json:"privacy,omitempty"`
-	GlobalRules   string            `json:"global_rules,omitempty"`
-	PluginURL     string            `json:"plugin_url,omitempty"`
-	GravityBoost  any               `json:"gravity_boost,omitempty"`
+	ControlToken       string            `json:"control_token,omitempty"`
+	ManagerURL         string            `json:"manager_url,omitempty"`
+	Wallpaper          string            `json:"wallpaper"`
+	LogoURL            string            `json:"logo_url"`
+	WallpaperPath      string            `json:"wallpaper_path"`
+	Blur               int               `json:"blur"`
+	Opacity            float64           `json:"opacity"`
+	ModalOpacity       float64           `json:"modal_opacity"`
+	Language           string            `json:"language"`
+	LanguagePreference string            `json:"language_preference,omitempty"`
+	Preset             string            `json:"preset"`
+	Plugins            map[string]any    `json:"plugins"`
+	CDPPort            int               `json:"cdp_port,omitempty"`
+	HostPID            int               `json:"host_pid,omitempty"`
+	Env                map[string]string `json:"env_overrides,omitempty"`
+	ProxyURL           string            `json:"proxy_url,omitempty"`
+	Network            any               `json:"network,omitempty"`
+	Privacy            any               `json:"privacy,omitempty"`
+	GlobalRules        string            `json:"global_rules,omitempty"`
+	PluginURL          string            `json:"plugin_url,omitempty"`
+	GravityBoost       any               `json:"gravity_boost,omitempty"`
 }
 
 func (c HubConfig) Normalize() HubConfig {

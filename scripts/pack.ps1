@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [string]$OutputRoot = (Join-Path $PSScriptRoot '..\dist'),
-    [string]$Version = '0.2.3',
+    [string]$Version = '0.2.4',
     [string]$Go = 'go',
     [string]$ISCC = 'ISCC.exe',
     [switch]$SkipInstaller
@@ -80,7 +80,8 @@ $config = @'
   "blur": 20,
   "opacity": 0.55,
   "modal_opacity": 0.85,
-  "language": "zh-CN",
+  "language": "auto",
+  "onboarding_version": 0,
   "runtime_mode": "enhanced",
   "network": { "enabled": true, "endpoint_overrides": [], "rule_targets": [] },
   "privacy": { "blocked_hosts": ["google-analytics.com", "www.google-analytics.com", "analytics.google.com", "www.googletagmanager.com", "crashlyticsreports-pa.googleapis.com"] },
@@ -210,7 +211,7 @@ $stagedFiles = @(Get-ChildItem -LiteralPath $Staging -Recurse -File -ErrorAction
     Where-Object { $_.FullName.Substring($Staging.Length).TrimStart('\') -notlike 'app\*' })
 
 $ownedSourceFiles = @()
-foreach ($rel in @('README.md', 'installer.iss', '.gitignore', 'go.mod', 'LICENSE')) {
+foreach ($rel in @('README.md', 'README.en.md', 'installer.iss', '.gitignore', 'go.mod', 'LICENSE')) {
     $p = Join-Path $ProjectRoot $rel
     if (Test-Path -LiteralPath $p -PathType Leaf) { $ownedSourceFiles += (Get-Item -LiteralPath $p) }
 }

@@ -236,7 +236,7 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 				}
 			}
 		}
-		injector.Initial = patcher.HubConfig{ControlToken: control.Token(), ManagerURL: control.APIURL(), Language: cfg.Language, WallpaperPath: cfg.WallpaperPath, GlobalRules: cfg.GlobalRules, Network: cfg.Network, Privacy: cfg.Privacy, Plugins: pluginState, PluginURL: "http://" + sidecars.Address(), CDPPort: cdpPort, HostPID: managed.PID(), Env: cfg.EnvOverrides, GravityBoost: cfg.GravityBoost}
+		injector.Initial = patcher.HubConfig{ControlToken: control.Token(), ManagerURL: control.APIURL(), Language: cfg.UILanguage(), LanguagePreference: cfg.Language, WallpaperPath: cfg.WallpaperPath, GlobalRules: cfg.GlobalRules, Network: cfg.Network, Privacy: cfg.Privacy, Plugins: pluginState, PluginURL: "http://" + sidecars.Address(), CDPPort: cdpPort, HostPID: managed.PID(), Env: cfg.EnvOverrides, GravityBoost: cfg.GravityBoost}
 		injector.BridgeHandlers = coreBridgeHandlers(runtimeConfig, sidecars, injector.SetWallpaperPath, func(ctx context.Context) (any, error) { return openDevTools(ctx, cdpPort) }, func(ctx context.Context) (any, error) { return probeGateway(ctx, injector.ProxyURL) }, sm)
 
 		currentState := sm.GetState()
@@ -264,8 +264,8 @@ func runCommand(configPath string, cfg config.Config, args []string) error {
 					if err := injector.Inject(ctx, newState.WallpaperPath, newState.Blur, newState.Opacity, newState.ModalOpacity); err != nil && ctx.Err() == nil {
 						log.Printf("[2ag] CDP event injection failed: %v", err)
 					}
-					stateData, _ := json.Marshal(newState)
-					_ = injector.Evaluate(ctx, fmt.Sprintf("if (typeof window.__2ag_onStateUpdate === 'function') window.__2ag_onStateUpdate(%s);", string(stateData)))
+					stateData, _ := supervisor.BuildHubStatePush(newState, false)
+					_ = injector.Evaluate(ctx, fmt.Sprintf("if (typeof window.__2ag_onStateUpdate === 'function') window.__2ag_onStateUpdate(%s);", stateData))
 				}
 			case event := <-cmdCh:
 				if action, ok := event.Payload.(core.StateAction); ok {

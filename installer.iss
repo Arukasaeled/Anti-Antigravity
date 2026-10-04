@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.3"
+  #define MyAppVersion "0.2.4"
 #endif
 #ifndef SourceDir
   #define SourceDir "staging"

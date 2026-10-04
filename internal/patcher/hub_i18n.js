@@ -1,5 +1,6 @@
 ({
   labels: {
+    'Auto / System': '自动 / 跟随系统',
     'HOME': '首页', 'COMPOSE': '编写', 'LENS': '会话',
     'CAPSULE': '胶囊', 'EXTENSIONS': '扩展',
     'Open conversations': '选择会话', 'Open conversation': '查看会话',

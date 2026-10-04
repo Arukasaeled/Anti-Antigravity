@@ -1063,7 +1063,7 @@
         for(const node of [composerAnchor.row,composerAnchor.model,composerAnchor.trailing])composerResize.observe(node);
       }
     }
-    const values = window.TwoAgContextView.footer(contextSnapshot);
+    const values = window.TwoAgContextView.footer(contextSnapshot,state.language);
     const update = (button, caption, value, hover) => {
       const label=button.querySelector('.caption'),amount=button.querySelector('.value');
       if(label.textContent!==caption)label.textContent=caption;
@@ -3648,7 +3648,8 @@
         if(label.attribute)label.node.setAttribute(label.attribute,next);else label.node.textContent=next;
         label.last=next;
       }
-      $('il-language').value=uiLanguage;
+      $('il-language').value=state.language_preference||uiLanguage;
+      $('il-language').querySelector('option[value="auto"]').textContent=t('Auto / System');
       if(showcase) {
         renderLists();renderHistory();draftMeta();renderCommands();renderContextProviders();
         renderActions(promptActions,$('il-prompt-actions'),promptContext);
@@ -3676,14 +3677,14 @@
     header.querySelector('.status-text').id = 'interaction-status';
     header.querySelector('.status-text').textContent = 'Connecting…';
     header.querySelector('.brand-wrap').insertAdjacentHTML('beforeend', '<span id="interaction-account" class="il-muted">—</span>');
-    header.insertAdjacentHTML('beforeend','<select id="il-language" aria-label="Language" title="Language"><option value="zh-CN">中文</option><option value="en-US">English</option></select>');
-    $('il-language').value=uiLanguage;
+    header.insertAdjacentHTML('beforeend','<select id="il-language" aria-label="Language" title="Language"><option value="auto">Auto / System</option><option value="zh-CN">中文</option><option value="en-US">English</option></select>');
+    $('il-language').value=state.language_preference||uiLanguage;
     $('il-language').addEventListener('change',()=>run(async()=>{
-      const next=$('il-language').value, previous=uiLanguage;
+      const next=$('il-language').value, previous=uiLanguage, previousPreference=state.language_preference;
       $('il-language').disabled=true;
-      applyLanguage(next);persistRecovery();
-      try { await request('/api/v1/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'SET_LANGUAGE',payload:{language:next}})}); }
-      catch(error) { if(alive){applyLanguage(previous);showToast('[2Ag] '+t('Language could not be saved: {error}',{error:error.message}));} }
+      state.language_preference=next;
+      try { await request('/api/v1/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'SET_LANGUAGE',payload:{language:next}})}); const locale=await(await request('/api/v1/locale')).json(); applyLanguage(locale.effective);persistRecovery(); }
+      catch(error) { if(alive){state.language_preference=previousPreference;applyLanguage(previous);showToast('[2Ag] '+t('Language could not be saved: {error}',{error:error.message}));} }
       finally { if(alive)$('il-language').disabled=false; }
     }));
     header.insertAdjacentHTML('afterend', `
@@ -3780,7 +3781,7 @@
       .cockpit-body {padding:16px 18px;gap:0;}
       .cockpit-header {margin-bottom:4px;align-items:center;}
       .cockpit-header .brand-wrap {flex:1;flex-wrap:wrap;}
-      #il-language {width:76px;flex:0 0 auto;background:var(--2ag-surface,#202124);color:var(--2ag-text-primary);border:1px solid var(--2ag-outline-variant);border-radius:6px;padding:5px;font:11px system-ui;}
+      #il-language {width:112px;flex:0 0 auto;background:var(--2ag-surface,#202124);color:var(--2ag-text-primary);border:1px solid var(--2ag-outline-variant);border-radius:6px;padding:5px;font:11px system-ui;}
       .cockpit-panel:lang(en-US) .item-latin {display:none;}
       #interaction-account {margin-left:auto;max-width:160px;overflow:hidden;text-overflow:ellipsis;}
       .il-header-quota {padding:6px 0 12px;}
@@ -6474,7 +6475,8 @@
     if (nextOpacity !== null) state.opacity = nextOpacity;
     if (nextModal !== null) state.modalOpacity = nextModal;
     if (typeof cfg.language === 'string' && cfg.language) state.language = cfg.language;
-    if(interactionLanguageChanged&&state.language!==document.getElementById(SHADOW_HOST_ID)?.shadowRoot?.getElementById('il-language')?.value)interactionLanguageChanged(state.language);
+    if (typeof cfg.language_preference === 'string') state.language_preference=cfg.language_preference;
+    if(interactionLanguageChanged)interactionLanguageChanged(state.language);
     // 注意：这里刻意不把 cfg.wallpaper_path 写进 state.wallpaper。
     // state.wallpaper 的取值链是「background-image 的 url(...)」，它只接受 data:
     // 或 http(s) 形态；把 D:/Pictures/x.jpg 这种本地路径写进去，在 https 的宿主页面上

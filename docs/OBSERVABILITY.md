@@ -27,11 +27,13 @@ ActivityEntry 以 session、trajectory、stepIndex 为基本身份，辅以原�
 
 三级展示共享同一份 ActivityEntry：Phase 按实际 execution / 同类操作与可观察目标分组，用真实文件、命令和计数形成摘要；Detailed 展开原始行为顺序与连续操作组；Raw Inspector 显示结果、错误、ID、时间戳和共享 Token breakdown。原始 command、code、path、filename、output / error 不翻译，通过 textContent / escaping 插入。
 
+Activity Inspector 的 All / Errors / Edits / Commands / Reads / Model 过滤仅选择渲染条目，不删除或修改原始 ActivityEntry。Phase 统计使用已有时间戳、toolCallId、模型响应与错误；缺少原生计数时省略，输入不完整时保留 ≥。命令提供原生 combined output，不将其伪称为已分离的 stdout / stderr；Edit 只展示可读的修改统计、replacement chunks 与结果，不生成缺失的 unified diff。
+
 内联 ReAct 挂在当前原生 turn 的 Activity 区域，用原生 turn steps 与 isRunning 关联任务，不根据 “Working...” 文案猜测。默认仅展开当前 Phase，Detailed 按需展开；真实任务完成时整个 ReAct 折叠，但不删除任何历史。重新展开或 DOM 重建后，仍可恢复可读取的持久化记录。Raw 命令输出默认折叠，未知工具保持 Tool。当前未提供的原生数据明确报告不可用，不冒充完整复盘。
 
 用户手动查看历史时暂停滚动跟随；仅在底部或明确回到底部时跟随新行为。Observer、MessageChannel、timer、scroll listener 与自有节点在 dispose 时清理；官方显示属性恢复，热注入不会要求刷新宿主。
 
-语言跟随 2Ag，也可单独选中文 / English；语言和折叠偏好保存在现有 `~/.2ag/workspace/extension-state.json` 的 `__react_presentation_v3` 项，localStorage 仅作恢复缓存。保存失败可见，不把内存变化当作持久化成功。
+语言默认跟随 2Ag 解析后的 Auto / English / 中文设置，也可单独选中文 / English；语言和折叠偏好保存在现有 `~/.2ag/workspace/extension-state.json` 的 `__react_presentation_v3` 项，localStorage 仅作恢复缓存。保存失败可见，不把内存变化当作持久化成功。宿主汉化开关不参与此语言选择。
 
 模型响应点击打开同一 session / trajectory / step 的已有 Inspector，并使用 responseId 补入已读原生 usage。所选请求与最近请求分开显示，可返回最新请求；Session 累计仍来自原生会话库。
 

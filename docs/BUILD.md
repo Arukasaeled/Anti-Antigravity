@@ -19,10 +19,10 @@ go build -o 2ag.exe .\cmd\2ag
 
 ```powershell
 # release 二进制 + staging + 安装包
-.\scripts\pack.ps1 -Version 0.2.3
+.\scripts\pack.ps1 -Version 0.2.4
 
 # 只出 staging（不生成安装包）
-.\scripts\pack.ps1 -Version 0.2.3 -SkipInstaller
+.\scripts\pack.ps1 -Version 0.2.4 -SkipInstaller
 ```
 
 ## `pack.ps1` 做什么
@@ -53,7 +53,7 @@ dist\Anti-Antigravity-Setup-x64.exe
 
 `dist\staging\` **本身就是便携形态** —— 自包含，双击 `2ag.exe` 即跑。安装包与它同源同一份 `2ag.exe`，区别只是多写注册表 + 开始菜单快捷方式。
 
-GitHub Release 提供安装包 `Anti-Antigravity-Setup-x64.exe` 与 `2Ag-v0.2.3-windows-x64-portable.zip`。便携包由完整 staging 目录生成，不能只复制 exe 后删除 companion modules。
+GitHub Release 提供安装包 `Anti-Antigravity-Setup-x64.exe` 与 `2Ag-v0.2.4-windows-x64-portable.zip`。便携包由完整 staging 目录生成，不能只复制 exe 后删除 companion modules。出厂模板使用 `language: auto` 与 `onboarding_version: 0`，不包含开发机的语言偏好或完成状态。
 
 ## 可复现性
 
@@ -69,8 +69,8 @@ GitHub Release 提供安装包 `Anti-Antigravity-Setup-x64.exe` 与 `2Ag-v0.2.3-
 ## 发布
 
 ```powershell
-.\scripts\pack.ps1 -Version 0.2.3
-Compress-Archive -LiteralPath dist\staging -DestinationPath dist\2Ag-v0.2.3-windows-x64-portable.zip
+.\scripts\pack.ps1 -Version 0.2.4 -OutputRoot dist\v0.2.4
+Compress-Archive -LiteralPath dist\v0.2.4\staging -DestinationPath dist\v0.2.4\2Ag-v0.2.4-windows-x64-portable.zip
 ```
 
 先冻结并 push release commit，再从该提交构建安装包与 ZIP；tag 指向该提交，检查目标 tag / release 不存在后发布。既有 tag / release 不覆盖、不移动。README relaunch 可作为发布后的独立 docs commit，使 main 领先 release tag。

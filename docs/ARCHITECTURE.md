@@ -36,7 +36,7 @@
 | `internal/netproxy/` | 本机回环转发代理 |
 | `internal/patcher/` | CDP 桥与注入载荷（`injected_hub.js`） |
 | `internal/supervisor/` | 宿主启动、账号扫描、官方登录 Broker、DPAPI 账号保险库、兼容性与更新守护、壁纸、侧车 |
-| `web/` | 内嵌前端（`go:embed`，手工维护的单文件 SPA） |
+| `web/` | 内嵌 SPA（`go:embed`），Manager 页面与独立 i18n / Observability / Launch Readiness modules |
 | `assets/` | logo / 图标 / 内嵌资源 |
 | `themes/` `plugins/` | 主题定义 / 插件契约 |
 | `scripts/pack.ps1` | 发布构建 + 泄漏闸门 |
@@ -62,6 +62,12 @@ CDP 端口**动态分配**：历史实现硬编码 28472，一旦被占用宿主
 React / Language Server 更新提供当前 Runtime 切片；原生 conversation SQLite 只读提供历史 Activity 与 generation usage。ActivityEntry 合并后由 Phase / Detailed / Raw 三层展示；Request / Session 使用同一 Token 语义。主 Sessions 只统计 Antigravity，preview / export / delete / usage 沿真实 SessionSource 操作。
 
 任务结束只折叠 ReAct，不删除原生历史；DOM 恢复与展示偏好复用现有本地 workspace store。边界与字段来源见 [OBSERVABILITY.md](OBSERVABILITY.md)。
+
+## 语言与首次运行
+
+`config.language` 保存 `auto` / `en-US` / `zh-CN`。配置层使用 Windows 系统 locale 解析 Auto；Manager 获取同一解析信息，G-Hub 初始注入与增量推送都携带解析后的语言和原始 preference。ReAct 独立 override 保存在现有 workspace；宿主 `force_zh_cn` 不参与 UI language 解析。
+
+首次欢迎页与能力总览复用 Bootstrap、Environment、Doctor、Guardian、Context 与 Quota 数据。它们区分 configured / supported / effective；只观察到 SQLite 文件时不会宣称 Activity 已读通。欢迎页只在明确点击启动时执行生命周期操作，单独创建 frozen copy 不启动进程。
 
 ## 进程生命周期
 

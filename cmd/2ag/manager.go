@@ -331,6 +331,7 @@ func startManager(configPath string, cfg config.Config) error {
 	bus := core.NewEventBus()
 	sm := core.NewStateMachine(cfg, configPath, bus)
 	apiServer := api.NewServer(sm, bus)
+	apiServer.Version = version
 
 	// 当前宿主的注入策略与下次启动配置分开。已有宿主优先沿用实际形态。
 	activeMode := cfg.RuntimeMode

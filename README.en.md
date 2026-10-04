@@ -34,6 +34,8 @@ Use **G-Hub inside Antigravity** while working, and the standalone **Manager** f
 
 Windows x64 installer and portable ZIP available. Install the official Google Antigravity client first.
 
+**English and Simplified Chinese are first-class UI languages.** A fresh install follows the Windows system language; manual changes apply immediately and persist. Manager and G-Hub share the setting, while ReAct can use its own language. Host translation is a separate option.
+
 ## What 2Ag adds
 
 | Capability | What you can do |
@@ -44,10 +46,12 @@ Windows x64 installer and portable ZIP available. Install the official Google An
 | **Customize** | Organize prompts, pinned messages, and Capsules in G-Hub; adjust themes and wallpaper; load local extensions. |
 
 <p align="center">
-  <img src="docs/screenshots/01-overview-light.png" alt="Light Manager overview: account quotas, configured mode, and host runtime status" width="880">
+  <img src="docs/screenshots/en/01-overview-light.png" alt="English Manager overview: capability readings, configured mode, and host runtime status" width="880">
 </p>
 
 *Manager brings accounts, quotas, and host status into one place.*
+
+A short welcome flow checks your installation and local environment, explains runtime choices, and leaves starting the host to you. **Compatibility / Capabilities** reuses Runtime, Doctor, storage, and quota probes. It shows configured settings, support readings, and current effectiveness separately: an enabled switch is not proof that a feature is working.
 
 ## Inside Antigravity
 
@@ -76,6 +80,8 @@ Entries update as execution progresses. The same step moves from `RUNNING / GENE
 **Completion collapses the execution record; it does not delete it.** The final answer returns to focus. Expand the record to review it, or rebuild history while the native session data remains available. Expand / collapse all and Chinese / English presentation are supported. Language can follow 2Ag or be set independently. Commands, paths, filenames, code, and raw output / errors remain unchanged.
 
 This is **observable execution**. Phase narratives are based on actual Activity; 2Ag does not read or generate hidden chain-of-thought.
+
+Activity Inspector offers All / Errors / Edits / Commands / Reads / Model filters. Phase summaries use observed duration, native tool calls, model requests, and errors. Command output, exit codes, and edit statistics appear only when native data is available.
 
 <p align="center">
   <img src="docs/screenshots/03-react-observability.png" alt="A real Antigravity session with its completed execution record expanded: phases, commands, and model responses, with G-Hub on the left" width="880">
@@ -108,7 +114,7 @@ View account quotas for Gemini and Claude / GPT model pools. G-Hub and account v
 **selected / applied / verified are reported separately.** Selecting an account, applying its credentials, and verifying the identity inside the running host are different states. Matching the credential owner and checking the write only prove that credentials were applied. Without a reliable host identity source, “Host identity unverified” remains an informational status.
 
 <p align="center">
-  <img src="docs/screenshots/05-accounts.png" alt="Manager Accounts: local account list and quotas for each model pool" width="880">
+  <img src="docs/screenshots/en/05-accounts.png" alt="English Manager Accounts: local account list and quotas for each model pool" width="880">
 </p>
 
 *Manage accounts and quotas together to see each account's available resources.*
@@ -121,7 +127,7 @@ View account quotas for Gemini and Claude / GPT model pools. G-Hub and account v
 
 | Runtime enhancement switches | Antigravity Sessions |
 |---|---|
-| <img src="docs/screenshots/04-diagnostics.png" alt="Manager runtime enhancement switches and experimental options" width="420"> | <img src="docs/screenshots/07-sessions.png" alt="Manager Sessions: project filtering, session list, and batch actions" width="420"> |
+| <img src="docs/screenshots/04-diagnostics.png" alt="Manager runtime enhancement switches and experimental options" width="420"> | <img src="docs/screenshots/en/07-sessions.png" alt="English Manager Sessions: project filtering, session list, and batch actions" width="420"> |
 | Choose runtime enhancements as needed. Experimental options are labeled separately. | Browse, manage, and review local sessions from one entry point. |
 
 ## Runtime Control
@@ -164,7 +170,7 @@ CDP reads runtime state and injects UI in Enhanced mode. Read-only SQLite access
 1. Use **Windows 10/11 x64 with WebView2** and install the official Google Antigravity client first.
 2. Download `Anti-Antigravity-Setup-x64.exe` or `2Ag-v<version>-windows-x64-portable.zip` from the **[latest Release](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)**.
 3. Run the installer, or extract the entire portable ZIP with its `assets/`, `themes/`, and `plugins/` directories intact. Launch `2ag.exe`.
-4. Select Official / Enhanced and click **Start host** when ready. **The first Enhanced launch creates a local host copy from your official installation.** Time and disk space depend on the installed version.
+4. The first-run welcome checks your environment and lets you choose Official / Enhanced. Select **Open Manager** to look around, or explicitly **Start Antigravity** when ready. **Enhanced needs a local host copy from your official installation**; you can create the copy separately without launching. Existing installations skip the welcome, which can be reopened from Overview.
 
 ## Privacy / Security
 
