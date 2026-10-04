@@ -1,147 +1,170 @@
-<img src="docs/screenshots/00-banner.png" alt="2Ag · Anti-Antigravity" width="560">
-
 # 2Ag · Anti-Antigravity
 
-**让 Antigravity 的执行过程、上下文和资源消耗可见、可追踪、可复盘。**
+**Google Antigravity 的本地桌面增强与控制层。**
 
-Google Antigravity 的本地 **Observability & Control Layer**。在原生会话里查看真实工具行为、请求与 Token；在 Manager 中管理账号、配额和运行状态。
+2Ag 为 Antigravity 增加观察、控制、管理与定制能力：看清执行过程和 Token 消耗，管理账号、配额与会话，明确控制宿主的运行方式，并调整日常工作界面。
+
+工作时，从 Antigravity 内的 **G-Hub** 使用增强能力；管理时，从独立的 **Manager** 查看本地资源与运行状态。两者服务于同一个 Antigravity 工作环境。
 
 **Windows x64 · Local-first · Runtime Injection · No official-file patching**
 
 [![Release](https://img.shields.io/github/v/release/Arukasaeled/Anti-Antigravity?style=flat-square&color=4285f4)](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square)](LICENSE)
 
-**[下载最新版本](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)** · [发布说明](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest) · [构建指南](docs/BUILD.md)
+**[下载最新版本](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)** · [Release Notes](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest) · [构建指南](docs/BUILD.md) · [License](LICENSE)
 
-Release 提供 `Anti-Antigravity-Setup-x64.exe` 和 `2Ag-v<版本>-windows-x64-portable.zip`。2Ag 不包含 Google Antigravity runtime，请先安装官方客户端。
+提供 Windows x64 安装包与便携 ZIP；使用前需安装官方 Google Antigravity。
 
-## 为什么需要 2Ag
+<img src="docs/screenshots/00-banner.png" alt="2Ag · Anti-Antigravity" width="560">
 
-官方会话里的 `Working...`、`Thought for 13s`、`Analyzed...` 把执行过程压缩成几行。Antigravity 自己的 Runtime 和 conversation SQLite 已经保存了更多可观察行为。
+## What 2Ag adds
 
-2Ag 消费这些真实数据，把阶段、工具、模型请求和 Token 放回原生会话工作区。你能看见读了哪些文件、运行了什么命令、修改了什么，以及对应请求的资源消耗；结束后可以展开复盘。
-
-展示的是 **observable execution**：行为分组与叙事来自真实 Activity，不读取、恢复或伪造隐藏 chain-of-thought。
-
-## ReAct Observability
-
-| 层级 | 看什么 | 怎么展开 |
-|---|---|---|
-| **Phase Narrative** | Codex 式阶段摘要、行为计数、当前动作与耗时 | 默认只展开当前 Phase |
-| **Detailed ReAct** | DSH 式完整行为过程：Read、Command、Search、Edit、Model Response | 展开阶段与详细过程；连续同类操作可折叠 |
-| **Raw Inspector** | 原生 ID、时间戳、命令结果、错误、修改结果与 Token breakdown | 点击单条行为；模型响应进入 Request / Token Inspector |
-
-执行中实时追加，`RUNNING / GENERATING → DONE / ERROR` 原位更新。Runtime 当前切片与 SQLite 历史按原生标识合并，不按标题去重，也不把当前 Runtime 合并进另一会话或备份来源。
-
-任务完成后整个 ReAct 自动折叠，最终答案进入主视觉。**完成不会删除执行记录**：可重新展开完整已读取历史，并从仍存在的原生持久化会话重建。命令输出默认折叠，unknown tool 保持 Tool。
-
-支持全部展开 / 折叠、中文 / English，以及跟随 2Ag 或独立的语言选择。只翻译 UI 和行为叙事；code、command、path、filename、raw output / error 保留原文。用户离开底部查看历史时停止自动跟随，回到底部再跟随新步骤。
-
-内联增强使用已有 CDP runtime injection，挂在原生会话 Activity 区域。DOM 重建后恢复；卸除注入会清理自有节点、样式与监听，恢复官方显示与交互。
-
-## Context、Request 与 Session Token
-
-| 读数 | 含义 |
+| 能力 | 为工作环境增加什么 |
 |---|---|
-| **Request** | 单次模型请求实际处理的输入与输出，优先读取 Runtime 原生 usage；模型响应可进入所选请求详情 |
-| **Session** | 整个会话的原生 generation 累计，优先读取持久化 conversation DB，按 responseId 去重 |
-| **Context** | 当前 Context Window 占用，仅使用可靠原生占用 / 估算字段；不是 Session 累计，也不拿 Request 输入冒充 |
+| **Observe · 观察** | 从执行阶段、工具行为到 Request Trace、Context 与 Session Token，查看当前任务并复盘历史。 |
+| **Control · 控制** | 选择 Official / Enhanced，控制宿主生命周期与运行时开关，区分配置模式、实际运行模式与进程所有权。 |
+| **Manage · 管理** | 集中查看 Accounts、Quota 和 Antigravity Sessions，浏览已安装 Skills，检查 Environment、Doctor 与配置保存状态。 |
+| **Customize · 定制** | 在 G-Hub 中整理 Prompt、固定消息与 Capsule，调整主题与壁纸，加载本地扩展。 |
 
-Composer control row 常驻 Request / Session 读数，跟随中央或底部输入框；hover 看同源 breakdown，点击进入完整 Inspector。
+<img src="docs/screenshots/01-overview-light.png" alt="浅色 Manager 总览：账号配额、配置模式与宿主运行状态" width="880">
 
-Request 和 Session 共用字段语义：**New Input、Unclassified Input、Cache Read、Cache Write、Output、Reasoning**。Total 包含所有输入类别与 Output；Reasoning 是 Output 的信息性子集，不重复累计。每项计入 Total 的 Token 都有可见归属。
+*Manager 将账号、配额和宿主状态放在同一管理入口。*
 
-- 未提供的字段显示 `—`，unknown 不等于 0。
-- 原生计数可读但类别未确认时显示 **Unclassified Input**，不强行归入 Cache。
-- 不完整累计显示 `≥` 下界；字符估算显示 Estimated，不冒充精确计数。
-- Cache Hit 只在分类完整、没有未分类输入且确有缓存 telemetry 时显示；否则 `Cache —`。
-- Context 上限未获取时保持未知，不按模型名硬编码窗口或百分比。
-- 当前 Prompt 构成与已加载会话历史分开显示，loaded history 不等于当前 Prompt / Context Window。
+## Inside Antigravity
 
-数据来源和计算边界见 [OBSERVABILITY.md](docs/OBSERVABILITY.md)。
+**G-Hub 是工作中的入口，Manager 是管理中的入口。** G-Hub 通过 runtime injection 驻留在 Antigravity 内，可以查看配额、打开 Inspector、编辑 Prompt 和收集上下文。执行过程增强放在原生会话 Activity 区域，Request / Session 读数放在输入框控制行，沿用原有会话布局与滚动行为。
 
-## Accounts 与 Quota
+Manager 负责账号、会话、本地环境、诊断和宿主生命周期。你可以在工作时留在 Antigravity，集中管理时再打开 Manager。
 
-Account Vault 使用 **DPAPI(CurrentUser)** 加密；索引只存账号元数据。可导入当前官方凭据，或通过本机 **Official Login Broker** 完成原生 Google 登录，2Ag 不处理 Google 密码。
+<img src="docs/screenshots/02-g-hub.png" alt="Antigravity 内的 G-Hub：配额、外观调节与运行时控制" width="880">
 
-多账号配额读取覆盖 Gemini 与 Claude / GPT 模型池；真实数据正常显示，未知显示 `—`，本地缓存明确标注缓存。Quota 与宿主登录恢复是两个数据面。
+*G-Hub 将配额、外观与工作流入口带回 Antigravity。图中展示外观调节界面。*
 
-**selected account、credential applied、host identity verified 分别报告。** 凭据 owner 匹配和写入回读只能证明 credential applied。没有可靠宿主内部身份来源时保留“宿主身份未验证”，不把选择邮箱当作登录真值。
+## Execution Observability
 
-已有 StoredCredential 归属匹配且有 refresh material 时，短期 access / ID token 过期交给宿主恢复；仅凭过期不要求重新登录。Broker 新登录验收仍保持严格。
+2Ag 将官方压缩显示的 `Working...`、`Analyzed...` 等状态展开为可观察的 execution timeline。读取文件、运行命令、搜索、修改与模型响应都有对应行为入口，耗时、文件范围和命令结果在数据可用时显示。
+
+| 展示层 | 用途 |
+|---|---|
+| **Phase Narrative** | 按真实行为组织阶段摘要、计数和当前动作，快速理解任务进展。 |
+| **Detailed ReAct** | 展开 Read、Command、Search、Edit、Model Response；连续同类操作可以分组折叠。 |
+| **Raw Inspector** | 点击行为查看原生标识、时间、结果与错误；点击模型响应进入该次 Request Trace / Token Inspector。 |
+
+执行中持续更新，同一步骤的 `RUNNING / GENERATING → DONE / ERROR` 原位变化。Runtime 提供当前切片，conversation SQLite 提供持久化历史，合并时使用原生标识并保持会话来源一致。
+
+**完成后自动折叠，执行记录不删除。** 最终答案回到主视觉；需要复盘时可重新展开，原生会话数据仍存在时可重建历史。支持全部展开 / 折叠与中文 / English，语言可跟随 2Ag 或单独设置；命令、路径、文件名、代码和原始输出 / 错误保留原文。
+
+展示的是 **observable execution**。阶段叙事根据实际 Activity 组织，不读取或生成隐藏 chain-of-thought。
+
+<img src="docs/screenshots/03-react-observability.png" alt="真实 Antigravity 会话：完成后展开的阶段执行记录、命令与模型响应，左侧为 G-Hub" width="880">
+
+*2Ag 将压缩的 Working / Analyzed 状态展开为阶段化 execution timeline，并保留原始行为入口。这张真实截图展示任务完成后展开复盘的过程。*
+
+## Context / Request / Session
+
+输入框控制行常驻 Request / Session 读数，兼容中央的新会话输入框和底部的已有会话输入框。Hover 查看同源 breakdown，点击进入完整 Inspector。
+
+| 读数 | 回答的问题 |
+|---|---|
+| **Request** | 这一次模型请求处理了多少输入、产生了多少输出？ |
+| **Session** | 整个会话累计处理了多少 Token，包含多少次请求？ |
+| **Context** | 当前上下文占用与上限是多少？有可靠来源时显示，估算明确标注。 |
+
+**Request ≠ Session，Session ≠ Context。** 最近请求优先使用 Runtime 原生 usage，会话累计优先使用持久化 generation 数据并按 responseId 去重。已加载历史单独展示，不冒充当前 Prompt 或 Context Window。
+
+数值保留来源与不确定性：未知显示 `—`，**unknown ≠ 0**；原生类别尚未确认的输入显示 **Unclassified Input**，不伪装成 Cache。不完整计数显示 `≥` 下界，估算显示 Estimated；Context limit 不按模型名猜测，缓存分类不足时保持 `Cache —`。
+
+Request 与 Session 共用 Token breakdown，所有计入 Total 的 Token 都有归属；Reasoning 作为 Output 的子集展示，不重复累计。字段、计算口径与来源契约见 [OBSERVABILITY.md](docs/OBSERVABILITY.md)。
+
+## Accounts & Quota
+
+本地 **Account Vault** 使用 **DPAPI(CurrentUser)** 加密保存凭据。可以导入当前官方凭据，也可以通过本机 **Official Login Broker** 完成原生 Google 登录；2Ag 不处理 Google 密码。
+
+集中查看账号的 Gemini 与 Claude / GPT 模型池配额。G-Hub 与账号视图使用所选账号的同一配额来源：真实数据正常显示，未知显示 `—`，缓存明确标注。
+
+**selected / applied / verified 分别报告。** 选择账号、应用凭据和确认宿主内部登录身份是不同状态。凭据 owner 匹配与写入回读只证明凭据已应用；缺少可靠宿主身份来源时保留“宿主身份未验证”作为辅助信息。
+
+<img src="docs/screenshots/05-accounts.png" alt="Manager Accounts：本地账号列表与各模型池配额" width="880">
+
+*账号与配额集中管理，便于查看各账号的可用资源。*
+
+## Sessions / Skills / Environment
+
+- **Sessions Browser**：只统计 Antigravity 会话，按项目浏览，查看 Session Token、请求数与 Activity 历史，支持删除指定会话。消息预览和 Markdown 导出需要可读 transcript，所有操作沿同一真实 store / source 进行。
+- **Skills**：只读浏览已安装的 Global / Workspace Skills，查看 metadata、`SKILL.md` 及资源目录。当前不提供安装、启用 / 禁用或 Marketplace。
+- **Environment / Doctor / Diagnostics**：查看安装与存储环境，检查进程、CDP、注入、Vault 和本地数据可用性，导出不含凭据的诊断报告。配置保存状态区分 pending、saved 与 save_failed。
+
+| 运行时增强开关 | Antigravity Sessions |
+|---|---|
+| <img src="docs/screenshots/04-diagnostics.png" alt="Manager 运行时增强开关与实验性选项" width="420"> | <img src="docs/screenshots/07-sessions.png" alt="Manager Sessions：项目筛选、会话列表与批量操作" width="420"> |
+| 按需选择运行时增强，实验性选项单独标识。 | 在同一入口浏览、管理与复盘本地会话。 |
 
 ## Runtime Control
 
-| 模式 | 使用的客户端 | 注入 |
-|---|---|---|
-| **Official** | 用户本机的官方安装 | 不注入增强 UI |
-| **Enhanced** | 从本机官方安装建立的 2Ag 冻结副本 | G-Hub、内联 ReAct、Context / Token 等增强 |
+| 模式 | 行为 |
+|---|---|
+| **Official** | 使用用户本机的官方安装，不注入 2Ag 增强 UI。 |
+| **Enhanced** | 从本机官方安装建立冻结的本地宿主副本，通过 runtime injection 加载 G-Hub 与会话内增强。 |
 
-**configured mode** 是下一次启动配置；**effective mode** 是当前运行事实。选择 Official / Enhanced 不会自动启动、停止或重启宿主；明确的生命周期动作才应用配置。
+**configured mode** 是下一次启动配置，**effective mode** 是当前运行事实。选择 Official / Enhanced 只改配置；启动、停止、重启与接管由明确的用户动作执行。运行时开关按需选择，其可用性取决于宿主版本。
 
-进程分为 `owned`（2Ag 启动）、`adopted`（用户明确授权接管）和 `external`（仅发现）。2Ag 默认不停止 external；发现 PID 或 Electron single-instance 转交不会自动获得 ownership。需要接管外部实例时必须由用户明确确认。
+进程按权限分为 `owned`（2Ag 启动并托管）、`adopted`（用户明确授权接管）与 `external`（仅发现）。2Ag 默认不停止 external；需要关闭外部实例时先要求明确确认，发现 PID 或 Electron single-instance 转交不会自动取得管理权。
 
-生命周期 API 返回实际执行结果；凭据应用成功、宿主进程就绪与宿主内部身份已验证各有独立语义。
+**不 patch 官方文件。** Enhanced 副本在用户本机建立，不随 2Ag 分发，也不会自动跟随官方更新。工作机制与生命周期边界见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
-## G-Hub 与 Manager
+## Customization & Extensions
 
-**G-Hub** 是工作时的入口：原生会话内 ReAct、Activity Inspector、Context、Request Trace、Token 与 Quota；也保留 Prompt、Capsule 和本地 Extension 工作流。
+G-Hub 支持内置主题预设、自选壁纸、模糊与透明度调节，也能恢复默认外观。主题预设由当前内置实现提供；`themes/` 保存可选参考资源，并非放入文件即可动态加载的主题目录。
 
-**Manager** 是管理时的入口：Accounts、Antigravity Sessions、Environment、Doctor、Runtime 和 Configuration。主 Sessions 仅统计 Antigravity，预览、导出、删除与 usage 沿同一真实 store / source 操作。
+**Prompt / Capsule 工作流**用于保存草稿、复用片段、固定消息与汇集上下文。Capsule 将目标、约束和选定内容整理成可编辑文本，支持复制或插入 Antigravity 输入框，由用户决定发送。
+
+**本地扩展**可添加命令、面板、Prompt 操作、消息操作与 Context Provider，支持启用、停用和重新加载。仓库附带 Prompt Toolkit、Conversation Map、Project Context 示例，分别用于提示词组织、已加载消息导航和项目上下文收集。扩展契约见 [plugins/README.md](plugins/README.md)，外观边界见 [themes/README.md](themes/README.md)。
 
 ## How it works
 
 ```text
 Antigravity
-├─ React / Runtime state
-├─ Language Server updates
-├─ conversation SQLite
-└─ CDP
-       ↓
-      2Ag
-       ├─ Activity / ReAct
-       ├─ Request Trace
-       ├─ Context / Token
-       └─ G-Hub / Manager
+├─ React / Runtime + Language Server updates ── CDP ──┐
+└─ conversation SQLite ── read-only ─────────────────┤
+                                                     ↓
+                                                    2Ag
+                                                     ├─ G-Hub / 会话内增强
+                                                     └─ Manager
 ```
 
-CDP 连接已有受管理宿主并进行 runtime injection，SQLite 只读提供持久化历史。**No app.asar patch · No official binary modification**。增强宿主副本只在用户本机建立，不随 2Ag 分发；官方安装更新后是否同步由用户决定。
+CDP 读取运行时状态并在 Enhanced 中注入界面；SQLite 只读补充持久化历史。**No app.asar patch · No official binary modification**。数据层供多个视图共用，内部结构见 [Architecture](docs/ARCHITECTURE.md) 与 [Observability](docs/OBSERVABILITY.md)。
 
 ## Quick start
 
-1. 安装官方 Google Antigravity。
-2. 从 [latest Release](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest) 下载安装包或便携 ZIP。
-3. 安装，或解压完整便携目录并保留 `assets/`、`themes/`、`plugins/`。
-4. 启动 `2ag.exe`，选择模式；需要启动宿主时点击“启动宿主”。
-
-需要 **Windows 10/11 x64 + WebView2**。首次使用 Enhanced 会从本机官方安装复制宿主，所需空间与时间取决于安装版本。
+1. 准备 **Windows 10/11 x64 + WebView2**，先安装官方 Google Antigravity。
+2. 从 **[latest Release](https://github.com/Arukasaeled/Anti-Antigravity/releases/latest)** 下载 `Anti-Antigravity-Setup-x64.exe` 或 `2Ag-v<版本>-windows-x64-portable.zip`。
+3. 运行安装包，或解压完整便携目录并保留 `assets/`、`themes/`、`plugins/`，启动 `2ag.exe`。
+4. 选择 Official / Enhanced，需要启动时点击“启动宿主”。**首次 Enhanced 会从本机官方安装建立宿主副本**，所需时间与空间取决于安装版本。
 
 ## Privacy / Security
 
-本地优先，无 2Ag 作者遥测服务器；Vault 使用 DPAPI，不处理 Google 密码；回环 Control API 校验进程级 control token 并拒绝不可信 Origin；外部进程默认受 ownership 保护。代理不安装 CA、不做 TLS MITM。
+本地优先，无 2Ag 作者遥测服务器；账号登录与配额请求仍使用相应官方服务。本机 Control API 校验随机 control token 并拒绝不可信 Origin，外部进程受 ownership 保护。代理不安装 CA、不做 TLS MITM。
 
-Activity / Request 详情属于本地用户内容，分享前应检查命令、路径与工具输出。完整边界见 [SECURITY.md](docs/SECURITY.md)。
+Activity / Request 详情和本地扩展涉及用户内容，分享前应检查路径、命令与原始输出。凭据保护、扩展权限与网络边界见 [SECURITY.md](docs/SECURITY.md)。
 
 ## Known limits
 
 - 当前支持 Windows x64，需要用户自备官方 Antigravity。
-- 原生字段、React 结构与 Activity descriptor 受宿主版本影响；缺失数值保持 Unavailable，未知工具保持 Tool，不猜值。
-- 复盘依赖原生会话数据仍存在；未加载或无法解析的步骤、截断结果会明确标记，不声称完整还原不可得数据。
-- Token / Cache / Context 上限可能未知；原生未分类输入保持可见。
-- 当前没有可靠的宿主内部登录身份来源；系统凭据为共享记录，profile 隔离不等于凭据隔离。
-- 冻结宿主不会自动跟随官方更新；部分运行时开关仍受宿主版本限制。
+- 原生字段与 React 结构受宿主版本影响；缺失数值保持 Unavailable，未知工具保持 Tool。
+- 历史复盘依赖原生会话数据仍存在；未加载、不可解析或被截断的内容不能完整还原。SQLite 的 Activity / Token 可用不代表消息预览或导出也可用。
+- Token 分类、Cache 和 Context 上限可能未知；当前没有可靠的宿主内部身份来源，profile 隔离也不等于共享系统凭据隔离。
+- 冻结宿主需由用户选择同步官方更新，部分运行时开关仍受宿主版本限制。
 
 ## Docs / Build
 
-[Observability](docs/OBSERVABILITY.md) · [Architecture](docs/ARCHITECTURE.md) · [Security](docs/SECURITY.md) · [Configuration](docs/CONFIGURATION.md) · [CLI](docs/CLI.md) · [Build](docs/BUILD.md) · [Development](docs/DEVELOPMENT.md)
+[Architecture](docs/ARCHITECTURE.md) · [Observability](docs/OBSERVABILITY.md) · [Security](docs/SECURITY.md) · [Configuration](docs/CONFIGURATION.md) · [CLI](docs/CLI.md)
 
-开发构建与正式 pack 见 [BUILD.md](docs/BUILD.md)；本地扩展契约见 [plugins/README.md](plugins/README.md)，主题定义见 [themes/README.md](themes/README.md)。旧版实现与迁移细节保留在文档、安装脚本和 Release history，不占用首页。
+源码构建与正式打包见 [BUILD.md](docs/BUILD.md)，开发说明见 [DEVELOPMENT.md](docs/DEVELOPMENT.md)。本地扩展与主题参考分别见 [plugins/README.md](plugins/README.md) 和 [themes/README.md](themes/README.md)；逐版本更新放在 [Release Notes](https://github.com/Arukasaeled/Anti-Antigravity/releases)。
 
 ## Credits / Trademark
 
-- Google Antigravity：被增强的宿主；Chromium DevTools Protocol、[go-webview2](https://github.com/jchv/go-webview2)：注入与窗口基础。
-- [Cockpit Tools](https://github.com/jlcodes99/cockpit-tools)（CC-BY-NC-SA-4.0）：配额协议行为参考，2Ag 未复制其代码。
-- [Token Monitor](https://github.com/Javis603/token-monitor) / [Tokscale](https://github.com/Javis603/tokscale)：Antigravity 原生 usage、去重与聚合设计参考。
-- Material Design / Gemini：现有界面的视觉参考；其它社区设计参考见 [OBSERVABILITY.md](docs/OBSERVABILITY.md)。
+- Google Antigravity 提供宿主，Chromium DevTools Protocol 与 [go-webview2](https://github.com/jchv/go-webview2) 提供注入与窗口基础。
+- [Cockpit Tools](https://github.com/jlcodes99/cockpit-tools)（CC-BY-NC-SA-4.0）提供配额协议行为参考，2Ag 未复制其代码；[Token Monitor](https://github.com/Javis603/token-monitor) / [Tokscale](https://github.com/Javis603/tokscale) 提供 Antigravity 原生 usage、去重与聚合设计参考。
+- Material Design / Gemini 提供视觉参考；其它社区设计参考见 [OBSERVABILITY.md](docs/OBSERVABILITY.md)。
 
 2Ag 自有代码与文档采用 [Apache License 2.0](LICENSE)。不包含或分发 Google Antigravity runtime。Google、Antigravity、Gemini、Claude、ChatGPT 等名称与标识归各自权利人所有；2Ag 与 Google、Anthropic、OpenAI 没有官方关联或背书。
