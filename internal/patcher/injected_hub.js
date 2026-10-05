@@ -4754,8 +4754,8 @@
       header.querySelector('.pulse-dot').style.background = connected ? 'var(--2ag-green,#81c995)' : 'var(--2ag-text-secondary)';
       const email = selectedAccount?.email ? maskEmail(selectedAccount.email)+' · 已选择' : '未选择账号';
       $('interaction-account').textContent = email; $('il-home-account').textContent = email;
-      const identityVerified=!!data?.identity_verified && !!data?.is_live && data?.active_account?.email===selectedAccount?.email;
-      for(const node of [$('interaction-account'),$('il-home-account')])node.title=identityVerified?'宿主身份已验证':'宿主身份未验证：账号选择不等同于宿主内部身份确认';
+      const identityVerified=!!data?.identity_verified && String(data?.active_account?.email || '').toLowerCase()===String(selectedAccount?.email || '').toLowerCase();
+      for(const node of [$('interaction-account'),$('il-home-account')])node.title=t(identityVerified?'Host identity verified':'Host identity unverified: the selected account must match a Manager-controlled host.');
       const percent = (pool, window) => {
         const value = pool?.[window + '_percent'], known = pool?.[window + '_known'];
         return pool?.available && known !== false && value !== undefined && value !== null && Number.isFinite(Number(value)) ? `${Number(value)}%${pool.stale ? ' '+t('(cache)') : ''}` : '—';
@@ -5776,8 +5776,8 @@
         headPill.textContent='已选择';
         headDot.dataset.off=identityVerified?'false':'true';
         if(provenance){
-          provenance.textContent=identityVerified?'宿主身份已验证 ⓘ':'宿主身份未验证 ⓘ';
-          provenance.title='此处显示已选择账号。凭据归属与宿主内部身份分别记录；选择账号不能证明宿主已登录该账号。';
+          provenance.textContent=t(identityVerified?'Host identity verified':'Host identity unverified')+' ⓘ';
+          provenance.title=t(identityVerified?'The Manager-controlled host reports the selected account. Identity is rechecked periodically.':'Only a Manager-controlled host can verify the selected account. External changes or account mismatches invalidate verification.');
         }
       } else {
         headMail.textContent = list.length ? '未指定活跃账号' : '未检测到本机账号';
@@ -5909,7 +5909,7 @@
         const hostStatus=hostResult.status==='fulfilled'?hostResult.value:null;
         const selectedEmail=typeof hostStatus?.selected_account==='string'?hostStatus.selected_account:accounts.find(a=>a?.is_primary)?.email || '';
         const selected=accounts.find(a=>a?.email===selectedEmail) || null;
-        const identityVerified=!!hostStatus?.identity_verified && !!hostStatus?.is_live && hostStatus?.active_account?.email===selectedEmail;
+        const identityVerified=!!hostStatus?.identity_verified && String(hostStatus?.active_account?.email || '').toLowerCase()===String(selectedEmail).toLowerCase();
         renderAccountList(accounts, selectedEmail, identityVerified);
         updateQuotaPools(selected);
         interaction.paintHostStatus(hostStatus,selected);

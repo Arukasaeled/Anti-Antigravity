@@ -111,7 +111,7 @@ The local **Account Vault** encrypts credentials with **DPAPI(CurrentUser)**. Im
 
 View account quotas for Gemini and Claude / GPT model pools. G-Hub and account views use the same quota source for the selected account: available readings are displayed, unknown values show `—`, and cached readings are labeled.
 
-**selected / applied / verified are reported separately.** Selecting an account, applying its credentials, and verifying the identity inside the running host are different states. Matching the credential owner and checking the write only prove that credentials were applied. Without a reliable host identity source, “Host identity unverified” remains an informational status.
+**selected / applied / verified are reported separately.** Selecting an account, applying its credentials, and verifying the identity inside the running host are different states. Matching the credential owner and checking the write only prove that credentials were applied. Manager-controlled launches and switches verify the native sign-in email of that same managed host against the selected account. External instances, mismatched accounts, or an unreadable native identity remain unverified.
 
 <p align="center">
   <img src="docs/screenshots/en/05-accounts.png" alt="English Manager Accounts: local account list and quotas for each model pool" width="880">
@@ -183,7 +183,7 @@ Activity / Request details and local extensions involve user content. Review pat
 - Currently supports Windows x64. You must provide your own official Antigravity installation.
 - Native fields and React structures depend on the host version. Missing readings remain Unavailable; unknown tools remain Tool.
 - Historical review requires the native session data to remain available. Unloaded, unparseable, or truncated content cannot be fully reconstructed. Available SQLite Activity / Token data does not imply message preview or export is available.
-- Token classification, Cache, and Context limits may be unknown. A reliable identity source inside the host is not currently available. Profile isolation does not isolate the shared system credential.
+- Token classification, Cache, and Context limits may be unknown. Host identity verification depends on the local native sign-in API; unavailable observations remain unverified. Profile isolation does not isolate the shared system credential.
 - Updating the frozen host from the official installation is a user choice. Some runtime switches depend on the host version.
 
 ## Docs & Build

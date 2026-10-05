@@ -49,7 +49,7 @@
 
 先验证账号与 StoredCredential，再检查宿主所有权；必要的凭据改写、启动与回读验证都成功后才返回操作成功。失败按事务恢复原凭据并报告恢复结果。
 
-**credential_applied ≠ host_identity_verified**：回读仅确认系统凭据归属与写入结果。当前没有可靠的宿主内部身份来源，界面保留“宿主身份未验证”，不把 requested / selected account 当作已确认 active account。
+**credential_applied ≠ host_identity_verified**：回读仅确认系统凭据归属与写入结果。Manager 发起的启动或切号将目标账号绑定到 owned / adopted 宿主的 PID、启动时间和可执行文件。只读取该宿主后代 Language Server 的 `GetUserStatus` 邮箱与 `HasAuthToken` 状态；原生登录邮箱与 Manager 选择一致后才提交 active account。外部实例不会被自动认领；宿主退出、原生身份不可读或账号不一致时显示“宿主身份未验证”。已确认身份发生外部账号变化时撤销原验证来源；登录资格与身份是不同事实，不能以资格提示或短期 token 过期替代邮箱核验。
 
 StoredCredential 要求 owner 匹配并存在必要的恢复材料；短期 access / ID token 过期进入宿主恢复，不直接要求重新登录。BrokerFreshCredential 对刚完成官方登录的凭据仍检查新鲜度。只有明确 refresh failure / invalid_grant 等证据才要求重新登录。Quota 请求失败不能证明宿主登录失效。
 

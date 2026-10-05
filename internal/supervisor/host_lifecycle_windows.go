@@ -129,6 +129,7 @@ func stopManagedHosts() error {
 	if err := RequireManagedHosts(); err != nil {
 		return err
 	}
+	resetHostIdentityObservation()
 	for _, host := range managedHosts() {
 		if err := killPIDSafely(host.PID); err != nil {
 			return err
@@ -179,6 +180,9 @@ func ExecuteHostLifecycle(command, mode, path, email string, adopt []HostProcess
 	if command == "stop" {
 		err = stopManagedHosts()
 	} else {
+		if strings.TrimSpace(email) == "" {
+			email = GetSelectedAccountEmail()
+		}
 		err = launchHostInMode(mode, path, email)
 	}
 	if err != nil {
@@ -200,8 +204,19 @@ func ExecuteHostLifecycle(command, mode, path, email string, adopt []HostProcess
 			out.CredentialState, out.CredentialRecovery = credential.State, credential.Recovery
 		}
 	}
-	// Current Antigravity has no proven internal identity source. Credentials,
-	// profile paths and arbitrary DOM emails cannot populate active account.
+	// Only this explicit control operation grants an expected account to the
+	// exact owned/adopted host. A later native read must still confirm its login.
+	if command != "stop" && email != "" {
+		if err := SetSelectedAccount(email); err != nil {
+			return out, fmt.Errorf("宿主已启动，但账号选择保存失败: %w", err)
+		}
+		host := processIdentity(out.PID)
+		if err := authorizeManagerHostAccount(host, email); err != nil {
+			return out, err
+		}
+		identity := waitForManagerHostIdentity(host, email)
+		out.IdentityStatus = identity.Status
+	}
 	out.ActiveAccount = GetActiveAccountEmail()
 	out.IdentityVerified = out.ActiveAccount != "" && out.Running
 	if out.IdentityVerified {
@@ -211,7 +226,9 @@ func ExecuteHostLifecycle(command, mode, path, email string, adopt []HostProcess
 		out.Message = "宿主已停止"
 	} else {
 		out.Message = "宿主已启动；系统凭据归属与宿主内部登录身份分别报告，身份未确认时不提交 active account"
-		if out.CredentialRecovery != "" {
+		if out.IdentityVerified {
+			out.Message = "宿主已启动；原生登录账号与 Manager 选择一致，身份已验证"
+		} else if out.CredentialRecovery != "" {
 			out.Message += "；短期 token 待宿主恢复，尚未确认刷新成功"
 		}
 	}

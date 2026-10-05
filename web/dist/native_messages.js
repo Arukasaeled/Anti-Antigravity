@@ -2,6 +2,19 @@
 // This is used at API/render boundaries, never on the DOM or user content.
 (() => {
   const pairs = [
+    ['宿主已启动；原生登录账号与 Manager 选择一致，身份已验证','Host started; native sign-in matches the Manager selection and identity is verified'],
+    ['宿主内部身份已确认，账号切换完成','Native host identity verified; account switch completed'],
+    ['目标凭据已应用，宿主已启动；宿主内部登录身份尚未确认，未提交 active account','Target credentials applied and host started; native identity is unverified and active account was not committed'],
+    ['宿主身份尚未验证','Host identity has not been verified'],
+    ['正在读取受管宿主登录身份','Reading the managed host sign-in identity'],
+    ['宿主身份需要重新验证','Host identity needs to be rechecked'],
+    ['宿主不是 Manager 已授权验证的运行实例','Host is not an instance authorized for verification by Manager'],
+    ['Manager 已选择其他账号，当前宿主身份未验证','Manager selected a different account; current host identity is unverified'],
+    ['系统凭据状态暂不可读，宿主身份未验证','Shared credential metadata is unavailable; host identity is unverified'],
+    ['系统凭据已被外部切号改变，宿主身份未验证','Shared credential ownership changed externally; host identity is unverified'],
+    ['宿主原生登录身份暂不可读，尚未验证','Native host sign-in identity is unavailable; identity remains unverified'],
+    ['宿主登录账号与 Manager 选择不一致，身份未验证','Native host account differs from the Manager selection; identity is unverified'],
+    ['受管宿主登录账号与 Manager 选择一致，身份已验证','Managed host sign-in matches the Manager selection; identity verified'],
     ['尚未开始','Not started'],['正在备份当前登录凭据…','Backing up current credentials…'],
     ['当前没有登录凭据，无需备份','No current credentials to back up'],
     ['正在停止运行中的 Antigravity…','Stopping the running Antigravity…'],

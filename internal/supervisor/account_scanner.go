@@ -434,15 +434,15 @@ func ScanLocalAccounts() []AccountInstance {
 }
 
 var (
-	activeAccountMu      sync.RWMutex
-	currentActiveEmail   string
-	activeHost           HostProcess
-	selectedAccountEmail string
+	activeAccountMu         sync.RWMutex
+	currentActiveEmail      string
+	activeHost              HostProcess
+	selectedAccountEmail    string
+	activeIdentityCheckedAt time.Time
 )
 
-// The current host has no proven internal sign-in identity source. Neither
-// selection, shared credentials nor an arbitrary DOM email is such evidence.
-// Only an internal native identity observer may supply this evidence.
+// Only the native identity observer for a Manager-authorized, exact host
+// process may commit active identity. Shared credentials alone are insufficient.
 type hostAccountEvidence struct {
 	Email   string
 	Process HostProcess
@@ -452,22 +452,35 @@ func SetActiveAccount(email string, evidence ...hostAccountEvidence) error {
 	if len(evidence) != 1 || !strings.EqualFold(evidence[0].Email, email) || !sameHostProcess(evidence[0].Process, processIdentity(evidence[0].Process.PID)) {
 		return fmt.Errorf("宿主内部身份未确认，不提交 active account")
 	}
+	if !strings.EqualFold(managerAccountForHost(evidence[0].Process), email) || !strings.EqualFold(GetSelectedAccountEmail(), email) {
+		return fmt.Errorf("宿主身份与 Manager 选择或操作来源不一致，不提交 active account")
+	}
 	activeAccountMu.Lock()
 	defer activeAccountMu.Unlock()
-	if err := persistAccountMarker(activeAccountFile, email); err != nil {
-		return err
+	if !strings.EqualFold(currentActiveEmail, email) || !sameHostProcess(activeHost, evidence[0].Process) {
+		if err := persistAccountMarker(activeAccountFile, email); err != nil {
+			return err
+		}
 	}
 	currentActiveEmail, activeHost = email, evidence[0].Process
+	activeIdentityCheckedAt = time.Now()
 	return nil
 }
 
 func GetActiveAccountEmail() string {
 	activeAccountMu.RLock()
-	defer activeAccountMu.RUnlock()
-	if currentActiveEmail == "" || !sameHostProcess(activeHost, processIdentity(activeHost.PID)) {
+	email, host, checkedAt := currentActiveEmail, activeHost, activeIdentityCheckedAt
+	activeAccountMu.RUnlock()
+	if email == "" || time.Since(checkedAt) > hostIdentityMaxAge || !sameHostProcess(host, processIdentity(host.PID)) || !strings.EqualFold(GetSelectedAccountEmail(), email) || !strings.EqualFold(managerAccountForHost(host), email) {
 		return ""
 	}
-	return currentActiveEmail
+	return email
+}
+
+func clearActiveHostIdentity() {
+	activeAccountMu.Lock()
+	currentActiveEmail, activeHost, activeIdentityCheckedAt = "", HostProcess{}, time.Time{}
+	activeAccountMu.Unlock()
 }
 
 const activeAccountFile = "active_account.txt"

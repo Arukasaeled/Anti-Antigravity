@@ -247,7 +247,7 @@
   "Live": "实时在线",
   "Host identity verified": "宿主内部身份已验证",
   "Host identity unverified ⓘ": "宿主身份未验证 ⓘ",
-  "Account selection and credential ownership do not verify the host's internal identity. No reliable identity source is available yet.": "账号选择与凭据归属不能证明宿主内部身份；此状态仅表示尚未取得验证来源。",
+  "Identity is verified only when a Manager-controlled host reports the selected account. External account changes invalidate verification.": "只有 Manager 操作的受管宿主报告与已选择账号一致的登录身份，才会显示已验证；外部切号会使验证失效。",
   "Quota unavailable": "未载入配额",
   "Reading unavailable": "未载入读数",
   " · Unavailable": " · 未载入",

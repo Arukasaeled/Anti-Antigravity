@@ -111,7 +111,7 @@ Request 与 Session 共用 Token breakdown，所有计入 Total 的 Token 都有
 
 集中查看账号的 Gemini 与 Claude / GPT 模型池配额。G-Hub 与账号视图使用所选账号的同一配额来源：真实数据正常显示，未知显示 `—`，缓存明确标注。
 
-**selected / applied / verified 分别报告。** 选择账号、应用凭据和确认宿主内部登录身份是不同状态。凭据 owner 匹配与写入回读只证明凭据已应用；缺少可靠宿主身份来源时保留“宿主身份未验证”作为辅助信息。
+**selected / applied / verified 分别报告。** 选择账号、应用凭据和确认宿主内部登录身份是不同状态。凭据 owner 匹配与写入回读只证明凭据已应用；Manager 发起的启动或切号还需读取同一受管宿主的原生登录邮箱，与所选账号一致后才显示“身份已验证”。外部实例、账号不一致或原生身份不可读时保留“宿主身份未验证”。
 
 <p align="center">
   <img src="docs/screenshots/05-accounts.png" alt="Manager Accounts：本地账号列表与各模型池配额" width="880">
@@ -183,7 +183,7 @@ Activity / Request 详情和本地扩展涉及用户内容，分享前应检查�
 - 当前支持 Windows x64，需要用户自备官方 Antigravity。
 - 原生字段与 React 结构受宿主版本影响；缺失数值保持 Unavailable，未知工具保持 Tool。
 - 历史复盘依赖原生会话数据仍存在；未加载、不可解析或被截断的内容不能完整还原。SQLite 的 Activity / Token 可用不代表消息预览或导出也可用。
-- Token 分类、Cache 和 Context 上限可能未知；当前没有可靠的宿主内部身份来源，profile 隔离也不等于共享系统凭据隔离。
+- Token 分类、Cache 和 Context 上限可能未知；宿主身份验证依赖本机原生登录接口；接口不可读时保持未验证，profile 隔离也不等于共享系统凭据隔离。
 - 冻结宿主需由用户选择同步官方更新，部分运行时开关仍受宿主版本限制。
 
 ## 文档与构建

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -339,6 +340,10 @@ func startManager(configPath string, cfg config.Config) error {
 		activeMode = facts.Effective
 	}
 	supervisor.SetRuntimeMode(activeMode)
+	// Read-only identity observation never starts, stops or refreshes a host.
+	identityCtx, cancelIdentity := context.WithCancel(context.Background())
+	defer cancelIdentity()
+	go supervisor.StartHostIdentityObserver(identityCtx)
 
 	// Account Vault 的一次性兼容迁移：0.1.1 之前的 ~/.2ag/vault/*.bin 是**明文**
 	// 写的（里面是含 refresh_token 的完整凭据）。升级到本版本后第一次启动就把它们

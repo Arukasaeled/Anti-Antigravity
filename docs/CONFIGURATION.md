@@ -103,6 +103,6 @@ ReAct 可跟随此设置，也可单独选择语言；独立语言与阶段折�
 | `~/.2ag/active_account.txt` | 确认账号的兼容记录；旧版内容读取只作选择提示，不恢复为身份真值 |
 | `~/.2ag/workspace/extension-state.json` | 本地扩展与 ReAct 语言 / 折叠偏好 |
 
-> selected account 是用户选择，credential owner 是系统凭据归属，active account 只代表已确认生效的宿主账号。系统凭据回读不能验证宿主内部身份；当前没有可靠身份来源时，面板显示“宿主身份未验证”，不会以请求邮箱或系统凭据冒充 active account。
+> selected account 是用户选择，credential owner 是系统凭据归属，active account 只代表已确认生效的宿主账号。系统凭据回读不能验证宿主内部身份；Manager 操作来源保存在现有 `managed_hosts.json` 的 `manager_account` 字段，并绑定到同一个进程的 PID、启动时间和路径。该字段是目标账号，不是已验证身份。原生登录邮箱与所选账号一致后才提交 active account；启动 Manager 后仍重新读取宿主，不能靠上次的账号文件恢复验证。外部实例、原生身份不可读或账号不一致时显示“宿主身份未验证”。
 
 添加账号窗口的登录网络模式只作用于这次官方宿主子进程：`AUTO` 沿用原环境；`DIRECT` 清除子进程代理变量并强制直连；`PROXY` 使用环境变量或 Windows 系统代理中解析到的 HTTP/HTTPS 代理。不修改系统设置，不持久化到配置。外部浏览器仍使用自己的网络设置。

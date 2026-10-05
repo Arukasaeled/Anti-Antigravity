@@ -757,17 +757,29 @@ func SwitchAccountTransactional(email, configuredMode string) (AccountSwitchResu
 			out.Message = fmt.Sprintf("账号选择保存失败: %v；原凭据恢复: %t（%s）", err, ok, owner)
 			return out, fmt.Errorf("%s: %w", out.Message, err)
 		}
-		// A live host plus verified shared credentials is not an internal login
-		// confirmation. Leave active untouched and report a pending identity.
+		// Pin Manager's switch to this process before reading native login status.
+		// A credential write or a matching profile name is not identity evidence.
+		host := processIdentity(GetManagedHostPID())
+		if err := authorizeManagerHostAccount(host, out.Email); err != nil {
+			out.IdentityStatus, out.Message = "unavailable", err.Error()
+			return out, &IdentityUnverifiedError{Message: out.Message}
+		}
+		identity := waitForManagerHostIdentity(host, out.Email)
+		out.IdentityStatus = identity.Status
 		out.VerifiedOwner = GetActiveAccountEmail()
-		if strings.EqualFold(out.VerifiedOwner, out.Email) {
+		if identity.Verified && strings.EqualFold(out.VerifiedOwner, out.Email) {
 			out.Verified = true
 			out.IdentityStatus = "confirmed"
 			out.Message = "宿主内部身份已确认，账号切换完成"
 			return out, nil
 		}
-		out.IdentityStatus = "unavailable"
 		out.Message = "目标凭据已应用，宿主已启动；宿主内部登录身份尚未确认，未提交 active account"
+		if identity.Status == "account_mismatch" {
+			ok, owner := switchRollback(prevRaw, out.PreviousOwner, prior, hadHost)
+			out.RolledBack, out.RollbackCredentialVerified = ok, ok
+			out.Message = fmt.Sprintf("原生宿主登录账号与目标不一致；原凭据恢复: %t（%s）", ok, owner)
+			return out, fmt.Errorf("%s", out.Message)
+		}
 		if out.CredentialRecovery != "" {
 			out.Message += "；短期 token 待宿主恢复，尚未确认刷新成功"
 		}

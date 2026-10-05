@@ -24,6 +24,8 @@ type HostProcess struct {
 	Exe       string `json:"exe"`
 	Started   string `json:"started"`
 	Ownership string `json:"ownership"`
+	// ManagerAccount is a control-plane request, never proof of native login.
+	ManagerAccount string `json:"manager_account,omitempty"`
 }
 
 type ExternalHostsError struct {

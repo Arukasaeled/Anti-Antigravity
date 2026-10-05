@@ -417,10 +417,12 @@ func toAccountQuotaDTO(acc supervisor.AccountInstance) AccountQuotaDTO {
 	}
 }
 
-// A GET never commits identity from shared credentials. Unknown stays unknown.
-func resolveActiveHostAccount(hostLive bool) (supervisor.AccountInstance, bool) {
+// Native identity may confirm a prior Manager operation. A GET never grants
+// authority to an external host or treats shared credentials as that evidence.
+func resolveActiveHostAccount(hostRunning bool) (supervisor.AccountInstance, bool) {
+	supervisor.ObserveManagedHostIdentity(false)
 	account := supervisor.GetActiveAccountInstance()
-	return account, hostLive && account.Email != "" && account.IsActive
+	return account, hostRunning && account.Email != "" && account.IsActive
 }
 
 func (s *Server) handleGetDashboard(w http.ResponseWriter, r *http.Request) {
@@ -431,10 +433,10 @@ func (s *Server) handleGetDashboard(w http.ResponseWriter, r *http.Request) {
 	hostStatus := supervisor.ProbeRealHost()
 	isLive := hostStatus.ProcessFound && hostStatus.CDPConnected
 
-	activeAcc, identityVerified := resolveActiveHostAccount(isLive)
+	activeAcc, identityVerified := resolveActiveHostAccount(hostStatus.ProcessFound)
 
 	liveText := "宿主未确认在线"
-	if isLive {
+	if hostStatus.ProcessFound {
 		liveText = "宿主在线 · 登录身份未确认"
 		if identityVerified {
 			liveText = "宿主在线 · 登录身份已确认"
@@ -455,6 +457,7 @@ func (s *Server) handleGetDashboard(w http.ResponseWriter, r *http.Request) {
 		"is_live":           isLive,
 		"live_status":       liveText,
 		"identity_verified": identityVerified,
+		"host_identity":     supervisor.HostIdentityStatusNow(),
 		"credential_owner":  credentialOwner(),
 		"host_processes":    supervisor.HostProcesses(),
 		"selected_account":  supervisor.GetSelectedAccountEmail(),
@@ -511,9 +514,9 @@ func (s *Server) handleGetHostStatus(w http.ResponseWriter, r *http.Request) {
 	status := supervisor.ProbeRealHost()
 	isLive := status.ProcessFound && status.CDPConnected
 
-	activeAcc, identityVerified := resolveActiveHostAccount(isLive)
+	activeAcc, identityVerified := resolveActiveHostAccount(status.ProcessFound)
 	liveText := "宿主未确认在线"
-	if isLive {
+	if status.ProcessFound {
 		liveText = "宿主在线 · 登录身份未确认"
 		if identityVerified {
 			liveText = "宿主在线 · 登录身份已确认"
@@ -534,6 +537,7 @@ func (s *Server) handleGetHostStatus(w http.ResponseWriter, r *http.Request) {
 		"is_live":           isLive,
 		"live_status":       liveText,
 		"identity_verified": identityVerified,
+		"host_identity":     supervisor.HostIdentityStatusNow(),
 		"credential_owner":  credentialOwner(),
 		"host_processes":    supervisor.HostProcesses(),
 		"selected_account":  supervisor.GetSelectedAccountEmail(),
@@ -553,25 +557,19 @@ func (s *Server) currentRuntimeMode() string {
 	return s.stateMachine.GetState().RuntimeMode
 }
 
-// handleGetActiveAccount 返回 2Ag 的「预设主控账号」（即用户的选择意图，落盘于
-// ~/.2ag/active_account.txt），而**不是**宿主当前的登录身份。
-//
-// 与 host/status、dashboard 的分工是刻意的：
-//   - host/status 与 dashboard 描述「宿主现在是什么」，必须由系统凭据反哺真身；
-//   - 本接口描述「2Ag 选的是谁」，是配置读取，不能因为宿主此刻登录着别的账号就
-//     改写用户的设置（那会让一次 GET 悄悄改掉配置）。
-//
-// 两者语义不同、允许短暂不一致；switch-and-restart 成功时会把两者对齐。
+// Reports the same observed native identity as Dashboard and Host Status.
+// User selection remains separate; observing identity never changes selection.
 func (s *Server) handleGetActiveAccount(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	activeAcc := supervisor.GetActiveAccountInstance()
+	activeAcc, identityVerified := resolveActiveHostAccount(supervisor.GetManagedHostPID() > 0)
 	dto := toAccountQuotaDTO(activeAcc)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"identity_verified":   activeAcc.IsActive && activeAcc.Email != "",
+		"identity_verified":   identityVerified,
+		"host_identity":       supervisor.HostIdentityStatusNow(),
 		"credential_owner":    credentialOwner(),
 		"account":             dto,
 		"active_account":      dto,

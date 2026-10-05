@@ -4554,7 +4554,7 @@ function renderQuotaBar(barElement, percent) {
   renderQuotaProgress(barElement, percent);
 }
 
-function bindActiveAccountToDashboard(currentAcc, isLive) {
+function bindActiveAccountToDashboard(currentAcc, identityVerified) {
   if (!currentAcc) return;
   const emailEl = document.getElementById('dash-account-email') || document.getElementById('dash-primary-email');
   // 默认脱敏：完整值放 data-full，眼睛按钮负责展开。textContent 会让 HTML 实体原样显示，
@@ -4575,12 +4575,12 @@ function bindActiveAccountToDashboard(currentAcc, isLive) {
 
   const liveBadge = document.getElementById('dash-account-live-badge');
   if (liveBadge) {
-    if (isLive) {
-      setRuntimeStateBadge(liveBadge, 'on', t("Live"));
+    if (identityVerified) {
+      setRuntimeStateBadge(liveBadge, 'on', t("Host identity verified"));
       liveBadge.title=t("Host identity verified");
     } else {
       setRuntimeStateBadge(liveBadge, 'off', t("Host identity unverified ⓘ"));
-      liveBadge.title=t("Account selection and credential ownership do not verify the host's internal identity. No reliable identity source is available yet.");
+      liveBadge.title=t("Identity is verified only when a Manager-controlled host reports the selected account. External account changes invalidate verification.");
     }
   }
 
@@ -4731,7 +4731,7 @@ function loadActiveAccount() {
     .then(function(data) {
       const isLive = !!data.is_live;
       if (data.active_account) {
-        bindActiveAccountToDashboard(data.active_account, isLive && data.identity_verified);
+        bindActiveAccountToDashboard(data.active_account, !!data.identity_verified);
       }
       renderGatewayStatus(data.gateway_status);
     })
@@ -4912,7 +4912,7 @@ function probeRealHost() {
       }
 
       if (data.active_account) {
-        bindActiveAccountToDashboard(data.active_account, isLive && data.identity_verified);
+        bindActiveAccountToDashboard(data.active_account, !!data.identity_verified);
       }
     })
     .catch(function(err) {
